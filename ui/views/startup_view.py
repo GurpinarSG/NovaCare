@@ -7,6 +7,7 @@ from PyQt5.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView, QMessageBox, QFrame
 )
 from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QColor
 from core.startup_manager import StartupManager, StartupItem
 from ui.styles import (
     BG_CARD, BORDER_COLOR, COLOR_ACCENT, COLOR_SUCCESS, COLOR_WARNING, COLOR_DANGER,
@@ -85,43 +86,46 @@ class StartupView(QWidget):
 
     def refresh_items(self):
         self.items = self.mgr.scan_all()
-        self.table.setRowCount(len(self.items))
+        self.table.setUpdatesEnabled(False)
+        try:
+            self.table.setRowCount(len(self.items))
+            enabled_count = 0
+            for row, item in enumerate(self.items):
+                if item.enabled:
+                    enabled_count += 1
 
-        enabled_count = 0
-        for row, item in enumerate(self.items):
-            if item.enabled:
-                enabled_count += 1
+                # Column 0: Status Pill
+                status_text = "🟢  Etkin" if item.enabled else "⚪  Devre Dışı"
+                status_item = QTableWidgetItem(status_text)
+                status_item.setTextAlignment(Qt.AlignCenter)
+                self.table.setItem(row, 0, status_item)
 
-            # Column 0: Status Pill
-            status_text = "🟢  Etkin" if item.enabled else "⚪  Devre Dışı"
-            status_item = QTableWidgetItem(status_text)
-            status_item.setTextAlignment(Qt.AlignCenter)
-            self.table.setItem(row, 0, status_item)
+                # Column 1: Name
+                name_item = QTableWidgetItem(item.name)
+                name_item.setToolTip(item.name)
+                self.table.setItem(row, 1, name_item)
 
-            # Column 1: Name
-            name_item = QTableWidgetItem(item.name)
-            name_item.setToolTip(item.name)
-            self.table.setItem(row, 1, name_item)
+                # Column 2: Boot Impact
+                impact_item = QTableWidgetItem(item.boot_impact)
+                impact_item.setTextAlignment(Qt.AlignCenter)
+                if item.boot_impact == "Yüksek":
+                    impact_item.setForeground(QColor(COLOR_DANGER))
+                elif item.boot_impact == "Orta":
+                    impact_item.setForeground(QColor(COLOR_WARNING))
+                else:
+                    impact_item.setForeground(QColor(COLOR_SUCCESS))
+                self.table.setItem(row, 2, impact_item)
 
-            # Column 2: Boot Impact
-            impact_item = QTableWidgetItem(item.boot_impact)
-            impact_item.setTextAlignment(Qt.AlignCenter)
-            if item.boot_impact == "Yüksek":
-                impact_item.setForeground(Qt.red)
-            elif item.boot_impact == "Orta":
-                impact_item.setForeground(Qt.yellow)
-            else:
-                impact_item.setForeground(Qt.green)
-            self.table.setItem(row, 2, impact_item)
+                # Column 3: Location
+                loc_item = QTableWidgetItem(item.location)
+                self.table.setItem(row, 3, loc_item)
 
-            # Column 3: Location
-            loc_item = QTableWidgetItem(item.location)
-            self.table.setItem(row, 3, loc_item)
-
-            # Column 4: Command
-            cmd_item = QTableWidgetItem(item.command)
-            cmd_item.setToolTip(item.command)
-            self.table.setItem(row, 4, cmd_item)
+                # Column 4: Command
+                cmd_item = QTableWidgetItem(item.command)
+                cmd_item.setToolTip(item.command)
+                self.table.setItem(row, 4, cmd_item)
+        finally:
+            self.table.setUpdatesEnabled(True)
 
         self.lbl_stats.setText(f"Toplam: {len(self.items)}  |  Etkin: {enabled_count}  |  Devre Dışı: {len(self.items) - enabled_count}")
 

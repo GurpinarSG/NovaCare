@@ -1,12 +1,13 @@
 """
 NovaCare System Suite - Memory Optimizer & Process Manager View
-Real-time RAM/CPU meters, RAM working set trimmer, and interactive process killer.
+Real-time RAM/CPU meters, RAM working set trimmer, and threaded process manager.
+Optimized for zero-lag background loading and smooth high-performance UI rendering.
 """
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QProgressBar,
     QTableWidget, QTableWidgetItem, QHeaderView, QLineEdit, QMessageBox, QFrame
 )
-from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal
 from core.memory_booster import MemoryBooster, ProcessInfo
 from core.utils import format_bytes
 from ui.styles import (
@@ -14,11 +15,34 @@ from ui.styles import (
     TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED
 )
 
+class ProcessLoaderWorker(QThread):
+    finished = pyqtSignal(list)
+
+    def __init__(self, booster: MemoryBooster):
+        super().__init__()
+        self.booster = booster
+
+    def run(self):
+        try:
+            procs = self.booster.list_processes()
+            self.finished.emit(procs)
+        except Exception:
+            self.finished.emit([])
+
 class MemoryView(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.booster = MemoryBooster()
         self.all_processes: list[ProcessInfo] = []
+        self.loader_worker = None
+        self._is_loading = False
+
+        # Debounce timer for search
+        self.search_timer = QTimer(self)
+        self.search_timer.setSingleShot(True)
+        self.search_timer.setInterval(150)
+        self.search_timer.timeout.connect(self._filter_processes)
+
         self._init_ui()
         self._start_timer()
 
@@ -99,7 +123,7 @@ class MemoryView(QWidget):
         self.search_box = QLineEdit()
         self.search_box.setPlaceholderText("🔍  Süreç veya PID ara...")
         self.search_box.setFixedWidth(240)
-        self.search_box.textChanged.connect(self._filter_processes)
+        self.search_box.textChanged.connect(self._on_search_changed)
 
         self.btn_refresh = QPushButton("🔄  Yenile")
         self.btn_refresh.setProperty("class", "secondary-btn")
@@ -137,11 +161,15 @@ class MemoryView(QWidget):
     def _start_timer(self):
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._on_timer_tick)
-        self.timer.start(2000)
+        self.timer.start(2500)
         self._on_timer_tick()
         self.refresh_processes()
 
     def _on_timer_tick(self):
+        # Only update live meters when this view is currently visible
+        if not self.isVisible():
+            return
+
         try:
             metrics = self.booster.get_system_metrics()
             ram_pct = int(metrics["ram_percent"])
@@ -156,8 +184,25 @@ class MemoryView(QWidget):
         except Exception:
             pass
 
+    def _on_search_changed(self):
+        self.search_timer.start()
+
     def refresh_processes(self):
-        self.all_processes = self.booster.list_processes()
+        if self._is_loading:
+            return
+        self._is_loading = True
+        self.btn_refresh.setEnabled(False)
+        self.btn_refresh.setText("⏳ Yükleniyor...")
+
+        self.loader_worker = ProcessLoaderWorker(self.booster)
+        self.loader_worker.finished.connect(self._on_processes_loaded)
+        self.loader_worker.start()
+
+    def _on_processes_loaded(self, procs: list):
+        self._is_loading = False
+        self.btn_refresh.setEnabled(True)
+        self.btn_refresh.setText("🔄  Yenile")
+        self.all_processes = procs
         self._filter_processes()
 
     def _filter_processes(self):
@@ -167,25 +212,31 @@ class MemoryView(QWidget):
         else:
             filtered = [p for p in self.all_processes if query in p.name.lower() or query == str(p.pid)]
 
-        self.table.setRowCount(len(filtered))
-        for row, p in enumerate(filtered):
-            pid_item = QTableWidgetItem(str(p.pid))
-            pid_item.setTextAlignment(Qt.AlignCenter)
-            self.table.setItem(row, 0, pid_item)
+        # Batch table update to eliminate redraw stutter
+        self.table.setUpdatesEnabled(False)
+        self.table.setSortingEnabled(False)
+        try:
+            self.table.setRowCount(len(filtered))
+            for row, p in enumerate(filtered):
+                pid_item = QTableWidgetItem(str(p.pid))
+                pid_item.setTextAlignment(Qt.AlignCenter)
+                self.table.setItem(row, 0, pid_item)
 
-            name_item = QTableWidgetItem(p.name)
-            self.table.setItem(row, 1, name_item)
+                name_item = QTableWidgetItem(p.name)
+                self.table.setItem(row, 1, name_item)
 
-            mem_item = QTableWidgetItem(f"{p.memory_mb:,.1f} MB")
-            mem_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            self.table.setItem(row, 2, mem_item)
+                mem_item = QTableWidgetItem(f"{p.memory_mb:,.1f} MB")
+                mem_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                self.table.setItem(row, 2, mem_item)
 
-            cpu_item = QTableWidgetItem(f"{p.cpu_percent}%")
-            cpu_item.setTextAlignment(Qt.AlignCenter)
-            self.table.setItem(row, 3, cpu_item)
+                cpu_item = QTableWidgetItem(f"{p.cpu_percent}%")
+                cpu_item.setTextAlignment(Qt.AlignCenter)
+                self.table.setItem(row, 3, cpu_item)
 
-            user_item = QTableWidgetItem(p.username)
-            self.table.setItem(row, 4, user_item)
+                user_item = QTableWidgetItem(p.username)
+                self.table.setItem(row, 4, user_item)
+        finally:
+            self.table.setUpdatesEnabled(True)
 
         self.lbl_proc_count.setText(f"Toplam Süreç: {len(filtered)}")
 
@@ -216,9 +267,17 @@ class MemoryView(QWidget):
             QMessageBox.warning(self, "Seçim Yapılmadı", "Lütfen sonlandırmak istediğiniz bir işlem seçin.")
             return
 
-        pid_text = self.table.item(row, 0).text()
-        name_text = self.table.item(row, 1).text()
-        pid = int(pid_text)
+        pid_item = self.table.item(row, 0)
+        name_item = self.table.item(row, 1)
+        if not pid_item or not name_item:
+            return
+
+        pid_text = pid_item.text()
+        name_text = name_item.text()
+        try:
+            pid = int(pid_text)
+        except ValueError:
+            return
 
         confirm = QMessageBox.question(
             self,

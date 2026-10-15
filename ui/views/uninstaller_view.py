@@ -7,13 +7,27 @@ from PyQt5.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView, QMessageBox, QFrame,
     QDialog, QListWidget, QListWidgetItem, QCheckBox
 )
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
 from core.uninstaller import AppUninstaller, InstalledApp, LeftoverItem
 from core.utils import format_bytes
 from ui.styles import (
     BG_CARD, BORDER_COLOR, COLOR_ACCENT, COLOR_SUCCESS, COLOR_DANGER,
     TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED
 )
+
+class AppScanWorker(QThread):
+    finished = pyqtSignal(list)
+
+    def __init__(self, uninstaller: AppUninstaller):
+        super().__init__()
+        self.uninstaller = uninstaller
+
+    def run(self):
+        try:
+            apps = self.uninstaller.scan_installed_apps()
+            self.finished.emit(apps)
+        except Exception:
+            self.finished.emit([])
 
 class LeftoverDialog(QDialog):
     def __init__(self, app: InstalledApp, leftovers: list[LeftoverItem], uninstaller: AppUninstaller, parent=None):
@@ -77,6 +91,15 @@ class UninstallerView(QWidget):
         self.uninstaller = AppUninstaller()
         self.all_apps: list[InstalledApp] = []
         self.filtered_apps: list[InstalledApp] = []
+        self.scan_worker = None
+        self._is_scanning = False
+
+        # Search debouncer
+        self.search_timer = QTimer(self)
+        self.search_timer.setSingleShot(True)
+        self.search_timer.setInterval(150)
+        self.search_timer.timeout.connect(self._filter_apps)
+
         self._init_ui()
         self.refresh_apps()
 
@@ -107,7 +130,7 @@ class UninstallerView(QWidget):
         self.search_box = QLineEdit()
         self.search_box.setPlaceholderText("🔍  Program ara...")
         self.search_box.setFixedWidth(240)
-        self.search_box.textChanged.connect(self._filter_apps)
+        self.search_box.textChanged.connect(lambda: self.search_timer.start())
 
         self.btn_refresh = QPushButton("🔄  Yenile")
         self.btn_refresh.setProperty("class", "secondary-btn")
@@ -149,7 +172,22 @@ class UninstallerView(QWidget):
         layout.addWidget(self.table)
 
     def refresh_apps(self):
-        self.all_apps = self.uninstaller.scan_installed_apps()
+        if self._is_scanning:
+            return
+        self._is_scanning = True
+        self.btn_refresh.setEnabled(False)
+        self.btn_refresh.setText("⏳ Yükleniyor...")
+        self.lbl_stats.setText("Programlar taranıyor...")
+
+        self.scan_worker = AppScanWorker(self.uninstaller)
+        self.scan_worker.finished.connect(self._on_apps_scanned)
+        self.scan_worker.start()
+
+    def _on_apps_scanned(self, apps: list):
+        self._is_scanning = False
+        self.btn_refresh.setEnabled(True)
+        self.btn_refresh.setText("🔄  Yenile")
+        self.all_apps = apps
         self._filter_apps()
 
     def _filter_apps(self):
@@ -159,32 +197,37 @@ class UninstallerView(QWidget):
         else:
             self.filtered_apps = [a for a in self.all_apps if query in a.name.lower() or query in a.publisher.lower()]
 
-        self.table.setRowCount(len(self.filtered_apps))
-        for row, app in enumerate(self.filtered_apps):
-            # Column 0: Name
-            name_item = QTableWidgetItem(f"📦  {app.name}")
-            name_item.setToolTip(app.name)
-            self.table.setItem(row, 0, name_item)
+        self.table.setUpdatesEnabled(False)
+        self.table.setSortingEnabled(False)
+        try:
+            self.table.setRowCount(len(self.filtered_apps))
+            for row, app in enumerate(self.filtered_apps):
+                # Column 0: Name
+                name_item = QTableWidgetItem(f"📦  {app.name}")
+                name_item.setToolTip(app.name)
+                self.table.setItem(row, 0, name_item)
 
-            # Column 1: Publisher
-            pub_item = QTableWidgetItem(app.publisher)
-            self.table.setItem(row, 1, pub_item)
+                # Column 1: Publisher
+                pub_item = QTableWidgetItem(app.publisher)
+                self.table.setItem(row, 1, pub_item)
 
-            # Column 2: Version
-            ver_item = QTableWidgetItem(app.version)
-            ver_item.setTextAlignment(Qt.AlignCenter)
-            self.table.setItem(row, 2, ver_item)
+                # Column 2: Version
+                ver_item = QTableWidgetItem(app.version)
+                ver_item.setTextAlignment(Qt.AlignCenter)
+                self.table.setItem(row, 2, ver_item)
 
-            # Column 3: Date
-            date_item = QTableWidgetItem(app.install_date or "-")
-            date_item.setTextAlignment(Qt.AlignCenter)
-            self.table.setItem(row, 3, date_item)
+                # Column 3: Date
+                date_item = QTableWidgetItem(app.install_date or "-")
+                date_item.setTextAlignment(Qt.AlignCenter)
+                self.table.setItem(row, 3, date_item)
 
-            # Column 4: Size
-            sz_str = format_bytes(app.size_bytes) if app.size_bytes > 0 else "-"
-            sz_item = QTableWidgetItem(sz_str)
-            sz_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            self.table.setItem(row, 4, sz_item)
+                # Column 4: Size
+                sz_str = format_bytes(app.size_bytes) if app.size_bytes > 0 else "-"
+                sz_item = QTableWidgetItem(sz_str)
+                sz_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                self.table.setItem(row, 4, sz_item)
+        finally:
+            self.table.setUpdatesEnabled(True)
 
         self.lbl_stats.setText(f"Toplam Program: {len(self.filtered_apps)}")
 
