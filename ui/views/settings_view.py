@@ -140,84 +140,6 @@ class SettingsView(QWidget):
         btn_row.addStretch()
         u_layout.addLayout(btn_row)
 
-        # GitHub Repo Setting Row
-        repo_row = QHBoxLayout()
-        lbl_repo = QLabel("GitHub Deposu (owner/repo):")
-        lbl_repo.setStyleSheet(f"color: {TEXT_SECONDARY}; font-weight: 600;")
-        self.txt_repo = QLineEdit(self.config.get("github_repo", "GurpinarSG/NovaCare"))
-        self.txt_repo.setFixedWidth(260)
-
-        self.btn_save_repo = QPushButton("Depoyu Kaydet")
-        self.btn_save_repo.setProperty("class", "secondary-btn")
-        self.btn_save_repo.clicked.connect(self._save_repo)
-
-        repo_row.addWidget(lbl_repo)
-        repo_row.addWidget(self.txt_repo)
-        repo_row.addWidget(self.btn_save_repo)
-        repo_row.addStretch()
-        u_layout.addLayout(repo_row)
-
-        # GitHub Personal Access Token (PAT) Row
-        token_row = QHBoxLayout()
-        lbl_token = QLabel("GitHub Erişim Belirteci (PAT):")
-        lbl_token.setStyleSheet(f"color: {TEXT_SECONDARY}; font-weight: 600;")
-
-        cur_token = self.config.get_secure_token()
-        self.txt_token = QLineEdit()
-        self.txt_token.setEchoMode(QLineEdit.Password)
-        self.txt_token.setFixedWidth(260)
-
-        if cur_token:
-            self.txt_token.setPlaceholderText("•••••••• (Token Korumalı)")
-            status_text = f"🟢 Korumalı ({mask_token(cur_token)})"
-            status_color = COLOR_SUCCESS
-        else:
-            self.txt_token.setPlaceholderText("ghp_... belirtecinizi girin")
-            status_text = "⚪ Token Tanımlanmadı"
-            status_color = TEXT_MUTED
-
-        self.btn_toggle_token = QPushButton("👁️")
-        self.btn_toggle_token.setToolTip("Tokeni Göster / Gizle")
-        self.btn_toggle_token.setFixedWidth(36)
-        self.btn_toggle_token.clicked.connect(self._toggle_token_visibility)
-
-        self.btn_save_token = QPushButton("Tokeni Kaydet & Doğrula")
-        self.btn_save_token.setProperty("class", "secondary-btn")
-        self.btn_save_token.clicked.connect(self._save_and_verify_token)
-
-        self.lbl_token_status = QLabel(status_text)
-        self.lbl_token_status.setStyleSheet(f"color: {status_color}; font-weight: 600; font-size: 11px;")
-
-        token_row.addWidget(lbl_token)
-        token_row.addWidget(self.txt_token)
-        token_row.addWidget(self.btn_toggle_token)
-        token_row.addWidget(self.btn_save_token)
-        token_row.addWidget(self.lbl_token_status)
-        token_row.addStretch()
-        u_layout.addLayout(token_row)
-
-        # Update Mode Selector Box
-        mode_box = QFrame()
-        mode_box.setStyleSheet(f"background-color: rgba(0, 210, 255, 0.05); border: 1px solid {BORDER_COLOR}; border-radius: 8px; padding: 10px 14px;")
-        m_lay = QVBoxLayout(mode_box)
-        m_lay.setSpacing(6)
-        lbl_mode_head = QLabel("🎯  <b>Güncelleme Algılama Yöntemi:</b>")
-        lbl_mode_head.setStyleSheet(f"color: {COLOR_ACCENT}; font-size: 13px;")
-        m_lay.addWidget(lbl_mode_head)
-
-        self.radio_mode_branch = QRadioButton("⚡  <b>Anında Klasör/Dal Takibi (Önerilen)</b> — GitHub'da dosya düzenlendiğinde veya yüklendiğinde anında algılar.")
-        self.radio_mode_release = QRadioButton("🏷️  <b>Resmi Sürüm Takibi</b> — Yalnızca GitHub Releases altında resmi sürüm (v1.0.1 vb.) yayınlandığında günceller.")
-
-        is_branch = (self.config.get("update_mode", "branch") == "branch")
-        self.radio_mode_branch.setChecked(is_branch)
-        self.radio_mode_release.setChecked(not is_branch)
-
-        self.radio_mode_branch.toggled.connect(lambda checked: self.config.set("update_mode", "branch" if checked else "release"))
-
-        m_lay.addWidget(self.radio_mode_branch)
-        m_lay.addWidget(self.radio_mode_release)
-        u_layout.addWidget(mode_box)
-
         # Automatic update toggles
         self.chk_auto = QCheckBox("Uygulama açılışında güncellemeleri otomatik olarak denetle")
         self.chk_auto.setChecked(self.config.get("auto_check_updates", True))
@@ -324,78 +246,15 @@ class SettingsView(QWidget):
         scroll.setWidget(scroll_content)
         main_layout.addWidget(scroll)
 
-    def _save_repo(self):
-        repo = self.txt_repo.text().strip()
-        if not repo or "/" not in repo:
-            QMessageBox.warning(self, "Geçersiz Depo", "Lütfen 'kullanıcı/depo' formatında geçerli bir GitHub depo adı girin (Örn: Gurpi/antigravity).")
-            return
-        self.config.set("github_repo", repo)
-        self.updater.repo = repo
-        QMessageBox.information(self, "Kaydedildi", f"GitHub deposu '{repo}' olarak güncellendi.")
-
-    def _toggle_token_visibility(self):
-        if self.txt_token.echoMode() == QLineEdit.Password:
-            self.txt_token.setEchoMode(QLineEdit.Normal)
-            self.btn_toggle_token.setText("🔒")
-        else:
-            self.txt_token.setEchoMode(QLineEdit.Password)
-            self.btn_toggle_token.setText("👁️")
-
-    def _save_and_verify_token(self):
-        token = self.txt_token.text().strip()
-
-        if not token:
-            cur = self.config.get_secure_token()
-            if cur:
-                confirm = QMessageBox.question(
-                    self,
-                    "Tokeni Kaldır",
-                    "Kayıtlı GitHub erişim belirteci kaldırılsın mı?",
-                    QMessageBox.Yes | QMessageBox.No
-                )
-                if confirm == QMessageBox.Yes:
-                    self.config.set_secure_token("")
-                    self.updater.token = ""
-                    self.txt_token.setPlaceholderText("ghp_... belirtecinizi girin")
-                    self.lbl_token_status.setText("⚪ Token Tanımlanmadı")
-                    self.lbl_token_status.setStyleSheet(f"color: {TEXT_MUTED}; font-weight: 600; font-size: 11px;")
-                    QMessageBox.information(self, "Kaldırıldı", "GitHub erişim belirteci güvenle kaldırıldı.")
-            return
-
-        self.btn_save_token.setEnabled(False)
-        self.btn_save_token.setText("⏳ Doğrulanıyor...")
-        self.updater.token = token
-        valid, result = self.updater.verify_token()
-        self.btn_save_token.setEnabled(True)
-        self.btn_save_token.setText("Tokeni Kaydet & Doğrula")
-
-        if valid:
-            self.config.set_secure_token(token)
-            self.txt_token.clear()
-            self.txt_token.setPlaceholderText("•••••••• (Token Korumalı)")
-            self.lbl_token_status.setText(f"🟢 Korumalı ({mask_token(token)})")
-            self.lbl_token_status.setStyleSheet(f"color: {COLOR_SUCCESS}; font-weight: 700; font-size: 11px;")
-            QMessageBox.information(
-                self,
-                "Token Doğrulandı ve Şifrelendi",
-                f"Tebrikler! GitHub belirteciniz doğrulandı ve Windows DPAPI ile şifrelendi.\n\n"
-                f"Bağlı Hesap: @{result}\n"
-                "Belirteç yalnızca sizin Windows oturumunuzda çözülebilir, başka bilgisayarlara kopyalanamaz."
-            )
-        else:
-            self.lbl_token_status.setText("🔴 Geçersiz Token")
-            self.lbl_token_status.setStyleSheet(f"color: {COLOR_DANGER}; font-weight: 700; font-size: 11px;")
-            QMessageBox.warning(self, "Doğrulama Başarısız", f"Token doğrulanamadı:\n{result}")
-
     def check_for_updates_manual(self):
         """Triggers manual check with loading state."""
         self.btn_check_now.setEnabled(False)
-        self.btn_check_now.setText("⏳  GitHub Denetleniyor...")
+        self.btn_check_now.setText("⏳  Güncelleştirmeler Denetleniyor...")
         self.lbl_status_badge.setText("⏳  Denetleniyor...")
 
-        repo = self.txt_repo.text().strip()
-        token = self.txt_token.text().strip()
-        mode = "branch" if self.radio_mode_branch.isChecked() else "release"
+        repo = self.config.get("github_repo", "GurpinarSG/NovaCare")
+        token = self.config.get_secure_token()
+        mode = self.config.get("update_mode", "branch")
         self.check_thread = CheckUpdateThread(repo, token=token, mode=mode)
         self.check_thread.finished.connect(self._on_check_finished)
         self.check_thread.start()
