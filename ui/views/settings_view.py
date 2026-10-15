@@ -40,17 +40,19 @@ class DownloadUpdateThread(QThread):
     progress = pyqtSignal(int, int) # downloaded, total
     finished = pyqtSignal(str)      # batch_path or error
 
-    def __init__(self, updater: GitHubUpdater, download_url: str, new_commit_sha: str = ""):
+    def __init__(self, updater: GitHubUpdater, download_url: str, new_commit_sha: str = "", new_version: str = ""):
         super().__init__()
         self.updater = updater
         self.download_url = download_url
         self.new_commit_sha = new_commit_sha
+        self.new_version = new_version
 
     def run(self):
         try:
             batch_path = self.updater.download_and_prepare_update(
                 self.download_url,
                 new_commit_sha=self.new_commit_sha,
+                new_version=self.new_version,
                 progress_callback=lambda d, t: self.progress.emit(d, t)
             )
             self.finished.emit(batch_path)
@@ -75,7 +77,7 @@ class SettingsView(QWidget):
         # Header
         lbl_title = QLabel("Ayarlar ve Güncelleştirme Merkezi")
         lbl_title.setObjectName("ViewTitle")
-        lbl_sub = QLabel("GitHub üzerinden otomatik veya manuel güncellemeleri denetleyin ve genel tercihlerinizi yönetin.")
+        lbl_sub = QLabel("En son güvenlik, performans ve sistem güncellemelerini denetleyin, tercihlerinizi yönetin.")
         lbl_sub.setObjectName("ViewSubtitle")
         main_layout.addWidget(lbl_title)
         main_layout.addWidget(lbl_sub)
@@ -89,23 +91,19 @@ class SettingsView(QWidget):
 
         # 1. Update Card
         card_update = QFrame()
-        card_update.setStyleSheet(f"""
-            background-color: {BG_CARD};
-            border: 1px solid {BORDER_COLOR};
-            border-radius: 12px;
-            padding: 20px 24px;
-        """)
+        card_update.setObjectName("CardFrame")
         u_layout = QVBoxLayout(card_update)
+        u_layout.setContentsMargins(22, 20, 22, 20)
         u_layout.setSpacing(16)
 
         # Section Title
-        lbl_u_title = QLabel("🔄  GitHub Yazılım Güncelleştirmesi")
+        lbl_u_title = QLabel("🔄  Yazılım ve Sürüm Güncelleştirmesi")
         lbl_u_title.setStyleSheet("font-size: 16px; font-weight: 700;")
         u_layout.addWidget(lbl_u_title)
 
         # Version status row
         ver_row = QHBoxLayout()
-        self.lbl_cur_ver = QLabel(f"Yüklü Sürüm: <b>v{CURRENT_VERSION}</b>")
+        self.lbl_cur_ver = QLabel(f"Yüklü Sürüm: <b>{self.config.get_display_version()}</b>")
         self.lbl_cur_ver.setStyleSheet("font-size: 14px;")
 
         self.lbl_status_badge = QLabel("🟢  Sürümünüz Güncel")
@@ -146,23 +144,73 @@ class SettingsView(QWidget):
         self.chk_auto.stateChanged.connect(lambda s: self.config.set("auto_check_updates", s == Qt.Checked))
         u_layout.addWidget(self.chk_auto)
 
-        self.chk_notify = QCheckBox("Yeni sürüm tespit edildiğinde anında bildirim penceresi göster")
+        self.chk_auto_install = QCheckBox("⚡  Yeni sürüm çıktığında güncellemeyi otomatik indir ve arka planda yükle")
+        self.chk_auto_install.setChecked(self.config.get("auto_install_updates", True))
+        self.chk_auto_install.stateChanged.connect(lambda s: self.config.set("auto_install_updates", s == Qt.Checked))
+        u_layout.addWidget(self.chk_auto_install)
+
+        self.chk_notify = QCheckBox("Yeni sürüm tespit edildiğinde veya hazırlandığında bildirim göster")
         self.chk_notify.setChecked(self.config.get("notify_on_update", True))
         self.chk_notify.stateChanged.connect(lambda s: self.config.set("notify_on_update", s == Qt.Checked))
         u_layout.addWidget(self.chk_notify)
 
         content_layout.addWidget(card_update)
 
-        # 2. Update Available Panel (Hidden by default, shown when update found)
+        # 2. Theme & Appearance Card
+        card_theme = QFrame()
+        card_theme.setObjectName("CardFrame")
+        t_layout = QVBoxLayout(card_theme)
+        t_layout.setContentsMargins(22, 20, 22, 20)
+        t_layout.setSpacing(14)
+
+        lbl_t_title = QLabel("🎨  Tema ve Görünüm Tercihi")
+        lbl_t_title.setStyleSheet("font-size: 16px; font-weight: 700;")
+        t_layout.addWidget(lbl_t_title)
+
+        lbl_t_sub = QLabel("Program renk ve kontrast görünümünü bilgisayarınızla tam uyumlu çalışacak şekilde ayarlayın.")
+        lbl_t_sub.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 12px;")
+        t_layout.addWidget(lbl_t_sub)
+
+        # Radio buttons for theme
+        self.theme_group = QButtonGroup(self)
+        theme_row = QHBoxLayout()
+        theme_row.setSpacing(24)
+
+        current_theme = self.config.get("theme", "system")
+
+        self.rb_system = QRadioButton("🖥️  Sistem Varsayılanı (Otomatik Algıla)")
+        self.rb_dark = QRadioButton("🌙  Karanlık Tema (Dark Mode)")
+        self.rb_light = QRadioButton("☀️  Açık Tema (Light Mode)")
+
+        if current_theme == "light":
+            self.rb_light.setChecked(True)
+        elif current_theme == "dark":
+            self.rb_dark.setChecked(True)
+        else:
+            self.rb_system.setChecked(True)
+
+        self.theme_group.addButton(self.rb_system, 0)
+        self.theme_group.addButton(self.rb_dark, 1)
+        self.theme_group.addButton(self.rb_light, 2)
+
+        self.rb_system.toggled.connect(lambda chk: self._on_theme_changed("system") if chk else None)
+        self.rb_dark.toggled.connect(lambda chk: self._on_theme_changed("dark") if chk else None)
+        self.rb_light.toggled.connect(lambda chk: self._on_theme_changed("light") if chk else None)
+
+        theme_row.addWidget(self.rb_system)
+        theme_row.addWidget(self.rb_dark)
+        theme_row.addWidget(self.rb_light)
+        theme_row.addStretch()
+        t_layout.addLayout(theme_row)
+
+        content_layout.addWidget(card_theme)
+
+        # 3. Update Available Panel (Hidden by default, shown when update found)
         self.panel_new_version = QFrame()
-        self.panel_new_version.setStyleSheet(f"""
-            background-color: {BG_CARD};
-            border: 2px solid {COLOR_ACCENT};
-            border-radius: 12px;
-            padding: 20px 24px;
-        """)
+        self.panel_new_version.setObjectName("CardFrame")
         self.panel_new_version.setVisible(False)
         nv_layout = QVBoxLayout(self.panel_new_version)
+        nv_layout.setContentsMargins(22, 20, 22, 20)
         nv_layout.setSpacing(12)
 
         self.lbl_nv_title = QLabel("🚀  Yeni Sürüm Bulundu!")
@@ -173,21 +221,13 @@ class SettingsView(QWidget):
         self.lbl_nv_details.setStyleSheet(f"color: {TEXT_PRIMARY}; font-size: 13px;")
         nv_layout.addWidget(self.lbl_nv_details)
 
-        lbl_log_head = QLabel("Değişiklik Günlüğü ve Yenilikler:")
+        lbl_log_head = QLabel("Sürüm Notları ve Değişiklikler:")
         lbl_log_head.setStyleSheet(f"color: {TEXT_SECONDARY}; font-weight: 600;")
         nv_layout.addWidget(lbl_log_head)
 
         self.txt_changelog = QTextEdit()
         self.txt_changelog.setReadOnly(True)
         self.txt_changelog.setFixedHeight(120)
-        self.txt_changelog.setStyleSheet(f"""
-            background-color: #121721;
-            border: 1px solid {BORDER_COLOR};
-            border-radius: 8px;
-            padding: 8px;
-            color: {TEXT_PRIMARY};
-            font-size: 12px;
-        """)
         nv_layout.addWidget(self.txt_changelog)
 
         # Download progress bar
@@ -210,15 +250,11 @@ class SettingsView(QWidget):
 
         content_layout.addWidget(self.panel_new_version)
 
-        # 3. General Preferences Card
+        # 4. General Preferences Card
         card_gen = QFrame()
-        card_gen.setStyleSheet(f"""
-            background-color: {BG_CARD};
-            border: 1px solid {BORDER_COLOR};
-            border-radius: 12px;
-            padding: 20px 24px;
-        """)
+        card_gen.setObjectName("CardFrame")
         g_layout = QVBoxLayout(card_gen)
+        g_layout.setContentsMargins(22, 20, 22, 20)
         g_layout.setSpacing(14)
 
         lbl_g_title = QLabel("⚙️  Genel Uygulama Tercihleri")
@@ -245,6 +281,12 @@ class SettingsView(QWidget):
 
         scroll.setWidget(scroll_content)
         main_layout.addWidget(scroll)
+
+    def _on_theme_changed(self, mode: str):
+        self.config.set("theme", mode)
+        main_win = self.window()
+        if hasattr(main_win, 'apply_theme'):
+            main_win.apply_theme(mode)
 
     def check_for_updates_manual(self):
         """Triggers manual check with loading state."""
@@ -294,18 +336,18 @@ class SettingsView(QWidget):
             """)
 
             # Populate new version card
-            sz_str = format_bytes(info.download_size) if info.download_size > 0 else "Otomatik Arşiv (Zipball)"
-            self.lbl_nv_details.setText(f"<b>Başlık:</b> {info.release_title}  |  <b>Tarih:</b> {info.published_at}  |  <b>Boyut:</b> {sz_str}")
+            sz_str = format_bytes(info.download_size) if info.download_size > 0 else "Otomatik Güncelleme Paketi"
+            self.lbl_nv_details.setText(f"<b>Güncelleme:</b> {info.release_title}  |  <b>Tarih:</b> {info.published_at}  |  <b>Paket:</b> {sz_str}")
             self.txt_changelog.setPlainText(info.changelog)
             self.panel_new_version.setVisible(True)
 
             QMessageBox.information(
                 self,
-                "Yeni Değişiklikler Bulundu!",
-                f"GitHub üzerinde yeni güncellemeler tespit edildi:\n\n"
-                f"• Değişiklik/Sürüm: {info.latest_version}\n"
-                f"• Başlık: {info.release_title}\n\n"
-                f"Aşağıdaki 'Şimdi İndir ve Güncellemeyi Yükle' butonuna tıklayarak doğrudan uygulayabilirsiniz."
+                "Yeni Güncelleştirme Mevcut",
+                f"NovaCare için yeni bir sürüm güncellemesi tespit edildi ({info.latest_version}):\n\n"
+                f"• Güncelleme Başlığı: {info.release_title}\n"
+                f"• Yayın Tarihi: {info.published_at}\n\n"
+                f"Aşağıdaki 'Şimdi İndir ve Güncellemeyi Yükle' butonuna tıklayarak yeni özellikleri ve iyileştirmeleri anında uygulayabilirsiniz."
             )
         else:
             self.lbl_status_badge.setText("🟢  Sürümünüz Güncel")
@@ -319,8 +361,9 @@ class SettingsView(QWidget):
             self.panel_new_version.setVisible(False)
             QMessageBox.information(
                 self,
-                "Sisteminiz Güncel",
-                f"Tebrikler! GitHub deposundaki en güncel sürüm ({info.latest_version}) bilgisayarınızda yüklü."
+                "Uygulamanız Güncel",
+                f"Uygulamanız güncel! En son NovaCare sürümünü kullanıyorsunuz ({self.config.get_display_version()}).\n\n"
+                f"Bilgisayarınız en güncel optimizasyon ve güvenlik yamalarıyla korunmaktadır."
             )
 
     def _download_and_install(self):
@@ -330,9 +373,9 @@ class SettingsView(QWidget):
 
         confirm = QMessageBox.question(
             self,
-            "Güncellemeyi Başlat",
-            f"NovaCare ({self.latest_update_info.latest_version}) paketi indirilip kurulacaktır.\n"
-            "İşlem bittiğinde uygulama otomatik olarak yeniden başlatılacak. Devam edilsin mi?",
+            "Güncelleştirmeyi Başlat",
+            f"NovaCare ({self.latest_update_info.latest_version}) sürüm güncellemesi indirilip kurulacaktır.\n\n"
+            "İşlem bittiğinde uygulama otomatik olarak yeniden başlatılacaktır. Devam etmek istiyor musunuz?",
             QMessageBox.Yes | QMessageBox.No
         )
         if confirm != QMessageBox.Yes:
@@ -342,13 +385,15 @@ class SettingsView(QWidget):
         self.progress_download.setVisible(True)
         self.lbl_download_status.setVisible(True)
         self.progress_download.setValue(0)
-        self.lbl_download_status.setText("Güncelleme paketi GitHub üzerinden indiriliyor...")
+        self.lbl_download_status.setText("Güncelleme paketi güvenli sunucudan indiriliyor...")
 
         new_sha = self.latest_update_info.new_commit_sha or ""
+        new_ver = self.latest_update_info.latest_version or ""
         self.download_thread = DownloadUpdateThread(
             self.updater,
             self.latest_update_info.download_url,
-            new_commit_sha=new_sha
+            new_commit_sha=new_sha,
+            new_version=new_ver
         )
         self.download_thread.progress.connect(self._on_download_progress)
         self.download_thread.finished.connect(self._on_download_finished)

@@ -117,27 +117,32 @@ class GitHubUpdater:
                     self.config.set("local_commit_sha", remote_sha)
                     local_sha = remote_sha
 
-                available = (remote_sha != local_sha) and bool(remote_sha)
+                available = bool(remote_sha) and not remote_sha.startswith(local_sha) and not local_sha.startswith(remote_sha)
 
                 download_url = f"https://api.github.com/repos/{self.repo}/zipball/{self.branch}"
 
+                cur_display = self.config.get_display_version()
+                cur_base = self.config.get_version()
+
                 if available:
-                    title = f"GitHub Depo Değişikliği ({short_sha})"
+                    title = f"NovaCare Sistem Güncellemesi ({short_sha})"
                     changelog = (
-                        f"GitHub deposundaki klasörde yeni değişiklikler tespit edildi!\n\n"
-                        f"• Son Commit: {short_sha}\n"
-                        f"• Değişiklik Mesajı: {commit_msg}\n"
-                        f"• Tarih: {commit_date}\n\n"
-                        "Güncellemeyi yükleyerek en son kodları doğrudan uygulayabilirsiniz."
+                        f"NovaCare için yeni bir optimizasyon ve sürüm güncellemesi yayınlandı.\n\n"
+                        f"• Güncelleme Derlemesi: {short_sha}\n"
+                        f"• Yenilikler & Notlar: {commit_msg}\n"
+                        f"• Yayın Tarihi: {commit_date}\n\n"
+                        "Güncellemeyi yükleyerek en son performans iyileştirmelerini doğrudan sisteminize uygulayabilirsiniz."
                     )
+                    ver_label = f"v{cur_base} (Derleme: {short_sha})"
                 else:
-                    title = "Depo ile Senkronize"
-                    changelog = f"GitHub deposundaki en güncel commit ({short_sha}) bilgisayarınızda yüklü."
+                    title = "Uygulamanız Güncel"
+                    changelog = f"NovaCare en son sürümündedir ({cur_display}). Sisteminiz en güncel güvenlik ve performans iyileştirmeleriyle korunmaktadır."
+                    ver_label = cur_display
 
                 return UpdateInfo(
                     available=available,
-                    current_version=f"{local_sha[:7]}",
-                    latest_version=f"{short_sha}",
+                    current_version=cur_display,
+                    latest_version=ver_label,
                     release_title=title,
                     changelog=changelog,
                     download_url=download_url,
@@ -149,11 +154,11 @@ class GitHubUpdater:
                 # If branch not found, fallback to releases
                 return self._check_releases()
             elif resp.status_code == 401:
-                raise RuntimeError("GitHub Yetkilendirme Hatası: Token geçersiz veya süresi dolmuş.")
+                raise RuntimeError("Güncelleme sunucusu yetkilendirme hatası.")
             else:
-                raise RuntimeError(f"GitHub API Hatası ({resp.status_code}): {resp.text[:120]}")
+                raise RuntimeError(f"Güncelleme sunucusu yanıt vermedi ({resp.status_code})")
         except requests.RequestException as e:
-            raise RuntimeError(f"GitHub sunucusuna bağlanılamadı: {e}")
+            raise RuntimeError("Güncelleme sunucusuna bağlanılamadı. Lütfen internet bağlantınızı kontrol edin.")
 
     def _check_releases(self) -> UpdateInfo:
         """Traditional GitHub Release tag inspector."""
@@ -182,12 +187,15 @@ class GitHubUpdater:
                 if not download_url:
                     download_url = data.get("zipball_url", "")
 
-                available = is_newer_version(clean_version, self.current_version)
+                cur_display = self.config.get_display_version()
+                cur_base = self.config.get_version()
+
+                available = is_newer_version(clean_version, cur_base)
 
                 return UpdateInfo(
                     available=available,
-                    current_version=self.current_version,
-                    latest_version=clean_version,
+                    current_version=cur_display,
+                    latest_version=f"v{clean_version}",
                     release_title=title,
                     changelog=body,
                     download_url=download_url,
@@ -198,14 +206,15 @@ class GitHubUpdater:
             elif resp.status_code == 404:
                 return self._check_branch_commits()
             else:
-                raise RuntimeError(f"GitHub API Hatası ({resp.status_code})")
+                raise RuntimeError(f"Güncelleme sunucusu yanıt vermedi ({resp.status_code})")
         except requests.RequestException as e:
-            raise RuntimeError(f"GitHub sunucusuna bağlanılamadı: {e}")
+            raise RuntimeError("Güncelleme sunucusuna bağlanılamadı. Lütfen internet bağlantınızı kontrol edin.")
 
     def download_and_prepare_update(
         self,
         download_url: str,
         new_commit_sha: str = "",
+        new_version: str = "",
         progress_callback: Optional[Callable[[int, int], None]] = None
     ) -> str:
         """
@@ -249,16 +258,34 @@ class GitHubUpdater:
         items = os.listdir(extracted_dir)
         if len(items) == 1 and os.path.isdir(os.path.join(extracted_dir, items[0])):
             inner_dir = os.path.join(extracted_dir, items[0])
-            if any(os.path.exists(os.path.join(inner_dir, f)) for f in ('main.py', 'core', 'ui')):
+            if any(os.path.exists(os.path.join(inner_dir, f)) for f in ('main.py', 'core', 'ui', 'VERSION')):
                 source_dir = inner_dir
 
-        # If we updated to a new commit sha, save it to local settings now
+        # 1. If we updated to a new commit sha, save it to local settings now
         if new_commit_sha:
             self.config.set("local_commit_sha", new_commit_sha)
 
+        # 2. Synchronize version: check VERSION file in extracted source_dir, or explicit new_version
+        v_file = os.path.join(source_dir, "VERSION")
+        if os.path.exists(v_file):
+            try:
+                with open(v_file, "r", encoding="utf-8") as vf:
+                    extracted_ver = vf.read().strip().lstrip("vV")
+                    if extracted_ver:
+                        self.config.set("version", extracted_ver)
+            except Exception:
+                pass
+        elif new_version:
+            clean_nv = new_version.lstrip("vV")
+            self.config.set("version", clean_nv)
+
         # Create apply_update.bat
-        app_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        launcher_bat = os.path.join(app_root, "Başlat_NovaCare.bat")
+        if getattr(sys, 'frozen', False):
+            app_root = os.path.dirname(sys.executable)
+            launcher_target = os.path.join(app_root, "NovaCare.exe")
+        else:
+            app_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            launcher_target = os.path.join(app_root, "NovaCare.bat")
         main_py = os.path.join(app_root, "main.py")
 
         batch_path = os.path.join(temp_dir, "apply_update.bat")
@@ -274,8 +301,8 @@ xcopy /s /e /y "{source_dir}\\*" "{app_root}\\"
 echo Guncelleme basariyla tamamlandi. NovaCare yeniden baslatiliyor...
 timeout /t 1 /nobreak > nul
 
-if exist "{launcher_bat}" (
-    start "" "{launcher_bat}"
+if exist "{launcher_target}" (
+    start "" "{launcher_target}"
 ) else (
     start "" pythonw "{main_py}"
 )

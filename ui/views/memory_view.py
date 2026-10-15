@@ -61,13 +61,9 @@ class MemoryView(QWidget):
 
         # Performance Overview Card
         top_card = QFrame()
-        top_card.setStyleSheet(f"""
-            background-color: {BG_CARD};
-            border: 1px solid {BORDER_COLOR};
-            border-radius: 12px;
-            padding: 16px 20px;
-        """)
+        top_card.setObjectName("CardFrame")
         card_layout = QHBoxLayout(top_card)
+        card_layout.setContentsMargins(20, 16, 20, 16)
 
         # Left: RAM meter
         ram_box = QVBoxLayout()
@@ -111,14 +107,9 @@ class MemoryView(QWidget):
 
         # Process Toolbar
         p_toolbar = QFrame()
-        p_toolbar.setStyleSheet(f"""
-            background-color: {BG_CARD};
-            border: 1px solid {BORDER_COLOR};
-            border-radius: 10px;
-            padding: 8px 14px;
-        """)
+        p_toolbar.setObjectName("ToolbarFrame")
         ptb_layout = QHBoxLayout(p_toolbar)
-        ptb_layout.setContentsMargins(10, 6, 10, 6)
+        ptb_layout.setContentsMargins(12, 8, 12, 8)
 
         self.search_box = QLineEdit()
         self.search_box.setPlaceholderText("🔍  Süreç veya PID ara...")

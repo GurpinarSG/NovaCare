@@ -118,14 +118,9 @@ class UninstallerView(QWidget):
 
         # Toolbar
         toolbar = QFrame()
-        toolbar.setStyleSheet(f"""
-            background-color: {BG_CARD};
-            border: 1px solid {BORDER_COLOR};
-            border-radius: 10px;
-            padding: 8px 14px;
-        """)
+        toolbar.setObjectName("ToolbarFrame")
         tb_layout = QHBoxLayout(toolbar)
-        tb_layout.setContentsMargins(10, 6, 10, 6)
+        tb_layout.setContentsMargins(12, 8, 12, 8)
 
         self.search_box = QLineEdit()
         self.search_box.setPlaceholderText("🔍  Program ara...")

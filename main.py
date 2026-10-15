@@ -21,12 +21,34 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
 
-from PyQt5.QtWidgets import QApplication
+from PyQt5.QtWidgets import QApplication, QSystemTrayIcon
+from PyQt5.QtNetwork import QLocalSocket, QLocalServer
 from PyQt5.QtCore import Qt
 from ui.main_window import MainWindow
 from core.utils import format_bytes
 from core.memory_booster import MemoryBooster
 from core.junk_cleaner import JunkCleaner
+
+LOCAL_SERVER_NAME = "NovaCare_SingleInstance_App_Server_2026"
+
+def force_activate_window(window):
+    """Brings the application window to the foreground even from tray or minimized state."""
+    try:
+        if window.isMinimized():
+            window.showNormal()
+        else:
+            window.show()
+            window.showNormal()
+        window.raise_()
+        window.activateWindow()
+
+        if sys.platform == 'win32':
+            hwnd = int(window.winId())
+            # SW_RESTORE = 9
+            ctypes.windll.user32.ShowWindow(hwnd, 9)
+            ctypes.windll.user32.SetForegroundWindow(hwnd)
+    except Exception:
+        pass
 
 def set_windows_app_id():
     """Set process AppUserModelID so Windows taskbar displays proper icon and name."""
@@ -63,27 +85,25 @@ def cli_quick_scan():
 
 def cli_check_update():
     from core.updater import GitHubUpdater
-    from core.config import CURRENT_VERSION, ConfigManager
+    from core.config import ConfigManager
     config = ConfigManager()
-    repo = config.get("github_repo", "Gurpi/antigravity")
+    repo = config.get("github_repo", "GurpinarSG/NovaCare")
     print("=" * 50)
-    print("NovaCare Güncelleştirme Denetimi (CLI Modu)")
+    print("NovaCare Güncelleştirme Denetimi")
     print("=" * 50)
-    print(f"Mevcut Sürüm: v{CURRENT_VERSION}")
-    print(f"GitHub Deposu: {repo}")
-    print("GitHub API sorgulanıyor...")
+    print(f"Yüklü Sürüm: {config.get_display_version()}")
+    print("Güncelleştirme sunucuları denetleniyor...")
     updater = GitHubUpdater(repo)
     try:
         info = updater.check_for_updates()
         if info.available:
-            print(f"🟡 YENİ SÜRÜM MEVCUT: v{info.latest_version}")
+            print(f"🟡 YENİ SÜRÜM MEVCUT: {info.latest_version}")
             print(f"Başlık: {info.release_title}")
             print(f"Yayın Tarihi: {info.published_at}")
-            print(f"İndirme Bağlantısı: {info.download_url}")
-            print("\nDeğişiklik Günlüğü:")
+            print("\nYenilikler:")
             print(info.changelog)
         else:
-            print(f"🟢 Sürümünüz güncel! (v{CURRENT_VERSION})")
+            print(f"🟢 Uygulamanız güncel! En son sürümü kullanıyorsunuz ({config.get_display_version()}).")
     except Exception as e:
         print(f"⚠️ Güncelleme denetlenemedi: {e}")
 
@@ -129,7 +149,44 @@ def main():
     app.setApplicationVersion("1.0.0")
     app.setOrganizationName("NovaCare")
 
+    # Enforce single instance: prevent duplicate processes
+    client_socket = QLocalSocket()
+    client_socket.connectToServer(LOCAL_SERVER_NAME)
+    if client_socket.waitForConnected(400):
+        # An existing instance is already running
+        if not args.autostart:
+            client_socket.write(b"ACTIVATE_WINDOW\n")
+            client_socket.waitForBytesWritten(1000)
+        client_socket.disconnectFromServer()
+        sys.exit(0)
+
+    # First instance: start local IPC server to listen for duplicate launch activations
+    server = QLocalServer()
+    server.removeServer(LOCAL_SERVER_NAME)
+    server.listen(LOCAL_SERVER_NAME)
+    app._single_instance_server = server  # Keep alive
+
     window = MainWindow()
+
+    def handle_incoming_activation():
+        conn = server.nextPendingConnection()
+        if not conn:
+            return
+
+        def on_data_received():
+            try:
+                data = bytes(conn.readAll()).strip()
+                if b"ACTIVATE_WINDOW" in data:
+                    force_activate_window(window)
+            except Exception:
+                pass
+
+        conn.readyRead.connect(on_data_received)
+        if conn.bytesAvailable() > 0:
+            on_data_received()
+
+    server.newConnection.connect(handle_incoming_activation)
+
     if args.autostart:
         # Started automatically on Windows boot: run quietly in System Tray
         window.hide()
@@ -137,7 +194,7 @@ def main():
             window.tray_icon.showMessage(
                 "NovaCare",
                 "NovaCare arka planda çalışıyor ve sistemi koruyor.",
-                window.tray_icon.Information,
+                QSystemTrayIcon.Information,
                 3000
             )
     else:

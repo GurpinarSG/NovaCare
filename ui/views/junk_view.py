@@ -68,14 +68,9 @@ class JunkView(QWidget):
 
         # Action Toolbar
         toolbar = QFrame()
-        toolbar.setStyleSheet(f"""
-            background-color: {BG_CARD};
-            border: 1px solid {BORDER_COLOR};
-            border-radius: 10px;
-            padding: 8px 14px;
-        """)
+        toolbar.setObjectName("ToolbarFrame")
         tb_layout = QHBoxLayout(toolbar)
-        tb_layout.setContentsMargins(10, 6, 10, 6)
+        tb_layout.setContentsMargins(12, 8, 12, 8)
 
         self.btn_scan = QPushButton("🔍  Taramayı Başlat")
         self.btn_scan.setProperty("class", "primary-btn")
@@ -127,32 +122,36 @@ class JunkView(QWidget):
         self._populate_table()
 
     def _populate_table(self):
-        self.table.setRowCount(len(self.categories))
-        for row, cat in enumerate(self.categories):
-            # Column 0: Checkbox + Name
-            chk = QCheckBox(f"{cat.icon}  {cat.name}")
-            chk.setChecked(cat.selected)
-            chk.stateChanged.connect(lambda state, c=cat: self._on_cat_checked(c, state))
-            self.table.setCellWidget(row, 0, chk)
+        self.table.setUpdatesEnabled(False)
+        try:
+            self.table.setRowCount(len(self.categories))
+            for row, cat in enumerate(self.categories):
+                # Column 0: Checkbox + Name
+                chk = QCheckBox(f"{cat.icon}  {cat.name}")
+                chk.setChecked(cat.selected)
+                chk.stateChanged.connect(lambda state, c=cat: self._on_cat_checked(c, state))
+                self.table.setCellWidget(row, 0, chk)
 
-            # Column 1: Description
-            desc_item = QTableWidgetItem(cat.description)
-            desc_item.setFlags(Qt.ItemIsEnabled)
-            self.table.setItem(row, 1, desc_item)
+                # Column 1: Description
+                desc_item = QTableWidgetItem(cat.description)
+                desc_item.setFlags(Qt.ItemIsEnabled)
+                self.table.setItem(row, 1, desc_item)
 
-            # Column 2: File count
-            count_str = f"{cat.file_count:,} dosya" if cat.file_count > 0 else "-"
-            count_item = QTableWidgetItem(count_str)
-            count_item.setTextAlignment(Qt.AlignCenter)
-            count_item.setFlags(Qt.ItemIsEnabled)
-            self.table.setItem(row, 2, count_item)
+                # Column 2: File count
+                count_str = f"{cat.file_count:,} dosya" if cat.file_count > 0 else "-"
+                count_item = QTableWidgetItem(count_str)
+                count_item.setTextAlignment(Qt.AlignCenter)
+                count_item.setFlags(Qt.ItemIsEnabled)
+                self.table.setItem(row, 2, count_item)
 
-            # Column 3: Size
-            sz_str = format_bytes(cat.size) if cat.size > 0 else "-"
-            sz_item = QTableWidgetItem(sz_str)
-            sz_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            sz_item.setFlags(Qt.ItemIsEnabled)
-            self.table.setItem(row, 3, sz_item)
+                # Column 3: Size
+                sz_str = format_bytes(cat.size) if cat.size > 0 else "-"
+                sz_item = QTableWidgetItem(sz_str)
+                sz_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                sz_item.setFlags(Qt.ItemIsEnabled)
+                self.table.setItem(row, 3, sz_item)
+        finally:
+            self.table.setUpdatesEnabled(True)
 
         self._update_summary()
 

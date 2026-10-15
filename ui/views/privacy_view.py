@@ -45,13 +45,9 @@ class PrivacyView(QWidget):
 
         # 1. Privacy Traces Card
         card_traces = QFrame()
-        card_traces.setStyleSheet(f"""
-            background-color: {BG_CARD};
-            border: 1px solid {BORDER_COLOR};
-            border-radius: 12px;
-            padding: 18px 22px;
-        """)
+        card_traces.setObjectName("CardFrame")
         traces_layout = QVBoxLayout(card_traces)
+        traces_layout.setContentsMargins(22, 18, 22, 18)
         traces_layout.setSpacing(12)
 
         lbl_traces_title = QLabel("🛡️  Kullanıcı Etkinlik ve Gizlilik İzleri")
@@ -82,13 +78,9 @@ class PrivacyView(QWidget):
 
         # 2. Windows Privacy & Telemetry Tweaks Card
         card_tweaks = QFrame()
-        card_tweaks.setStyleSheet(f"""
-            background-color: {BG_CARD};
-            border: 1px solid {BORDER_COLOR};
-            border-radius: 12px;
-            padding: 18px 22px;
-        """)
+        card_tweaks.setObjectName("CardFrame")
         tweaks_layout = QVBoxLayout(card_tweaks)
+        tweaks_layout.setContentsMargins(22, 18, 22, 18)
         tweaks_layout.setSpacing(14)
 
         lbl_tweaks_title = QLabel("⚙️  Windows 10/11 Gizlilik ve Hızlandırma Ayarları")

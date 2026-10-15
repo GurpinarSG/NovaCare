@@ -67,14 +67,9 @@ class RegistryView(QWidget):
 
         # Toolbar
         toolbar = QFrame()
-        toolbar.setStyleSheet(f"""
-            background-color: {BG_CARD};
-            border: 1px solid {BORDER_COLOR};
-            border-radius: 10px;
-            padding: 8px 14px;
-        """)
+        toolbar.setObjectName("ToolbarFrame")
         tb_layout = QHBoxLayout(toolbar)
-        tb_layout.setContentsMargins(10, 6, 10, 6)
+        tb_layout.setContentsMargins(12, 8, 12, 8)
 
         self.btn_scan = QPushButton("🔍  Sorunları Tara")
         self.btn_scan.setProperty("class", "primary-btn")
@@ -126,27 +121,31 @@ class RegistryView(QWidget):
         layout.addWidget(self.table)
 
     def _populate_table(self):
-        self.table.setRowCount(len(self.issues))
-        for row, issue in enumerate(self.issues):
-            chk = QCheckBox(issue.category)
-            chk.setChecked(issue.selected)
-            chk.stateChanged.connect(lambda state, iss=issue: self._on_issue_checked(iss, state))
-            self.table.setCellWidget(row, 0, chk)
+        self.table.setUpdatesEnabled(False)
+        try:
+            self.table.setRowCount(len(self.issues))
+            for row, issue in enumerate(self.issues):
+                chk = QCheckBox(issue.category)
+                chk.setChecked(issue.selected)
+                chk.stateChanged.connect(lambda state, iss=issue: self._on_issue_checked(iss, state))
+                self.table.setCellWidget(row, 0, chk)
 
-            loc_item = QTableWidgetItem(f"{issue.root_name}\\{issue.sub_key}")
-            loc_item.setFlags(Qt.ItemIsEnabled)
-            loc_item.setToolTip(f"{issue.root_name}\\{issue.sub_key}")
-            self.table.setItem(row, 1, loc_item)
+                loc_item = QTableWidgetItem(f"{issue.root_name}\\{issue.sub_key}")
+                loc_item.setFlags(Qt.ItemIsEnabled)
+                loc_item.setToolTip(f"{issue.root_name}\\{issue.sub_key}")
+                self.table.setItem(row, 1, loc_item)
 
-            val_item = QTableWidgetItem(issue.value_name or "(Varsayılan)")
-            val_item.setFlags(Qt.ItemIsEnabled)
-            val_item.setToolTip(issue.value_data)
-            self.table.setItem(row, 2, val_item)
+                val_item = QTableWidgetItem(issue.value_name or "(Varsayılan)")
+                val_item.setFlags(Qt.ItemIsEnabled)
+                val_item.setToolTip(issue.value_data)
+                self.table.setItem(row, 2, val_item)
 
-            reason_item = QTableWidgetItem(issue.reason)
-            reason_item.setFlags(Qt.ItemIsEnabled)
-            reason_item.setToolTip(issue.reason)
-            self.table.setItem(row, 3, reason_item)
+                reason_item = QTableWidgetItem(issue.reason)
+                reason_item.setFlags(Qt.ItemIsEnabled)
+                reason_item.setToolTip(issue.reason)
+                self.table.setItem(row, 3, reason_item)
+        finally:
+            self.table.setUpdatesEnabled(True)
 
         self._update_summary()
 

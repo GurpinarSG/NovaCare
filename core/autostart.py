@@ -10,7 +10,10 @@ RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 APP_NAME = "NovaCare"
 
 def get_autostart_command() -> str:
-    """Returns the full execution command for autostart using pythonw (no console window)."""
+    """Returns the full execution command for autostart using pythonw or compiled executable."""
+    if getattr(sys, 'frozen', False):
+        return f'"{sys.executable}" --autostart'
+
     # 1. Look for pythonw in current python environment
     pythonw = os.path.join(sys.exec_prefix, "pythonw.exe")
     if not os.path.exists(pythonw):

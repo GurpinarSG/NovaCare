@@ -4,14 +4,31 @@ Persists user preferences, updater settings, and application metadata.
 Cryptographically protects GitHub tokens using Windows DPAPI.
 """
 import os
+import sys
 import json
 from core.security import encrypt_string, decrypt_string
 
-CURRENT_VERSION = "1.0.0"
+def load_base_version() -> str:
+    """Reads base version from VERSION file if available, otherwise defaults to 1.0.0."""
+    try:
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        if getattr(sys, 'frozen', False):
+            base_dir = getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
+        v_path = os.path.join(base_dir, "VERSION")
+        if os.path.exists(v_path):
+            with open(v_path, "r", encoding="utf-8") as vf:
+                v = vf.read().strip()
+                if v:
+                    return v.lstrip("vV")
+    except Exception:
+        pass
+    return "1.0.0"
+
+CURRENT_VERSION = load_base_version()
 DEFAULT_GITHUB_REPO = "GurpinarSG/NovaCare"
 DEFAULT_GITHUB_TOKEN = "" # NEVER hardcode tokens in distributed code
 DEFAULT_BRANCH = "main"
-DEFAULT_COMMIT_SHA = "3cfb6bd"
+DEFAULT_COMMIT_SHA = "c77c7b8"
 
 class ConfigManager:
     def __init__(self, config_dir: str | None = None):
@@ -24,6 +41,22 @@ class ConfigManager:
         self.config_file = os.path.join(self.config_dir, "settings.json")
         self.settings = self._load()
 
+    def get_version(self) -> str:
+        """Returns clean base version string like '1.0.0'."""
+        base_file_ver = load_base_version()
+        stored_ver = self.settings.get("version", "").lstrip("vV")
+        # If VERSION file was bumped, prioritize it
+        return base_file_ver if base_file_ver != "1.0.0" else (stored_ver or base_file_ver)
+
+    def get_display_version(self) -> str:
+        """Returns formatted version string for UI display, e.g. 'v1.0.0 (Derleme: c77c7b8)'."""
+        base_v = self.get_version()
+        mode = self.settings.get("update_mode", "branch")
+        sha = self.settings.get("local_commit_sha", "")
+        if mode == "branch" and sha:
+            return f"v{base_v} (Derleme: {sha[:7]})"
+        return f"v{base_v}"
+
     def _get_defaults(self) -> dict:
         return {
             "version": CURRENT_VERSION,
@@ -32,6 +65,8 @@ class ConfigManager:
             "target_branch": DEFAULT_BRANCH,
             "local_commit_sha": DEFAULT_COMMIT_SHA,
             "auto_check_updates": True,
+            "auto_install_updates": True,
+            "theme": "system",             # "system" (Windows uyumlu), "dark", "light"
             "autostart_on_boot": True,
             "notify_on_update": True,
             "last_update_check": "",

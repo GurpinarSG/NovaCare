@@ -1,21 +1,19 @@
 """
 NovaCare System Suite - Custom High-Performance UI Components
 Includes Circular Health Gauge, Stat Cards, and Styled Category Items.
+Theme-aware dynamic rendering with seamless dark/light contrast support.
 """
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QSizePolicy
 )
-from PyQt5.QtCore import Qt, QRectF, QPropertyAnimation, pyqtProperty, QTimer
-from PyQt5.QtGui import QPainter, QColor, QPen, QFont, QBrush, QLinearGradient
-from ui.styles import (
-    BG_CARD, BORDER_COLOR, COLOR_ACCENT, COLOR_SUCCESS, COLOR_WARNING, COLOR_DANGER,
-    TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED
-)
+from PyQt5.QtCore import Qt, QRectF, pyqtProperty
+from PyQt5.QtGui import QPainter, QColor, QPen, QFont
+from ui.styles import get_active_theme_colors
 
 class CircularHealthGauge(QWidget):
     """
     Circular Health Gauge widget indicating system health score (0 to 100).
-    Smooth animated rendering with dynamic color grading.
+    Smooth animated rendering with dynamic color grading and theme-aware contrast.
     """
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -49,6 +47,8 @@ class CircularHealthGauge(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
 
+        p = get_active_theme_colors()
+
         width = self.width()
         height = self.height()
         size = min(width, height) - 30
@@ -58,17 +58,17 @@ class CircularHealthGauge(QWidget):
         rect = QRectF(center_x - size / 2.0, center_y - size / 2.0, size, size)
 
         # 1. Background Track Arc (270 degrees sweep starting from 135 deg)
-        pen_bg = QPen(QColor(BORDER_COLOR), 14, Qt.SolidLine, Qt.RoundCap)
+        pen_bg = QPen(QColor(p["GAUGE_TRACK"]), 14, Qt.SolidLine, Qt.RoundCap)
         painter.setPen(pen_bg)
         painter.drawArc(rect, int(225 * 16), int(-270 * 16))
 
         # 2. Foreground Score Arc
         if self._score >= 85:
-            arc_color = QColor(COLOR_SUCCESS)
+            arc_color = QColor(p["COLOR_SUCCESS"])
         elif self._score >= 60:
-            arc_color = QColor(COLOR_WARNING)
+            arc_color = QColor(p["COLOR_WARNING"])
         else:
-            arc_color = QColor(COLOR_DANGER)
+            arc_color = QColor(p["COLOR_DANGER"])
 
         pen_fg = QPen(arc_color, 14, Qt.SolidLine, Qt.RoundCap)
         painter.setPen(pen_fg)
@@ -76,7 +76,7 @@ class CircularHealthGauge(QWidget):
         painter.drawArc(rect, int(225 * 16), sweep_angle)
 
         # 3. Text in Center
-        painter.setPen(QColor(TEXT_PRIMARY))
+        painter.setPen(QColor(p["TEXT_PRIMARY"]))
         font_score = QFont("Segoe UI", 36, QFont.Bold)
         painter.setFont(font_score)
         painter.drawText(
@@ -87,7 +87,7 @@ class CircularHealthGauge(QWidget):
 
         font_unit = QFont("Segoe UI", 11, QFont.DemiBold)
         painter.setFont(font_unit)
-        painter.setPen(QColor(TEXT_SECONDARY))
+        painter.setPen(QColor(p["TEXT_SECONDARY"]))
         painter.drawText(
             QRectF(center_x - 70, center_y + 2, 140, 22),
             Qt.AlignCenter,
@@ -108,17 +108,6 @@ class StatCard(QFrame):
     def __init__(self, icon: str, title: str, initial_value: str = "-", subtitle: str = "", parent=None):
         super().__init__(parent)
         self.setObjectName("StatCard")
-        self.setStyleSheet(f"""
-            #StatCard {{
-                background-color: {BG_CARD};
-                border: 1px solid {BORDER_COLOR};
-                border-radius: 12px;
-                padding: 12px 16px;
-            }}
-            #StatCard:hover {{
-                border-color: {COLOR_ACCENT};
-            }}
-        """)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(14, 12, 14, 12)
@@ -128,18 +117,18 @@ class StatCard(QFrame):
         self.icon_lbl = QLabel(icon)
         self.icon_lbl.setStyleSheet("font-size: 20px;")
         self.title_lbl = QLabel(title)
-        self.title_lbl.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 12px; font-weight: 600;")
+        self.title_lbl.setStyleSheet("font-size: 12px; font-weight: 600;")
         top_row.addWidget(self.icon_lbl)
         top_row.addWidget(self.title_lbl)
         top_row.addStretch()
         layout.addLayout(top_row)
 
         self.value_lbl = QLabel(initial_value)
-        self.value_lbl.setStyleSheet(f"color: {TEXT_PRIMARY}; font-size: 22px; font-weight: 700;")
+        self.value_lbl.setStyleSheet("font-size: 22px; font-weight: 800;")
         layout.addWidget(self.value_lbl)
 
         self.sub_lbl = QLabel(subtitle)
-        self.sub_lbl.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 11px;")
+        self.sub_lbl.setStyleSheet("font-size: 11px;")
         layout.addWidget(self.sub_lbl)
 
     def set_value(self, value: str, subtitle: str = ""):

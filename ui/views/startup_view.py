@@ -37,14 +37,9 @@ class StartupView(QWidget):
 
         # Toolbar
         toolbar = QFrame()
-        toolbar.setStyleSheet(f"""
-            background-color: {BG_CARD};
-            border: 1px solid {BORDER_COLOR};
-            border-radius: 10px;
-            padding: 8px 14px;
-        """)
+        toolbar.setObjectName("ToolbarFrame")
         tb_layout = QHBoxLayout(toolbar)
-        tb_layout.setContentsMargins(10, 6, 10, 6)
+        tb_layout.setContentsMargins(12, 8, 12, 8)
 
         self.btn_refresh = QPushButton("🔄  Yenile")
         self.btn_refresh.setProperty("class", "secondary-btn")

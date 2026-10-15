@@ -60,26 +60,17 @@ class DiskView(QWidget):
 
         # Drive overview container
         self.drives_container = QFrame()
-        self.drives_container.setStyleSheet(f"""
-            background-color: {BG_CARD};
-            border: 1px solid {BORDER_COLOR};
-            border-radius: 12px;
-            padding: 14px 18px;
-        """)
+        self.drives_container.setObjectName("CardFrame")
         self.drives_layout = QHBoxLayout(self.drives_container)
+        self.drives_layout.setContentsMargins(16, 14, 16, 14)
         self.drives_layout.setSpacing(16)
         layout.addWidget(self.drives_container)
 
         # Large File Scanner Toolbar
         toolbar = QFrame()
-        toolbar.setStyleSheet(f"""
-            background-color: {BG_CARD};
-            border: 1px solid {BORDER_COLOR};
-            border-radius: 10px;
-            padding: 8px 14px;
-        """)
+        toolbar.setObjectName("ToolbarFrame")
         tb_layout = QHBoxLayout(toolbar)
-        tb_layout.setContentsMargins(10, 6, 10, 6)
+        tb_layout.setContentsMargins(12, 8, 12, 8)
 
         lbl_target = QLabel("Hedef Sürücü / Klasör:")
         self.combo_target = QComboBox()
@@ -217,22 +208,26 @@ class DiskView(QWidget):
         self.lbl_status.setVisible(False)
         self.btn_scan.setEnabled(True)
 
-        self.table.setRowCount(len(files))
-        for row, f in enumerate(files):
-            name_item = QTableWidgetItem(f.name)
-            self.table.setItem(row, 0, name_item)
+        self.table.setUpdatesEnabled(False)
+        try:
+            self.table.setRowCount(len(files))
+            for row, f in enumerate(files):
+                name_item = QTableWidgetItem(f.name)
+                self.table.setItem(row, 0, name_item)
 
-            cat_item = QTableWidgetItem(f.category)
-            cat_item.setTextAlignment(Qt.AlignCenter)
-            self.table.setItem(row, 1, cat_item)
+                cat_item = QTableWidgetItem(f.category)
+                cat_item.setTextAlignment(Qt.AlignCenter)
+                self.table.setItem(row, 1, cat_item)
 
-            sz_item = QTableWidgetItem(f.size_str)
-            sz_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            self.table.setItem(row, 2, sz_item)
+                sz_item = QTableWidgetItem(f.size_str)
+                sz_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                self.table.setItem(row, 2, sz_item)
 
-            path_item = QTableWidgetItem(f.path)
-            path_item.setToolTip(f.path)
-            self.table.setItem(row, 3, path_item)
+                path_item = QTableWidgetItem(f.path)
+                path_item.setToolTip(f.path)
+                self.table.setItem(row, 3, path_item)
+        finally:
+            self.table.setUpdatesEnabled(True)
 
     def _open_file_location(self):
         row = self.table.currentRow()

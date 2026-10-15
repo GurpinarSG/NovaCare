@@ -151,15 +151,8 @@ class DashboardView(QWidget):
         # 2. Central 1-Click Maintenance Area (Gauge + Action Button)
         center_card = QFrame()
         center_card.setObjectName("CenterCard")
-        center_card.setStyleSheet(f"""
-            #CenterCard {{
-                background-color: {BG_CARD};
-                border: 1px solid {BORDER_COLOR};
-                border-radius: 16px;
-                padding: 24px;
-            }}
-        """)
         center_layout = QVBoxLayout(center_card)
+        center_layout.setContentsMargins(24, 24, 24, 24)
         center_layout.setSpacing(16)
         center_layout.setAlignment(Qt.AlignCenter)
 
@@ -192,13 +185,9 @@ class DashboardView(QWidget):
 
         # 3. Scan Items Breakdown Grid
         self.breakdown_frame = QFrame()
-        self.breakdown_frame.setStyleSheet(f"""
-            background-color: {BG_CARD};
-            border: 1px solid {BORDER_COLOR};
-            border-radius: 12px;
-            padding: 14px 20px;
-        """)
+        self.breakdown_frame.setObjectName("CardFrame")
         grid = QGridLayout(self.breakdown_frame)
+        grid.setContentsMargins(20, 16, 20, 16)
         grid.setSpacing(16)
 
         self.lbl_item_junk = QLabel("🗑️  Gereksiz Dosyalar & Önbellek: <b>Taranmadı</b>")
@@ -224,6 +213,8 @@ class DashboardView(QWidget):
         self._update_live_metrics()
 
     def _update_live_metrics(self):
+        if not self.isVisible():
+            return
         try:
             metrics = self.mem_booster.get_system_metrics()
             self.card_cpu.set_value(f"{metrics['cpu_percent']}%", "Tüm Çekirdekler")

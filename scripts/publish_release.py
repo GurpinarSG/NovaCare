@@ -84,10 +84,10 @@ def push_files_to_github():
         })
         print(f"  + Yüklendi: {rel_p}")
 
-    # Create tree
+    # Create tree (without base_tree so deleted files are cleanly removed from GitHub)
     print("[*] Git ağacı oluşturuluyor...")
     tree_url = f"https://api.github.com/repos/{REPO}/git/trees"
-    r = requests.post(tree_url, headers=HEADERS, json={"base_tree": base_sha, "tree": tree_items})
+    r = requests.post(tree_url, headers=HEADERS, json={"tree": tree_items})
     r.raise_for_status()
     new_tree_sha = r.json()["sha"]
 
@@ -95,7 +95,7 @@ def push_files_to_github():
     print("[*] Commit oluşturuluyor...")
     commit_url = f"https://api.github.com/repos/{REPO}/git/commits"
     commit_payload = {
-        "message": "NovaCare System Care Suite 2026 - Initial Release",
+        "message": "NovaCare 2026: Single instance enforcement, launcher cleanup, theme contrast & auto-update optimizations",
         "tree": new_tree_sha,
         "parents": [base_sha]
     }
@@ -161,13 +161,25 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--push", action="store_true", help="Kodları GitHub'a gönderir")
-    parser.add_argument("--release", type=str, help="Belirtilen etiketle yeni GitHub sürümü oluşturur (Örn: v1.0.0)")
+    parser.add_argument("--set-version", type=str, help="Programın sürüm numarasını günceller (Örn: 1.0.1)")
+    parser.add_argument("--release", type=str, help="Belirtilen etiketle yeni GitHub sürümü oluşturur (Örn: v1.0.1)")
     args = parser.parse_args()
+
+    if args.set_version:
+        v_clean = args.set_version.lstrip("vV").strip()
+        v_file = os.path.join(ROOT_DIR, "VERSION")
+        with open(v_file, "w", encoding="utf-8") as vf:
+            vf.write(f"{v_clean}\n")
+        print(f"[✔] Sürüm numarası güncellendi: v{v_clean}")
 
     if args.push:
         push_files_to_github()
 
     if args.release:
+        v_clean = args.release.lstrip("vV").strip()
+        v_file = os.path.join(ROOT_DIR, "VERSION")
+        with open(v_file, "w", encoding="utf-8") as vf:
+            vf.write(f"{v_clean}\n")
         create_release(
             tag_name=args.release,
             release_title=f"NovaCare System Care Suite {args.release}",

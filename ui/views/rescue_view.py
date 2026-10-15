@@ -36,13 +36,9 @@ class RescueView(QWidget):
 
         # Top System Restore Card
         top_card = QFrame()
-        top_card.setStyleSheet(f"""
-            background-color: {BG_CARD};
-            border: 1px solid {BORDER_COLOR};
-            border-radius: 12px;
-            padding: 16px 20px;
-        """)
+        top_card.setObjectName("CardFrame")
         top_layout = QHBoxLayout(top_card)
+        top_layout.setContentsMargins(20, 16, 20, 16)
 
         v_desc = QVBoxLayout()
         lbl_r_title = QLabel("🛡️  Windows Sistem Geri Yükleme")
@@ -69,14 +65,9 @@ class RescueView(QWidget):
 
         # Backups Table Toolbar
         toolbar = QFrame()
-        toolbar.setStyleSheet(f"""
-            background-color: {BG_CARD};
-            border: 1px solid {BORDER_COLOR};
-            border-radius: 10px;
-            padding: 8px 14px;
-        """)
+        toolbar.setObjectName("ToolbarFrame")
         tb_layout = QHBoxLayout(toolbar)
-        tb_layout.setContentsMargins(10, 6, 10, 6)
+        tb_layout.setContentsMargins(12, 8, 12, 8)
 
         lbl_table_title = QLabel("💾  Kayıt Defteri Yedekleri Geçmişi")
         lbl_table_title.setStyleSheet("font-weight: 700;")
@@ -111,24 +102,27 @@ class RescueView(QWidget):
 
     def refresh_backups(self):
         self.backups = self.mgr.list_backups()
-        self.table.setRowCount(len(self.backups))
+        self.table.setUpdatesEnabled(False)
+        try:
+            self.table.setRowCount(len(self.backups))
+            for row, bkp in enumerate(self.backups):
+                f_item = QTableWidgetItem(f"📁  {bkp.filename}")
+                f_item.setToolTip(bkp.filepath)
+                self.table.setItem(row, 0, f_item)
 
-        for row, bkp in enumerate(self.backups):
-            f_item = QTableWidgetItem(f"📁  {bkp.filename}")
-            f_item.setToolTip(bkp.filepath)
-            self.table.setItem(row, 0, f_item)
+                t_item = QTableWidgetItem(bkp.timestamp)
+                t_item.setTextAlignment(Qt.AlignCenter)
+                self.table.setItem(row, 1, t_item)
 
-            t_item = QTableWidgetItem(bkp.timestamp)
-            t_item.setTextAlignment(Qt.AlignCenter)
-            self.table.setItem(row, 1, t_item)
+                c_item = QTableWidgetItem(f"{bkp.issue_count} kayıt")
+                c_item.setTextAlignment(Qt.AlignCenter)
+                self.table.setItem(row, 2, c_item)
 
-            c_item = QTableWidgetItem(f"{bkp.issue_count} kayıt")
-            c_item.setTextAlignment(Qt.AlignCenter)
-            self.table.setItem(row, 2, c_item)
-
-            s_item = QTableWidgetItem(bkp.size_str)
-            s_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            self.table.setItem(row, 3, s_item)
+                s_item = QTableWidgetItem(bkp.size_str)
+                s_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                self.table.setItem(row, 3, s_item)
+        finally:
+            self.table.setUpdatesEnabled(True)
 
     def _create_restore_point(self):
         self.btn_create_point.setEnabled(False)

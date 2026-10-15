@@ -3,6 +3,7 @@ NovaCare System Suite - Master Main Window
 Sidebar navigation, stacked view switcher, and system tray integration.
 """
 import os
+import sys
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QPushButton,
     QLabel, QStackedWidget, QButtonGroup, QFrame, QSystemTrayIcon,
@@ -11,8 +12,9 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QSize, QTimer, QThread, pyqtSignal
 from PyQt5.QtGui import QIcon, QPixmap, QPainter, QColor, QFont
 from ui.styles import (
-    MAIN_STYLESHEET, BG_SIDEBAR, BORDER_COLOR, COLOR_ACCENT,
-    COLOR_SUCCESS, TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED
+    get_stylesheet, get_active_theme_colors, MAIN_STYLESHEET,
+    BG_SIDEBAR, BORDER_COLOR, COLOR_ACCENT, COLOR_SUCCESS,
+    TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED
 )
 from ui.views import (
     DashboardView,
@@ -46,15 +48,41 @@ class AutoUpdateCheckThread(QThread):
         except Exception as e:
             self.finished.emit(e)
 
+class SilentAutoInstallThread(QThread):
+    finished = pyqtSignal(str) # batch_path or error
+
+    def __init__(self, updater: GitHubUpdater, download_url: str, new_commit_sha: str = "", new_version: str = ""):
+        super().__init__()
+        self.updater = updater
+        self.download_url = download_url
+        self.new_commit_sha = new_commit_sha
+        self.new_version = new_version
+
+    def run(self):
+        try:
+            batch = self.updater.download_and_prepare_update(
+                self.download_url,
+                new_commit_sha=self.new_commit_sha,
+                new_version=self.new_version
+            )
+            self.finished.emit(batch)
+        except Exception as e:
+            self.finished.emit(f"ERROR:{e}")
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.config = ConfigManager()
         self.auto_check_thread = None
+        self.auto_install_thread = None
+        self.prepared_update_batch = None
         self.setWindowTitle("NovaCare System Care Suite 2026")
         self.resize(1180, 780)
         self.setMinimumSize(980, 640)
-        self.setStyleSheet(MAIN_STYLESHEET)
+
+        # Apply user/system theme
+        self.current_theme = self.config.get("theme", "system")
+        self.setStyleSheet(get_stylesheet(self.current_theme))
 
         self._setup_icon()
         self._init_ui()
@@ -62,7 +90,11 @@ class MainWindow(QMainWindow):
         self._setup_auto_update()
 
     def _setup_icon(self):
-        icon_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets", "icon.ico")
+        if getattr(sys, 'frozen', False):
+            base_dir = getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
+        else:
+            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        icon_path = os.path.join(base_dir, "assets", "icon.ico")
         if os.path.exists(icon_path):
             self.app_icon = QIcon(icon_path)
             self.setWindowIcon(self.app_icon)
@@ -203,13 +235,24 @@ class MainWindow(QMainWindow):
     def _on_nav_clicked(self, index: int):
         self.stack.setCurrentIndex(index)
 
+    def apply_theme(self, theme_mode: str):
+        """Applies theme dynamically across the entire application and all views."""
+        self.current_theme = theme_mode
+        self.config.set("theme", theme_mode)
+        qss = get_stylesheet(theme_mode)
+        self.setStyleSheet(qss)
+        if hasattr(self, 'tray_menu'):
+            self.tray_menu.setStyleSheet(qss)
+        if hasattr(self, 'view_dashboard') and hasattr(self.view_dashboard, 'gauge'):
+            self.view_dashboard.gauge.update()
+
     def _setup_auto_update(self):
         """Schedules a silent background update check 3 seconds after application launch."""
         if self.config.get("auto_check_updates", True):
             QTimer.singleShot(3000, self._run_background_update_check)
 
     def _run_background_update_check(self):
-        repo = self.config.get("github_repo", "Gurpi/antigravity")
+        repo = self.config.get("github_repo", "GurpinarSG/NovaCare")
         self.auto_check_thread = AutoUpdateCheckThread(repo)
         self.auto_check_thread.finished.connect(self._on_auto_update_result)
         self.auto_check_thread.start()
@@ -220,53 +263,88 @@ class MainWindow(QMainWindow):
             if len(self.nav_buttons) > 9:
                 self.nav_buttons[9].setText("⚙️  Ayarlar & Güncelleme 🔴")
 
-            # Show system tray notification
-            if hasattr(self, 'tray_icon'):
-                self.tray_icon.showMessage(
-                    "NovaCare Güncellemesi Mevcut",
-                    f"Yeni NovaCare v{result.latest_version} sürümü yayınlandı. Güncellemek için tıklayın.",
-                    QSystemTrayIcon.Information,
-                    5000
+            # If auto install is enabled, download and prepare in background automatically!
+            if self.config.get("auto_install_updates", True) and result.download_url:
+                updater = GitHubUpdater(self.config.get("github_repo", "GurpinarSG/NovaCare"))
+                self.auto_install_thread = SilentAutoInstallThread(
+                    updater,
+                    result.download_url,
+                    new_commit_sha=result.new_commit_sha,
+                    new_version=result.latest_version
                 )
+                self.auto_install_thread.finished.connect(lambda batch: self._on_auto_install_finished(batch, result))
+                self.auto_install_thread.start()
+            else:
+                # Show system tray notification
+                if hasattr(self, 'tray_icon'):
+                    self.tray_icon.showMessage(
+                        "NovaCare Güncellemesi Mevcut",
+                        f"Yeni sürüm ({result.latest_version}) yayınlandı.",
+                        QSystemTrayIcon.Information,
+                        5000
+                    )
 
-            # If user wants a notification dialog
-            if self.config.get("notify_on_update", True):
-                ans = QMessageBox.information(
-                    self,
-                    "Yeni Sürüm Mevcut!",
-                    f"NovaCare için yeni bir sürüm yayınlandı!\n\n"
-                    f"• Yeni Sürüm: v{result.latest_version}\n"
-                    f"• Mevcut Sürüm: v{result.current_version}\n\n"
-                    f"Güncelleme ayrıntılarını görmek ve yüklemek için Ayarlar & Güncelleme sekmesine gitmek ister misiniz?",
-                    QMessageBox.Yes | QMessageBox.No
-                )
-                if ans == QMessageBox.Yes:
-                    self.nav_buttons[9].setChecked(True)
-                    self.stack.setCurrentIndex(9)
-                    self.view_settings.check_for_updates_manual()
+                if self.config.get("notify_on_update", True):
+                    ans = QMessageBox.information(
+                        self,
+                        "Yeni Sürüm Mevcut!",
+                        f"NovaCare için yeni bir sürüm yayınlandı ({result.latest_version}).\n\n"
+                        f"Güncelleme ayrıntılarını görmek ve yüklemek için Ayarlar & Güncelleme sekmesine gitmek ister misiniz?",
+                        QMessageBox.Yes | QMessageBox.No
+                    )
+                    if ans == QMessageBox.Yes:
+                        self.nav_buttons[9].setChecked(True)
+                        self.stack.setCurrentIndex(9)
+                        self.view_settings.check_for_updates_manual()
+
+    def _on_auto_install_finished(self, batch_path: str, info: UpdateInfo):
+        if batch_path.startswith("ERROR:"):
+            return
+
+        self.prepared_update_batch = batch_path
+
+        if hasattr(self, 'tray_icon'):
+            self.tray_icon.showMessage(
+                "NovaCare Güncellemesi Hazır",
+                f"Yeni sürüm ({info.latest_version}) arka planda otomatik olarak hazırlandı.",
+                QSystemTrayIcon.Information,
+                5000
+            )
+
+        if self.config.get("notify_on_update", True):
+            ans = QMessageBox.question(
+                self,
+                "Güncelleştirme Hazır!",
+                f"NovaCare için yeni sürüm ({info.latest_version}) arka planda otomatik olarak indirildi ve hazırlandı!\n\n"
+                "Güncellemeyi şimdi uygulamak ve uygulamayı yeniden başlatmak istiyor musunuz?",
+                QMessageBox.Yes | QMessageBox.No
+            )
+            if ans == QMessageBox.Yes:
+                updater = GitHubUpdater(self.config.get("github_repo", "GurpinarSG/NovaCare"))
+                updater.launch_updater_and_exit(batch_path)
 
     def _setup_tray(self):
         self.tray_icon = QSystemTrayIcon(self.app_icon, self)
         self.tray_icon.setToolTip("NovaCare System Care Suite 2026")
 
-        menu = QMenu()
-        menu.setStyleSheet(MAIN_STYLESHEET)
+        self.tray_menu = QMenu()
+        self.tray_menu.setStyleSheet(get_stylesheet(self.current_theme))
 
-        act_show = QAction("⚡ NovaCare'i Göster", self)
+        act_show = QAction("⚡  NovaCare'i Göster", self)
         act_show.triggered.connect(self.showNormal)
-        menu.addAction(act_show)
+        self.tray_menu.addAction(act_show)
 
-        act_boost = QAction("🧠 Hızlı RAM Temizle", self)
+        act_boost = QAction("🧠  Hızlı RAM Temizle", self)
         act_boost.triggered.connect(self._tray_boost_ram)
-        menu.addAction(act_boost)
+        self.tray_menu.addAction(act_boost)
 
-        menu.addSeparator()
+        self.tray_menu.addSeparator()
 
-        act_exit = QAction("Çıkış", self)
+        act_exit = QAction("❌  Çıkış", self)
         act_exit.triggered.connect(QApplication.instance().quit)
-        menu.addAction(act_exit)
+        self.tray_menu.addAction(act_exit)
 
-        self.tray_icon.setContextMenu(menu)
+        self.tray_icon.setContextMenu(self.tray_menu)
         self.tray_icon.activated.connect(self._on_tray_activated)
         self.tray_icon.show()
 
@@ -285,3 +363,35 @@ class MainWindow(QMainWindow):
             QSystemTrayIcon.Information,
             3000
         )
+
+    def closeEvent(self, event):
+        if self.config.get("close_to_tray", False):
+            event.ignore()
+            self.hide()
+            if hasattr(self, 'tray_icon') and self.tray_icon.isVisible():
+                self.tray_icon.showMessage(
+                    "NovaCare Çalışıyor",
+                    "NovaCare arka planda sisteminizi korumaya devam ediyor.",
+                    QSystemTrayIcon.Information,
+                    2000
+                )
+            return
+
+        # Clean shutdown of worker threads
+        try:
+            if self.auto_check_thread and self.auto_check_thread.isRunning():
+                self.auto_check_thread.quit()
+                self.auto_check_thread.wait(300)
+            if self.auto_install_thread and self.auto_install_thread.isRunning():
+                self.auto_install_thread.quit()
+                self.auto_install_thread.wait(300)
+            if hasattr(self.view_memory, 'loader_worker') and self.view_memory.loader_worker and self.view_memory.loader_worker.isRunning():
+                self.view_memory.loader_worker.quit()
+                self.view_memory.loader_worker.wait(300)
+            if hasattr(self.view_uninstaller, 'scan_worker') and self.view_uninstaller.scan_worker and self.view_uninstaller.scan_worker.isRunning():
+                self.view_uninstaller.scan_worker.quit()
+                self.view_uninstaller.scan_worker.wait(300)
+        except Exception:
+            pass
+
+        event.accept()
