@@ -16,12 +16,22 @@ if sys.platform == 'win32':
     except Exception:
         pass
 
-TOKEN = "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"
-REPO = "GurpinarSG/NovaCare"
-BRANCH = "main"
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
+
+from core.config import ConfigManager
+
+cfg = ConfigManager()
+TOKEN = cfg.get_secure_token()
+REPO = cfg.get("github_repo", "GurpinarSG/NovaCare")
+BRANCH = cfg.get("target_branch", "main")
+
+if not TOKEN:
+    print("[!] UYARI: GitHub tokeni bulunamadı. Lütfen önce uygulamadan veya ayarlardan tokeninizi girin.")
 
 HEADERS = {
-    "Authorization": f"Bearer {TOKEN}",
+    "Authorization": f"Bearer {TOKEN}" if TOKEN else "",
     "Accept": "application/vnd.github.v3+json",
     "User-Agent": "NovaCare-Publisher"
 }

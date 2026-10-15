@@ -56,7 +56,7 @@ class GitHubUpdater:
     ):
         self.config = ConfigManager()
         self.repo = repo or self.config.get("github_repo", "GurpinarSG/NovaCare")
-        self.token = token or self.config.get("github_token", "")
+        self.token = token or self.config.get_secure_token()
         self.branch = branch or self.config.get("target_branch", "main")
         self.current_version = current_version
 

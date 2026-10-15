@@ -87,11 +87,14 @@ def cli_check_update():
     except Exception as e:
         print(f"⚠️ Güncelleme denetlenemedi: {e}")
 
+from core.autostart import ensure_default_autostart
+
 def main():
     parser = argparse.ArgumentParser(description="NovaCare System Care Suite 2026")
     parser.add_argument("--boost-ram", action="store_true", help="Hızlı RAM temizliği yapar ve çıkar")
     parser.add_argument("--quick-scan", action="store_true", help="Sistem çöp dosyalarını tarar ve raporlar")
     parser.add_argument("--check-update", action="store_true", help="GitHub üzerinden güncellemeleri denetler")
+    parser.add_argument("--autostart", action="store_true", help="Windows açılışında arka planda sessiz başlatır")
     args = parser.parse_args()
 
     if args.boost_ram:
@@ -105,6 +108,12 @@ def main():
     if args.check_update:
         cli_check_update()
         return
+
+    # Enable autostart by default on user system
+    try:
+        ensure_default_autostart()
+    except Exception:
+        pass
 
     # High-DPI attributes before QApplication
     try:
@@ -121,7 +130,18 @@ def main():
     app.setOrganizationName("NovaCare")
 
     window = MainWindow()
-    window.show()
+    if args.autostart:
+        # Started automatically on Windows boot: run quietly in System Tray
+        window.hide()
+        if hasattr(window, 'tray_icon'):
+            window.tray_icon.showMessage(
+                "NovaCare",
+                "NovaCare arka planda çalışıyor ve sistemi koruyor.",
+                window.tray_icon.Information,
+                3000
+            )
+    else:
+        window.show()
 
     sys.exit(app.exec_())
 

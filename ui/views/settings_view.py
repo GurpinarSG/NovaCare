@@ -12,6 +12,8 @@ from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from core.config import ConfigManager, CURRENT_VERSION
 from core.updater import GitHubUpdater, UpdateInfo
 from core.utils import format_bytes
+from core.security import mask_token
+from core.autostart import is_autostart_enabled, set_autostart
 from ui.styles import (
     BG_CARD, BORDER_COLOR, COLOR_ACCENT, COLOR_SUCCESS, COLOR_WARNING, COLOR_DANGER,
     TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED
@@ -160,9 +162,19 @@ class SettingsView(QWidget):
         lbl_token = QLabel("GitHub Erişim Belirteci (PAT):")
         lbl_token.setStyleSheet(f"color: {TEXT_SECONDARY}; font-weight: 600;")
 
-        self.txt_token = QLineEdit(self.config.get("github_token", ""))
+        cur_token = self.config.get_secure_token()
+        self.txt_token = QLineEdit()
         self.txt_token.setEchoMode(QLineEdit.Password)
         self.txt_token.setFixedWidth(260)
+
+        if cur_token:
+            self.txt_token.setPlaceholderText("•••••••• (Token Korumalı)")
+            status_text = f"🟢 Korumalı ({mask_token(cur_token)})"
+            status_color = COLOR_SUCCESS
+        else:
+            self.txt_token.setPlaceholderText("ghp_... belirtecinizi girin")
+            status_text = "⚪ Token Tanımlanmadı"
+            status_color = TEXT_MUTED
 
         self.btn_toggle_token = QPushButton("👁️")
         self.btn_toggle_token.setToolTip("Tokeni Göster / Gizle")
@@ -173,8 +185,8 @@ class SettingsView(QWidget):
         self.btn_save_token.setProperty("class", "secondary-btn")
         self.btn_save_token.clicked.connect(self._save_and_verify_token)
 
-        self.lbl_token_status = QLabel("🟢 Bağlı (GurpinarSG)" if self.config.get("github_token") else "⚪ Token Tanımlanmadı")
-        self.lbl_token_status.setStyleSheet(f"color: {COLOR_SUCCESS if self.config.get('github_token') else TEXT_MUTED}; font-weight: 600; font-size: 11px;")
+        self.lbl_token_status = QLabel(status_text)
+        self.lbl_token_status.setStyleSheet(f"color: {status_color}; font-weight: 600; font-size: 11px;")
 
         token_row.addWidget(lbl_token)
         token_row.addWidget(self.txt_token)
@@ -291,6 +303,11 @@ class SettingsView(QWidget):
         lbl_g_title.setStyleSheet("font-size: 16px; font-weight: 700;")
         g_layout.addWidget(lbl_g_title)
 
+        self.chk_autostart = QCheckBox("🚀  Windows başladığında NovaCare'i arka planda otomatik olarak çalıştır")
+        self.chk_autostart.setChecked(is_autostart_enabled())
+        self.chk_autostart.stateChanged.connect(lambda s: set_autostart(s == Qt.Checked))
+        g_layout.addWidget(self.chk_autostart)
+
         self.chk_auto_reg = QCheckBox("Kayıt defteri onarımları öncesinde her zaman otomatik geri yükleme yedeği al")
         self.chk_auto_reg.setChecked(self.config.get("auto_backup_registry", True))
         self.chk_auto_reg.stateChanged.connect(lambda s: self.config.set("auto_backup_registry", s == Qt.Checked))
@@ -326,25 +343,45 @@ class SettingsView(QWidget):
 
     def _save_and_verify_token(self):
         token = self.txt_token.text().strip()
-        self.config.set("github_token", token)
-        self.updater.token = token
 
         if not token:
-            self.lbl_token_status.setText("⚪ Token Temizlendi")
-            self.lbl_token_status.setStyleSheet(f"color: {TEXT_MUTED}; font-weight: 600; font-size: 11px;")
-            QMessageBox.information(self, "Token", "GitHub erişim belirteci kaldırıldı.")
+            cur = self.config.get_secure_token()
+            if cur:
+                confirm = QMessageBox.question(
+                    self,
+                    "Tokeni Kaldır",
+                    "Kayıtlı GitHub erişim belirteci kaldırılsın mı?",
+                    QMessageBox.Yes | QMessageBox.No
+                )
+                if confirm == QMessageBox.Yes:
+                    self.config.set_secure_token("")
+                    self.updater.token = ""
+                    self.txt_token.setPlaceholderText("ghp_... belirtecinizi girin")
+                    self.lbl_token_status.setText("⚪ Token Tanımlanmadı")
+                    self.lbl_token_status.setStyleSheet(f"color: {TEXT_MUTED}; font-weight: 600; font-size: 11px;")
+                    QMessageBox.information(self, "Kaldırıldı", "GitHub erişim belirteci güvenle kaldırıldı.")
             return
 
         self.btn_save_token.setEnabled(False)
         self.btn_save_token.setText("⏳ Doğrulanıyor...")
+        self.updater.token = token
         valid, result = self.updater.verify_token()
         self.btn_save_token.setEnabled(True)
         self.btn_save_token.setText("Tokeni Kaydet & Doğrula")
 
         if valid:
-            self.lbl_token_status.setText(f"🟢 Bağlı ({result})")
+            self.config.set_secure_token(token)
+            self.txt_token.clear()
+            self.txt_token.setPlaceholderText("•••••••• (Token Korumalı)")
+            self.lbl_token_status.setText(f"🟢 Korumalı ({mask_token(token)})")
             self.lbl_token_status.setStyleSheet(f"color: {COLOR_SUCCESS}; font-weight: 700; font-size: 11px;")
-            QMessageBox.information(self, "Token Doğrulandı", f"Tebrikler! GitHub belirteciniz doğrulandı.\n\nBağlı Hesap: @{result}\nÖzel depo ve 5.000 istek/saat erişim hakkı aktif.")
+            QMessageBox.information(
+                self,
+                "Token Doğrulandı ve Şifrelendi",
+                f"Tebrikler! GitHub belirteciniz doğrulandı ve Windows DPAPI ile şifrelendi.\n\n"
+                f"Bağlı Hesap: @{result}\n"
+                "Belirteç yalnızca sizin Windows oturumunuzda çözülebilir, başka bilgisayarlara kopyalanamaz."
+            )
         else:
             self.lbl_token_status.setText("🔴 Geçersiz Token")
             self.lbl_token_status.setStyleSheet(f"color: {COLOR_DANGER}; font-weight: 700; font-size: 11px;")
