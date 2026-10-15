@@ -8,6 +8,8 @@ import json
 CURRENT_VERSION = "1.0.0"
 DEFAULT_GITHUB_REPO = "GurpinarSG/NovaCare"
 DEFAULT_GITHUB_TOKEN = "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"
+DEFAULT_BRANCH = "main"
+DEFAULT_COMMIT_SHA = "5bd5429d05c3b0c31c924cb9708d0925e14ce40b"
 
 class ConfigManager:
     def __init__(self, config_dir: str | None = None):
@@ -25,6 +27,9 @@ class ConfigManager:
             "version": CURRENT_VERSION,
             "github_repo": DEFAULT_GITHUB_REPO,
             "github_token": DEFAULT_GITHUB_TOKEN,
+            "update_mode": "branch",       # "branch" (anında klasör/commit takibi) or "release"
+            "target_branch": DEFAULT_BRANCH,
+            "local_commit_sha": DEFAULT_COMMIT_SHA,
             "auto_check_updates": True,
             "notify_on_update": True,
             "last_update_check": "",

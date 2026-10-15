@@ -6,7 +6,7 @@ and 1-click update installation.
 import time
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QProgressBar,
-    QLineEdit, QCheckBox, QTextEdit, QMessageBox, QFrame, QScrollArea
+    QLineEdit, QCheckBox, QRadioButton, QButtonGroup, QTextEdit, QMessageBox, QFrame, QScrollArea
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from core.config import ConfigManager, CURRENT_VERSION
@@ -20,15 +20,16 @@ from ui.styles import (
 class CheckUpdateThread(QThread):
     finished = pyqtSignal(object) # UpdateInfo or Exception
 
-    def __init__(self, repo: str, token: str = ""):
+    def __init__(self, repo: str, token: str = "", mode: str = "branch"):
         super().__init__()
         self.repo = repo
         self.token = token
+        self.mode = mode
 
     def run(self):
         updater = GitHubUpdater(self.repo, token=self.token)
         try:
-            info = updater.check_for_updates()
+            info = updater.check_for_updates(mode=self.mode)
             self.finished.emit(info)
         except Exception as e:
             self.finished.emit(e)
@@ -37,15 +38,17 @@ class DownloadUpdateThread(QThread):
     progress = pyqtSignal(int, int) # downloaded, total
     finished = pyqtSignal(str)      # batch_path or error
 
-    def __init__(self, updater: GitHubUpdater, download_url: str):
+    def __init__(self, updater: GitHubUpdater, download_url: str, new_commit_sha: str = ""):
         super().__init__()
         self.updater = updater
         self.download_url = download_url
+        self.new_commit_sha = new_commit_sha
 
     def run(self):
         try:
             batch_path = self.updater.download_and_prepare_update(
                 self.download_url,
+                new_commit_sha=self.new_commit_sha,
                 progress_callback=lambda d, t: self.progress.emit(d, t)
             )
             self.finished.emit(batch_path)
@@ -180,6 +183,28 @@ class SettingsView(QWidget):
         token_row.addWidget(self.lbl_token_status)
         token_row.addStretch()
         u_layout.addLayout(token_row)
+
+        # Update Mode Selector Box
+        mode_box = QFrame()
+        mode_box.setStyleSheet(f"background-color: rgba(0, 210, 255, 0.05); border: 1px solid {BORDER_COLOR}; border-radius: 8px; padding: 10px 14px;")
+        m_lay = QVBoxLayout(mode_box)
+        m_lay.setSpacing(6)
+        lbl_mode_head = QLabel("🎯  <b>Güncelleme Algılama Yöntemi:</b>")
+        lbl_mode_head.setStyleSheet(f"color: {COLOR_ACCENT}; font-size: 13px;")
+        m_lay.addWidget(lbl_mode_head)
+
+        self.radio_mode_branch = QRadioButton("⚡  <b>Anında Klasör/Dal Takibi (Önerilen)</b> — GitHub'da dosya düzenlendiğinde veya yüklendiğinde anında algılar.")
+        self.radio_mode_release = QRadioButton("🏷️  <b>Resmi Sürüm Takibi</b> — Yalnızca GitHub Releases altında resmi sürüm (v1.0.1 vb.) yayınlandığında günceller.")
+
+        is_branch = (self.config.get("update_mode", "branch") == "branch")
+        self.radio_mode_branch.setChecked(is_branch)
+        self.radio_mode_release.setChecked(not is_branch)
+
+        self.radio_mode_branch.toggled.connect(lambda checked: self.config.set("update_mode", "branch" if checked else "release"))
+
+        m_lay.addWidget(self.radio_mode_branch)
+        m_lay.addWidget(self.radio_mode_release)
+        u_layout.addWidget(mode_box)
 
         # Automatic update toggles
         self.chk_auto = QCheckBox("Uygulama açılışında güncellemeleri otomatik olarak denetle")
@@ -333,7 +358,8 @@ class SettingsView(QWidget):
 
         repo = self.txt_repo.text().strip()
         token = self.txt_token.text().strip()
-        self.check_thread = CheckUpdateThread(repo, token=token)
+        mode = "branch" if self.radio_mode_branch.isChecked() else "release"
+        self.check_thread = CheckUpdateThread(repo, token=token, mode=mode)
         self.check_thread.finished.connect(self._on_check_finished)
         self.check_thread.start()
 
@@ -362,7 +388,7 @@ class SettingsView(QWidget):
         self.latest_update_info = info
 
         if info.available:
-            self.lbl_status_badge.setText(f"🟡  Yeni Sürüm Mevcut (v{info.latest_version})")
+            self.lbl_status_badge.setText(f"🟡  Yeni Güncelleme Mevcut ({info.latest_version})")
             self.lbl_status_badge.setStyleSheet(f"""
                 background-color: rgba(245, 158, 11, 0.15);
                 color: {COLOR_WARNING};
@@ -372,18 +398,18 @@ class SettingsView(QWidget):
             """)
 
             # Populate new version card
-            sz_str = format_bytes(info.download_size) if info.download_size > 0 else "Otomatik Arşiv"
-            self.lbl_nv_details.setText(f"<b>Başlık:</b> {info.release_title}  |  <b>Yayın Tarihi:</b> {info.published_at}  |  <b>Boyut:</b> {sz_str}")
+            sz_str = format_bytes(info.download_size) if info.download_size > 0 else "Otomatik Arşiv (Zipball)"
+            self.lbl_nv_details.setText(f"<b>Başlık:</b> {info.release_title}  |  <b>Tarih:</b> {info.published_at}  |  <b>Boyut:</b> {sz_str}")
             self.txt_changelog.setPlainText(info.changelog)
             self.panel_new_version.setVisible(True)
 
             QMessageBox.information(
                 self,
-                "Yeni Sürüm Mevcut!",
-                f"Tebrikler! NovaCare için yeni bir sürüm bulundu:\n\n"
-                f"• Yeni Sürüm: v{info.latest_version}\n"
-                f"• Mevcut Sürüm: v{info.current_version}\n\n"
-                f"Aşağıdaki 'Şimdi İndir ve Güncellemeyi Yükle' butonuna tıklayarak doğrudan güncelleyebilirsiniz."
+                "Yeni Değişiklikler Bulundu!",
+                f"GitHub üzerinde yeni güncellemeler tespit edildi:\n\n"
+                f"• Değişiklik/Sürüm: {info.latest_version}\n"
+                f"• Başlık: {info.release_title}\n\n"
+                f"Aşağıdaki 'Şimdi İndir ve Güncellemeyi Yükle' butonuna tıklayarak doğrudan uygulayabilirsiniz."
             )
         else:
             self.lbl_status_badge.setText("🟢  Sürümünüz Güncel")
@@ -398,7 +424,7 @@ class SettingsView(QWidget):
             QMessageBox.information(
                 self,
                 "Sisteminiz Güncel",
-                f"Tebrikler! En son NovaCare sürümünü (v{CURRENT_VERSION}) kullanıyorsunuz. Herhangi bir güncelleme bulunamadı."
+                f"Tebrikler! GitHub deposundaki en güncel sürüm ({info.latest_version}) bilgisayarınızda yüklü."
             )
 
     def _download_and_install(self):
@@ -409,7 +435,7 @@ class SettingsView(QWidget):
         confirm = QMessageBox.question(
             self,
             "Güncellemeyi Başlat",
-            f"NovaCare v{self.latest_update_info.latest_version} indirilecek ve sisteminize kurulacaktır.\n"
+            f"NovaCare ({self.latest_update_info.latest_version}) paketi indirilip kurulacaktır.\n"
             "İşlem bittiğinde uygulama otomatik olarak yeniden başlatılacak. Devam edilsin mi?",
             QMessageBox.Yes | QMessageBox.No
         )
@@ -422,7 +448,12 @@ class SettingsView(QWidget):
         self.progress_download.setValue(0)
         self.lbl_download_status.setText("Güncelleme paketi GitHub üzerinden indiriliyor...")
 
-        self.download_thread = DownloadUpdateThread(self.updater, self.latest_update_info.download_url)
+        new_sha = self.latest_update_info.new_commit_sha or ""
+        self.download_thread = DownloadUpdateThread(
+            self.updater,
+            self.latest_update_info.download_url,
+            new_commit_sha=new_sha
+        )
         self.download_thread.progress.connect(self._on_download_progress)
         self.download_thread.finished.connect(self._on_download_finished)
         self.download_thread.start()

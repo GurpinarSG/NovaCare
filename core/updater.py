@@ -1,7 +1,10 @@
 """
 NovaCare System Suite - GitHub Automatic & Manual Updater
-Checks GitHub Releases for new versions, downloads assets/zipballs, and applies updates safely.
-Supports Personal Access Tokens (PAT) for private repositories and higher rate limits.
+Supports two update modes:
+1. Branch Tracking (Klasör/Dal Takibi - Önerilen): Checks GitHub commits on 'main'. Whenever you edit
+   or upload files to the GitHub repository, it immediately detects it and updates automatically without
+   requiring manual release tags.
+2. Release Tracking: Tracks formal GitHub Release tags (v1.0.0, etc.).
 """
 import os
 import sys
@@ -26,9 +29,9 @@ class UpdateInfo:
     download_size: int
     published_at: str
     is_prerelease: bool = False
+    new_commit_sha: str = ""
 
 def parse_version_tuple(v_str: str) -> tuple[int, ...]:
-    """Extract integer version components from string (e.g. 'v1.2.3' -> (1, 2, 3))."""
     cleaned = re.sub(r'^[vV]', '', v_str.strip())
     parts = re.findall(r'\d+', cleaned)
     if not parts:
@@ -36,7 +39,6 @@ def parse_version_tuple(v_str: str) -> tuple[int, ...]:
     return tuple(int(p) for p in parts)
 
 def is_newer_version(latest_str: str, current_str: str) -> bool:
-    """Returns True if latest_str is strictly newer than current_str."""
     v_latest = parse_version_tuple(latest_str)
     v_curr = parse_version_tuple(current_str)
     max_len = max(len(v_latest), len(v_curr))
@@ -49,13 +51,14 @@ class GitHubUpdater:
         self,
         repo: Optional[str] = None,
         token: Optional[str] = None,
+        branch: Optional[str] = None,
         current_version: str = CURRENT_VERSION
     ):
         self.config = ConfigManager()
         self.repo = repo or self.config.get("github_repo", "GurpinarSG/NovaCare")
         self.token = token or self.config.get("github_token", "")
+        self.branch = branch or self.config.get("target_branch", "main")
         self.current_version = current_version
-        self.api_url = f"https://api.github.com/repos/{self.repo}/releases/latest"
 
     def _get_headers(self, accept: str = "application/vnd.github.v3+json") -> dict:
         headers = {
@@ -80,13 +83,83 @@ class GitHubUpdater:
         except Exception as e:
             return False, str(e)
 
-    def check_for_updates(self) -> UpdateInfo:
+    def check_for_updates(self, mode: Optional[str] = None) -> UpdateInfo:
         """
-        Queries GitHub API for the latest release.
-        Returns UpdateInfo dataclass.
+        Checks for updates according to mode ('branch' for commit tracking or 'release').
+        Default mode is read from config.
         """
+        current_mode = mode or self.config.get("update_mode", "branch")
+        if current_mode == "branch":
+            return self._check_branch_commits()
+        else:
+            return self._check_releases()
+
+    def _check_branch_commits(self) -> UpdateInfo:
+        """
+        Inspects the latest commit on the repository branch (e.g. 'main').
+        Whenever you push or edit files directly on GitHub, this detects it instantly!
+        """
+        commits_url = f"https://api.github.com/repos/{self.repo}/commits/{self.branch}"
+        local_sha = self.config.get("local_commit_sha", "")
+
         try:
-            resp = requests.get(self.api_url, headers=self._get_headers(), timeout=10)
+            resp = requests.get(commits_url, headers=self._get_headers(), timeout=10)
+            if resp.status_code == 200:
+                data = resp.json()
+                remote_sha = data.get("sha", "")
+                commit_info = data.get("commit", {})
+                commit_msg = commit_info.get("message", "GitHub güncellemesi").strip()
+                commit_date = commit_info.get("author", {}).get("date", "")[:10]
+                short_sha = remote_sha[:7]
+
+                # If local_sha is unset, initialize it with current remote sha
+                if not local_sha:
+                    self.config.set("local_commit_sha", remote_sha)
+                    local_sha = remote_sha
+
+                available = (remote_sha != local_sha) and bool(remote_sha)
+
+                download_url = f"https://api.github.com/repos/{self.repo}/zipball/{self.branch}"
+
+                if available:
+                    title = f"GitHub Depo Değişikliği ({short_sha})"
+                    changelog = (
+                        f"GitHub deposundaki klasörde yeni değişiklikler tespit edildi!\n\n"
+                        f"• Son Commit: {short_sha}\n"
+                        f"• Değişiklik Mesajı: {commit_msg}\n"
+                        f"• Tarih: {commit_date}\n\n"
+                        "Güncellemeyi yükleyerek en son kodları doğrudan uygulayabilirsiniz."
+                    )
+                else:
+                    title = "Depo ile Senkronize"
+                    changelog = f"GitHub deposundaki en güncel commit ({short_sha}) bilgisayarınızda yüklü."
+
+                return UpdateInfo(
+                    available=available,
+                    current_version=f"{local_sha[:7]}",
+                    latest_version=f"{short_sha}",
+                    release_title=title,
+                    changelog=changelog,
+                    download_url=download_url,
+                    download_size=0,
+                    published_at=commit_date,
+                    new_commit_sha=remote_sha
+                )
+            elif resp.status_code == 404:
+                # If branch not found, fallback to releases
+                return self._check_releases()
+            elif resp.status_code == 401:
+                raise RuntimeError("GitHub Yetkilendirme Hatası: Token geçersiz veya süresi dolmuş.")
+            else:
+                raise RuntimeError(f"GitHub API Hatası ({resp.status_code}): {resp.text[:120]}")
+        except requests.RequestException as e:
+            raise RuntimeError(f"GitHub sunucusuna bağlanılamadı: {e}")
+
+    def _check_releases(self) -> UpdateInfo:
+        """Traditional GitHub Release tag inspector."""
+        api_url = f"https://api.github.com/repos/{self.repo}/releases/latest"
+        try:
+            resp = requests.get(api_url, headers=self._get_headers(), timeout=10)
             if resp.status_code == 200:
                 data = resp.json()
                 tag_name = data.get("tag_name", "0.0.0")
@@ -96,7 +169,6 @@ class GitHubUpdater:
                 published = data.get("published_at", "")[:10]
                 is_pre = data.get("prerelease", False)
 
-                # Look for release asset zip
                 download_url = ""
                 download_size = 0
 
@@ -107,7 +179,6 @@ class GitHubUpdater:
                         download_size = asset.get("size", 0)
                         break
 
-                # Fallback to source zipball if no custom asset
                 if not download_url:
                     download_url = data.get("zipball_url", "")
 
@@ -125,54 +196,16 @@ class GitHubUpdater:
                     is_prerelease=is_pre
                 )
             elif resp.status_code == 404:
-                # No official release found, try tags fallback
-                return self._check_tags_fallback()
-            elif resp.status_code == 401:
-                raise RuntimeError("GitHub Yetkilendirme Hatası: Token geçersiz veya süresi dolmuş.")
+                return self._check_branch_commits()
             else:
-                raise RuntimeError(f"GitHub API Hatası ({resp.status_code}): {resp.text[:120]}")
+                raise RuntimeError(f"GitHub API Hatası ({resp.status_code})")
         except requests.RequestException as e:
             raise RuntimeError(f"GitHub sunucusuna bağlanılamadı: {e}")
-
-    def _check_tags_fallback(self) -> UpdateInfo:
-        """Fallback to /tags endpoint if no formal release is published yet."""
-        tags_url = f"https://api.github.com/repos/{self.repo}/tags"
-        try:
-            resp = requests.get(tags_url, headers=self._get_headers(), timeout=10)
-            if resp.status_code == 200:
-                tags = resp.json()
-                if tags and isinstance(tags, list):
-                    latest_tag = tags[0].get("name", "0.0.0")
-                    clean_ver = latest_tag.lstrip("vV")
-                    zipball = tags[0].get("zipball_url", "")
-                    avail = is_newer_version(clean_ver, self.current_version)
-                    return UpdateInfo(
-                        available=avail,
-                        current_version=self.current_version,
-                        latest_version=clean_ver,
-                        release_title=f"NovaCare {latest_tag}",
-                        changelog="GitHub üzerinden yeni sürüm etiketi bulundu.",
-                        download_url=zipball,
-                        download_size=0,
-                        published_at="En Son Sürüm"
-                    )
-        except Exception:
-            pass
-
-        return UpdateInfo(
-            available=False,
-            current_version=self.current_version,
-            latest_version=self.current_version,
-            release_title="Güncel",
-            changelog="Depoda yeni bir sürüm veya etiket bulunamadı.",
-            download_url="",
-            download_size=0,
-            published_at=""
-        )
 
     def download_and_prepare_update(
         self,
         download_url: str,
+        new_commit_sha: str = "",
         progress_callback: Optional[Callable[[int, int], None]] = None
     ) -> str:
         """
@@ -188,9 +221,7 @@ class GitHubUpdater:
         extracted_dir = os.path.join(temp_dir, 'extracted')
         os.makedirs(extracted_dir, exist_ok=True)
 
-        # Download with requests stream
         headers = self._get_headers()
-        # If download_url points to GitHub API asset, accept octet-stream
         if "api.github.com/repos/" in download_url and "/releases/assets/" in download_url:
             headers["Accept"] = "application/octet-stream"
 
@@ -220,6 +251,10 @@ class GitHubUpdater:
             inner_dir = os.path.join(extracted_dir, items[0])
             if any(os.path.exists(os.path.join(inner_dir, f)) for f in ('main.py', 'core', 'ui')):
                 source_dir = inner_dir
+
+        # If we updated to a new commit sha, save it to local settings now
+        if new_commit_sha:
+            self.config.set("local_commit_sha", new_commit_sha)
 
         # Create apply_update.bat
         app_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
