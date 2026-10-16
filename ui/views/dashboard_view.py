@@ -161,10 +161,10 @@ class DashboardView(QWidget):
         self.card_ram = StatCard("🧠", "Bellek (RAM)", "0%", "0.0 / 0.0 GB")
         self.card_junk = StatCard("🗑️", "Gereksiz Dosya", "Taranmadı", "Temizlik Bekliyor")
 
-        stats_layout.addWidget(self.card_cpu)
-        stats_layout.addWidget(self.card_gpu)
-        stats_layout.addWidget(self.card_ram)
-        stats_layout.addWidget(self.card_junk)
+        stats_layout.addWidget(self.card_cpu, 1)
+        stats_layout.addWidget(self.card_gpu, 1)
+        stats_layout.addWidget(self.card_ram, 1)
+        stats_layout.addWidget(self.card_junk, 1)
         main_layout.addLayout(stats_layout)
 
         # 2. Game Mode & Ultimate Performance Banner Card
@@ -173,6 +173,7 @@ class DashboardView(QWidget):
         g_layout = QHBoxLayout(game_card)
         g_layout.setContentsMargins(18, 12, 18, 12)
         g_layout.setSpacing(14)
+        g_layout.setAlignment(Qt.AlignVCenter)
 
         g_icon = QLabel("🎮")
         g_icon.setStyleSheet("font-size: 26px;")
@@ -201,7 +202,7 @@ class DashboardView(QWidget):
         # Game Mode Toggle Button
         self.btn_game_mode = QPushButton("🎮  Oyun Modunu Başlat")
         self.btn_game_mode.setCursor(Qt.PointingHandCursor)
-        self.btn_game_mode.setStyleSheet("padding: 8px 18px; font-size: 12px; font-weight: 700; background-color: #059669; color: #FFFFFF; border-radius: 6px;")
+        self.btn_game_mode.setStyleSheet("padding: 8px 18px; font-size: 12px; font-weight: 700; background-color: #047857; color: #FFFFFF; border: 1px solid #10B981; border-radius: 6px;")
         self.btn_game_mode.clicked.connect(self._toggle_game_mode)
         g_layout.addWidget(self.btn_game_mode)
 
@@ -212,25 +213,29 @@ class DashboardView(QWidget):
         center_card = QFrame()
         center_card.setObjectName("CenterCard")
         center_layout = QVBoxLayout(center_card)
-        center_layout.setContentsMargins(20, 14, 20, 14)
-        center_layout.setSpacing(10)
-        center_layout.setAlignment(Qt.AlignCenter)
+        center_layout.setContentsMargins(20, 16, 20, 16)
+        center_layout.setSpacing(12)
 
         self.gauge = CircularHealthGauge()
         center_layout.addWidget(self.gauge, alignment=Qt.AlignCenter)
 
         # Status text
         self.lbl_status = QLabel("Tek tıkla tam sistem taraması yaparak bilgisayarınızı hızlandırın.")
-        self.lbl_status.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 13px;")
+        self.lbl_status.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 13px; font-weight: 500;")
         self.lbl_status.setAlignment(Qt.AlignCenter)
         self.lbl_status.setWordWrap(True)
+        self.lbl_status.setMinimumHeight(36)
         center_layout.addWidget(self.lbl_status)
 
-        # Progress bar
+        # Progress bar container for stable width
+        pbar_container = QHBoxLayout()
+        pbar_container.setAlignment(Qt.AlignCenter)
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
-        self.progress_bar.setFixedHeight(10)
-        center_layout.addWidget(self.progress_bar)
+        self.progress_bar.setFixedHeight(8)
+        self.progress_bar.setFixedWidth(380)
+        pbar_container.addWidget(self.progress_bar)
+        center_layout.addLayout(pbar_container)
 
         # Big Button (Scan / Fix)
         btn_layout = QHBoxLayout()
@@ -238,6 +243,8 @@ class DashboardView(QWidget):
         self.btn_action = QPushButton("🚀  TEK TIKLA SİSTEMİ TARA")
         self.btn_action.setObjectName("BigScanBtn")
         self.btn_action.setCursor(Qt.PointingHandCursor)
+        self.btn_action.setFixedWidth(380)
+        self.btn_action.setFixedHeight(52)
         self.btn_action.clicked.connect(self._handle_action_click)
         btn_layout.addWidget(self.btn_action)
         center_layout.addLayout(btn_layout)
@@ -248,8 +255,10 @@ class DashboardView(QWidget):
         self.breakdown_frame = QFrame()
         self.breakdown_frame.setObjectName("CardFrame")
         grid = QGridLayout(self.breakdown_frame)
-        grid.setContentsMargins(18, 12, 18, 12)
+        grid.setContentsMargins(20, 14, 20, 14)
         grid.setSpacing(12)
+        grid.setColumnStretch(0, 1)
+        grid.setColumnStretch(1, 1)
 
         self.lbl_item_junk = QLabel("🗑️  Gereksiz Dosyalar & Önbellek: <b>Taranmadı</b>")
         self.lbl_item_reg = QLabel("🛠️  Kayıt Defteri Sorunları: <b>Taranmadı</b>")
@@ -285,11 +294,11 @@ class DashboardView(QWidget):
     def _sync_game_mode_ui(self):
         if self.game_booster.is_active():
             self.btn_game_mode.setText("↩️  Normale Döndür")
-            self.btn_game_mode.setStyleSheet("padding: 8px 18px; font-size: 12px; font-weight: 700; background-color: #D97706; color: #FFFFFF; border-radius: 6px;")
+            self.btn_game_mode.setStyleSheet("padding: 8px 18px; font-size: 12px; font-weight: 700; background-color: #B45309; color: #FFFFFF; border: 1px solid #F59E0B; border-radius: 6px;")
             self.lbl_g_sub.setText("Oyun Modu AKTİF: Nihai Performans Güç Planı etkin, arka plan servisleri durduruldu.")
         else:
             self.btn_game_mode.setText("🎮  Oyun Modunu Başlat")
-            self.btn_game_mode.setStyleSheet("padding: 8px 18px; font-size: 12px; font-weight: 700; background-color: #059669; color: #FFFFFF; border-radius: 6px;")
+            self.btn_game_mode.setStyleSheet("padding: 8px 18px; font-size: 12px; font-weight: 700; background-color: #047857; color: #FFFFFF; border: 1px solid #10B981; border-radius: 6px;")
             self.lbl_g_sub.setText("Arka plan gereksiz servislerini durdurur ve güç planını 'Nihai Performans' moduna alır.")
 
     def _toggle_game_mode(self):
@@ -400,7 +409,9 @@ class DashboardView(QWidget):
 
         self.btn_action.setText("✨  ŞİMDİ SİSTEMİ ONAR VE HIZLANDIR")
         self.btn_action.setObjectName("BigFixBtn")
-        self.btn_action.setStyle(self.btn_action.style())
+        self.btn_action.style().unpolish(self.btn_action)
+        self.btn_action.style().polish(self.btn_action)
+        self.btn_action.update()
 
     def _start_fix(self):
         self.btn_action.setEnabled(False)
@@ -421,10 +432,10 @@ class DashboardView(QWidget):
         freed_str = format_bytes(freed_bytes)
         self.card_junk.set_value("0 B", "Temizlendi")
 
-        self.lbl_item_junk.setText("🗑️  Gereksiz Dosyalar & Önbellek: <b style='color:#10B981;'>Temizlendi ✔</b>")
-        self.lbl_item_reg.setText(f"🛠️  Kayıt Defteri Sorunları: <b style='color:#10B981;'>{reg_fixed} Sorun Onarıldı ✔</b>")
-        self.lbl_item_privacy.setText(f"🛡️  Gizlilik & İz Kayıtları: <b style='color:#10B981;'>{traces_cleaned} İz Silindi ✔</b>")
-        self.lbl_item_startup.setText("🚀  Sistem Belleği & Performans: <b style='color:#10B981;'>Optimize Edildi ✔</b>")
+        self.lbl_item_junk.setText(f"🗑️  Gereksiz Dosyalar & Önbellek: <b style='color:{COLOR_SUCCESS};'>Temizlendi ✔</b>")
+        self.lbl_item_reg.setText(f"🛠️  Kayıt Defteri Sorunları: <b style='color:{COLOR_SUCCESS};'>{reg_fixed} Sorun Onarıldı ✔</b>")
+        self.lbl_item_privacy.setText(f"🛡️  Gizlilik & İz Kayıtları: <b style='color:{COLOR_SUCCESS};'>{traces_cleaned} İz Silindi ✔</b>")
+        self.lbl_item_startup.setText(f"🚀  Sistem Belleği & Performans: <b style='color:{COLOR_SUCCESS};'>Optimize Edildi ✔</b>")
 
         has_admin = is_admin()
         admin_note = (
@@ -436,4 +447,6 @@ class DashboardView(QWidget):
 
         self.btn_action.setText("🚀  TEK TIKLA SİSTEMİ TARA")
         self.btn_action.setObjectName("BigScanBtn")
-        self.btn_action.setStyle(self.btn_action.style())
+        self.btn_action.style().unpolish(self.btn_action)
+        self.btn_action.style().polish(self.btn_action)
+        self.btn_action.update()

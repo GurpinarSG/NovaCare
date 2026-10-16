@@ -20,8 +20,7 @@ class CircularHealthGauge(QWidget):
         self._score = 100
         self._display_score = 100
         self.status_text = "Sistem Durumu: Mükemmel"
-        self.setMinimumSize(185, 185)
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.setFixedSize(220, 205)
 
     @pyqtProperty(int)
     def score(self):
@@ -51,10 +50,10 @@ class CircularHealthGauge(QWidget):
 
         width = self.width()
         height = self.height()
-        size = min(width, height) - 30
+        size = min(width, height) - 24
 
         center_x = width / 2.0
-        center_y = height / 2.0
+        center_y = (height - 8) / 2.0
         rect = QRectF(center_x - size / 2.0, center_y - size / 2.0, size, size)
 
         # 1. Background Track Arc (270 degrees sweep starting from 135 deg)
@@ -80,25 +79,25 @@ class CircularHealthGauge(QWidget):
         font_score = QFont("Segoe UI", 36, QFont.Bold)
         painter.setFont(font_score)
         painter.drawText(
-            QRectF(center_x - 70, center_y - 45, 140, 50),
+            QRectF(0, center_y - 48, width, 50),
             Qt.AlignCenter,
             f"{self._score}"
         )
 
-        font_unit = QFont("Segoe UI", 11, QFont.DemiBold)
+        font_unit = QFont("Segoe UI", 10, QFont.Bold)
         painter.setFont(font_unit)
         painter.setPen(QColor(p["TEXT_SECONDARY"]))
         painter.drawText(
-            QRectF(center_x - 70, center_y + 2, 140, 22),
+            QRectF(0, center_y + 4, width, 20),
             Qt.AlignCenter,
             "SAĞLIK SKORU"
         )
 
-        font_status = QFont("Segoe UI", 10, QFont.Normal)
+        font_status = QFont("Segoe UI", 10, QFont.DemiBold)
         painter.setFont(font_status)
         painter.setPen(arc_color)
         painter.drawText(
-            QRectF(center_x - 120, center_y + 24, 240, 24),
+            QRectF(0, center_y + 26, width, 24),
             Qt.AlignCenter,
             self.status_text
         )
@@ -108,27 +107,31 @@ class StatCard(QFrame):
     def __init__(self, icon: str, title: str, initial_value: str = "-", subtitle: str = "", parent=None):
         super().__init__(parent)
         self.setObjectName("StatCard")
+        self.setMinimumHeight(108)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
+        p = get_active_theme_colors()
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(14, 12, 14, 12)
+        layout.setContentsMargins(16, 12, 16, 12)
         layout.setSpacing(4)
 
         top_row = QHBoxLayout()
         self.icon_lbl = QLabel(icon)
         self.icon_lbl.setStyleSheet("font-size: 20px;")
         self.title_lbl = QLabel(title)
-        self.title_lbl.setStyleSheet("font-size: 12px; font-weight: 600;")
+        self.title_lbl.setObjectName("StatTitle")
         top_row.addWidget(self.icon_lbl)
         top_row.addWidget(self.title_lbl)
         top_row.addStretch()
         layout.addLayout(top_row)
 
         self.value_lbl = QLabel(initial_value)
-        self.value_lbl.setStyleSheet("font-size: 22px; font-weight: 800;")
+        self.value_lbl.setObjectName("StatValue")
         layout.addWidget(self.value_lbl)
 
         self.sub_lbl = QLabel(subtitle)
-        self.sub_lbl.setStyleSheet("font-size: 11px;")
+        self.sub_lbl.setObjectName("StatSub")
         self.sub_lbl.setWordWrap(True)
         layout.addWidget(self.sub_lbl)
 

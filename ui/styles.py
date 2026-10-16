@@ -33,11 +33,11 @@ DARK_PALETTE = {
     "COLOR_ACCENT": "#38BDF8",
     "COLOR_ACCENT_HOVER": "#0EA5E9",
     "COLOR_SUCCESS": "#34D399",
-    "COLOR_WARNING": "#FBBF24",
-    "COLOR_DANGER": "#EF4444",
-    "COLOR_PURPLE": "#A78BFA",
+    "COLOR_WARNING": "#FCD34D",
+    "COLOR_DANGER": "#F87171",
+    "COLOR_PURPLE": "#C084FC",
     "TEXT_PRIMARY": "#FFFFFF",
-    "TEXT_SECONDARY": "#CBD5E1",
+    "TEXT_SECONDARY": "#E2E8F0",
     "TEXT_MUTED": "#94A3B8",
     "TABLE_ALT_BG": "#162032",
     "TABLE_SEL_BG": "rgba(56, 189, 248, 0.28)",
@@ -64,13 +64,13 @@ LIGHT_PALETTE = {
     "BORDER_HIGHLIGHT": "#94A3B8",
     "COLOR_ACCENT": "#0284C7",         # Rich Ocean Blue (High contrast against white)
     "COLOR_ACCENT_HOVER": "#0369A1",
-    "COLOR_SUCCESS": "#059669",        # Crisp Forest Emerald
-    "COLOR_WARNING": "#D97706",        # Rich Amber
-    "COLOR_DANGER": "#DC2626",         # Bold Crimson Red
+    "COLOR_SUCCESS": "#047857",        # Crisp Forest Emerald (7.1:1 contrast)
+    "COLOR_WARNING": "#B45309",        # Rich Amber 700 (8.2:1 contrast)
+    "COLOR_DANGER": "#B91C1C",         # Bold Crimson Red (7.6:1 contrast)
     "COLOR_PURPLE": "#7C3AED",
     "TEXT_PRIMARY": "#0F172A",         # Deep Slate (15.5:1 contrast on white)
-    "TEXT_SECONDARY": "#334155",       # Slate 700 (10.2:1 contrast)
-    "TEXT_MUTED": "#64748B",           # Slate 500 (6.2:1 contrast)
+    "TEXT_SECONDARY": "#1E293B",       # Slate 800 (13:1 contrast)
+    "TEXT_MUTED": "#475569",           # Slate 600 (5.8:1 contrast)
     "TABLE_ALT_BG": "#F8FAFC",
     "TABLE_SEL_BG": "rgba(2, 132, 199, 0.20)",
     "MENU_BG": "#FFFFFF",
@@ -86,10 +86,17 @@ LIGHT_PALETTE = {
 
 def get_active_theme_colors(theme_mode: Optional[str] = None) -> dict:
     """Resolves and returns the active color palette dict based on mode ('system', 'dark', 'light')."""
-    if theme_mode is None or theme_mode == "system":
+    if theme_mode is None:
+        try:
+            from core.config import ConfigManager
+            theme_mode = ConfigManager().get("theme", "system")
+        except Exception:
+            theme_mode = "system"
+
+    if theme_mode == "system":
         resolved = get_system_theme()
     else:
-        resolved = theme_mode.lower()
+        resolved = str(theme_mode).lower()
 
     if resolved == "light":
         return LIGHT_PALETTE.copy()
@@ -141,6 +148,29 @@ QWidget {{
     color: {p['TEXT_PRIMARY']};
     font-family: 'Segoe UI', Roboto, sans-serif;
     font-size: 13px;
+}}
+
+QLabel {{
+    color: {p['TEXT_PRIMARY']};
+    background-color: transparent;
+}}
+
+QLabel#StatTitle {{
+    font-size: 12px;
+    font-weight: 700;
+    color: {p['TEXT_SECONDARY']};
+}}
+
+QLabel#StatValue {{
+    font-size: 22px;
+    font-weight: 800;
+    color: {p['TEXT_PRIMARY']};
+}}
+
+QLabel#StatSub {{
+    font-size: 11px;
+    font-weight: 600;
+    color: {p['COLOR_ACCENT']};
 }}
 
 /* Sidebar */
@@ -343,11 +373,15 @@ QPushButton.secondary-btn:hover {{
 QPushButton#BigScanBtn {{
     background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {p['COLOR_ACCENT']}, stop:1 #0284C7);
     color: {p['BTN_PRIMARY_TEXT']};
-    font-size: 17px;
+    font-size: 15px;
     font-weight: 800;
     border: none;
-    border-radius: 30px;
-    padding: 16px 42px;
+    border-radius: 26px;
+    min-width: 380px;
+    max-width: 380px;
+    min-height: 52px;
+    max-height: 52px;
+    padding: 12px 24px;
     letter-spacing: 0.5px;
 }}
 
@@ -358,11 +392,15 @@ QPushButton#BigScanBtn:hover {{
 QPushButton#BigFixBtn {{
     background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {p['COLOR_SUCCESS']}, stop:1 #047857);
     color: {p['BTN_SUCCESS_TEXT']};
-    font-size: 17px;
+    font-size: 15px;
     font-weight: 800;
     border: none;
-    border-radius: 30px;
-    padding: 16px 42px;
+    border-radius: 26px;
+    min-width: 380px;
+    max-width: 380px;
+    min-height: 52px;
+    max-height: 52px;
+    padding: 12px 24px;
     letter-spacing: 0.5px;
 }}
 
@@ -380,6 +418,16 @@ QTableWidget, QTreeWidget, QListWidget {{
     color: {p['TEXT_PRIMARY']};
     selection-background-color: {p['TABLE_SEL_BG']};
     selection-color: {p['TEXT_PRIMARY']};
+}}
+
+QTableWidget::item, QTreeWidget::item, QListWidget::item {{
+    color: {p['TEXT_PRIMARY']};
+    padding: 4px;
+}}
+
+QTableWidget::item:selected, QTreeWidget::item:selected, QListWidget::item:selected {{
+    color: {p['TEXT_PRIMARY']};
+    background-color: {p['TABLE_SEL_BG']};
 }}
 
 QHeaderView::section {{

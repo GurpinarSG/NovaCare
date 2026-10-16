@@ -90,7 +90,7 @@ class RegistryCleaner:
             try:
                 root = self._get_root_key(root_name)
                 with winreg.OpenKey(root, sub, 0, winreg.KEY_READ) as key:
-                    count, _, _ = winreg.QueryInfoKey(key)
+                    _, count, _ = winreg.QueryInfoKey(key)
                     for i in range(count):
                         try:
                             val_name, val_data, val_type = winreg.EnumValue(key, i)
@@ -154,7 +154,7 @@ class RegistryCleaner:
         sub = r"Software\Microsoft\Windows\CurrentVersion\SharedDLLs"
         try:
             with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, sub, 0, winreg.KEY_READ) as key:
-                count, _, _ = winreg.QueryInfoKey(key)
+                _, count, _ = winreg.QueryInfoKey(key)
                 for i in range(min(count, 500)):
                     try:
                         val_name, val_data, val_type = winreg.EnumValue(key, i)
@@ -226,7 +226,7 @@ class RegistryCleaner:
                         progid_sub = f"{sub}\\{ext_name}\\OpenWithProgids"
                         try:
                             with winreg.OpenKey(winreg.HKEY_CURRENT_USER, progid_sub, 0, winreg.KEY_READ) as pk:
-                                v_count, _, _ = winreg.QueryInfoKey(pk)
+                                _, v_count, _ = winreg.QueryInfoKey(pk)
                                 for vi in range(v_count):
                                     vname, vdata, vtype = winreg.EnumValue(pk, vi)
                                     # Check if progid exists in HKCR
@@ -255,7 +255,7 @@ class RegistryCleaner:
         sub = r"Software\Classes\Local Settings\Software\Microsoft\Windows\Shell\MuiCache"
         try:
             with winreg.OpenKey(winreg.HKEY_CURRENT_USER, sub, 0, winreg.KEY_READ) as key:
-                count, _, _ = winreg.QueryInfoKey(key)
+                _, count, _ = winreg.QueryInfoKey(key)
                 for i in range(min(count, 500)):
                     try:
                         vname, vdata, vtype = winreg.EnumValue(key, i)

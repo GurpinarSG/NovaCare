@@ -130,8 +130,25 @@ class AppUninstaller:
             raise ValueError("Kaldırma komutu mevcut değil.")
 
         expanded = os.path.expandvars(cmd)
-        # Windows command runner
+        # Windows command runner - fix MsiExec /I to /X if needed
+        if "msiexec" in expanded.lower() and "/i" in expanded.lower() and "/x" not in expanded.lower():
+            import re
+            expanded = re.sub(r'(?i)/i\s*', '/X ', expanded)
+
         return subprocess.Popen(expanded, shell=True)
+
+    def scan_multiple_leftovers(self, apps: list[InstalledApp]) -> list[LeftoverItem]:
+        """Scans remnants for multiple apps and removes duplicates."""
+        all_leftovers: list[LeftoverItem] = []
+        seen_paths = set()
+        for app in apps:
+            items = self.scan_leftovers(app)
+            for it in items:
+                norm_p = it.path.lower().strip()
+                if norm_p not in seen_paths:
+                    seen_paths.add(norm_p)
+                    all_leftovers.append(it)
+        return all_leftovers
 
     def scan_leftovers(self, app: InstalledApp) -> list[LeftoverItem]:
         """Scans filesystem and registry for remnants related to this app."""

@@ -4,6 +4,32 @@ Tüm önemli değişiklikler, yeni özellikler, hata düzeltmeleri ve optimizasy
 
 ---
 
+## 🚀 [v1.0.5] - 2026-10-16
+
+### 🍪 Akıllı Çerez Kalkanı (Smart Cookie Shield)
+* **Giriş Oturumlarını Koruma Kalkanı:** Google, YouTube, GitHub, e-Devlet, kurumsal bankalar (İş Bankası, Garanti, Yapı Kredi, Akbank, Ziraat vb.) ve alışveriş siteleri gibi kritik hesap oturumları beyaz liste ile güvence altına alındı.
+* **İzleyici & Reklam Çerezi Temizliği:** Chromium tabanlı tarayıcılar (Microsoft Edge, Google Chrome, Brave, Opera, Opera GX) ve Mozilla Firefox üzerindeki üçüncü taraf reklam takipçileri, pazarlama pikselleri ve analitik çerezleri tek tıkla temizlenir.
+* **Özelleştirilebilir Beyaz Liste:** Kullanıcıların istedikleri siteleri kolayca ekleyip çıkarabileceği "Korunan Siteleri Yönet" diyalogu eklendi.
+* **Kilitli Tarayıcı Yönetimi:** Açık tarayıcılar SQLite çerez dosyasını kilitlediğinde kullanıcıyı bilgilendiren ve tek tıkla tarayıcıyı kapatıp tarama yapan akıllı algılama mekanizması entegre edildi.
+
+---
+
+### 🔋 Windows Pil Sağlığı & Güç Raporlayıcı (Battery Health Diagnostics)
+* **Canlı Pil & Güç Telemetrisi:** Menüye 9. sekme olarak eklenen "Pil & Güç Sağlığı" ekranı ile anlık şarj durumu, tahmini kalan süre, aktif Windows güç planı gerçek zamanlı izlenir.
+* **Fabrika Kapasitesi & Aşınma Oranı:** `Design Capacity` vs `Full Charge Capacity` karşılaştırması ile pilin aşınma yüzdesi hesaplanır (Mükemmel, İyi, Orta, Kritik).
+* **Donanım & Kimya Detayları:** Pil üreticisi, model adı, batarya kimyası (LiON vb.) ve şarj döngü sayısı doğrudan donanım çipinden okunur.
+* **Resmi Windows HTML Pil Raporu:** Tek tıkla `powercfg /batteryreport` çalıştırılarak Windows'un detaylı saatlik şarj geçmişi raporu oluşturulup varsayılan tarayıcıda açılır.
+* **Masaüstü Bilgisayar Uyumluluğu:** Masaüstü bilgisayarlarda şebeke beslemesi tespit edilerek arayüz sorunsuz biçimde masaüstü AC moduna geçer.
+
+---
+
+### 📦 Toplu Program Kaldırma & Başlangıç Yöneticisi Onarımları
+* **Çoklu / Toplu Kaldırma:** Kaldırma yöneticisine onay kutuları (checkbox) ve "Seçilenleri Toplu Kaldır" özelliği eklendi. Seçilen tüm yazılımlar sıra sıra kaldırılır.
+* **Başlangıç Yöneticisi Kayıt Defteri Düzeltmesi:** `winreg.QueryInfoKey` değer adlandırma hatası düzeltildi; MuiCache, Run, RunOnce ve Başlangıç programları eksiksiz listelenir hale getirildi.
+* **Kayıt Defteri Temizleyicisi Derinleşti:** SharedDLLs, RunMRU ve TypedPaths taramaları aktifleşerek 85+ gizli hata tespit edilebilir hale geldi.
+
+---
+
 ## 🚀 [v1.0.1] - 2026-10-16
 
 ### 🎨 Arayüz, Pencere Boyutu ve Yazı Optimizasyonları

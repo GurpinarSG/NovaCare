@@ -26,6 +26,7 @@ from ui.views import (
     DiskView,
     PrivacyView,
     NetworkView,
+    BatteryView,
     RescueView,
     SettingsView
 )
@@ -218,8 +219,9 @@ class MainWindow(QMainWindow):
             ("📊  Disk Alanı Analizi", 6),
             ("🛡️  Gizlilik & Bloatware", 7),
             ("🌐  Ağ & DNS Optimize Edici", 8),
-            ("💾  Kurtarma Merkezi", 9),
-            ("⚙️  Ayarlar & Güncelleme", 10)
+            ("🔋  Pil & Güç Sağlığı", 9),
+            ("💾  Kurtarma Merkezi", 10),
+            ("⚙️  Ayarlar & Güncelleme", 11)
         ]
 
         self.nav_buttons: list[QPushButton] = []
@@ -283,6 +285,8 @@ class MainWindow(QMainWindow):
         self.view_privacy = PrivacyView(self)
         log_debug("Init view: NetworkView")
         self.view_network = NetworkView(self)
+        log_debug("Init view: BatteryView")
+        self.view_battery = BatteryView(self)
         log_debug("Init view: RescueView")
         self.view_rescue = RescueView(self)
         log_debug("Init view: SettingsView")
@@ -298,8 +302,9 @@ class MainWindow(QMainWindow):
         self.stack.addWidget(self.view_disk)         # 6
         self.stack.addWidget(self.view_privacy)      # 7
         self.stack.addWidget(self.view_network)      # 8
-        self.stack.addWidget(self.view_rescue)       # 9
-        self.stack.addWidget(self.view_settings)     # 10
+        self.stack.addWidget(self.view_battery)      # 9
+        self.stack.addWidget(self.view_rescue)       # 10
+        self.stack.addWidget(self.view_settings)     # 11
 
         root_layout.addWidget(self.stack)
 
@@ -315,11 +320,13 @@ class MainWindow(QMainWindow):
             self.view_privacy.refresh_all()
         elif index == 8 and hasattr(self.view_network, '_load_network_info'):
             self.view_network._load_network_info()
+        elif index == 9 and hasattr(self.view_battery, 'refresh_metrics'):
+            self.view_battery.refresh_metrics()
 
     def _navigate_to_settings_admin(self):
-        if len(self.nav_buttons) > 10:
-            self.nav_buttons[10].setChecked(True)
-            self.stack.setCurrentIndex(10)
+        if len(self.nav_buttons) > 11:
+            self.nav_buttons[11].setChecked(True)
+            self.stack.setCurrentIndex(11)
 
     def apply_theme(self, theme_mode: str):
         """Applies theme dynamically across the entire application and all views."""
@@ -382,8 +389,8 @@ class MainWindow(QMainWindow):
                         QMessageBox.Yes | QMessageBox.No
                     )
                     if ans == QMessageBox.Yes:
-                        self.nav_buttons[10].setChecked(True)
-                        self.stack.setCurrentIndex(10)
+                        self.nav_buttons[11].setChecked(True)
+                        self.stack.setCurrentIndex(11)
                         self.view_settings.check_for_updates_manual()
 
     def _on_auto_install_finished(self, batch_path: str, info: UpdateInfo):

@@ -327,7 +327,7 @@ class NetworkView(QWidget):
     def _on_flush_finished(self, ok: bool, msg: str):
         self.btn_flush.setEnabled(True)
         self.lbl_repair_status.setText(msg)
-        self.lbl_repair_status.setStyleSheet("font-size: 12px; color: #34D399;" if ok else "font-size: 12px; color: #EF4444;")
+        self.lbl_repair_status.setStyleSheet(f"font-size: 12px; color: {COLOR_SUCCESS};" if ok else f"font-size: 12px; color: {COLOR_DANGER};")
 
     def _handle_reset_stack(self):
         reply = QMessageBox.question(
@@ -346,7 +346,7 @@ class NetworkView(QWidget):
     def _on_reset_stack_finished(self, ok: bool, msg: str):
         self.btn_reset_stack.setEnabled(True)
         self.lbl_repair_status.setText(msg)
-        self.lbl_repair_status.setStyleSheet("font-size: 12px; color: #34D399;" if ok else "font-size: 12px; color: #EF4444;")
+        self.lbl_repair_status.setStyleSheet(f"font-size: 12px; color: {COLOR_SUCCESS};" if ok else f"font-size: 12px; color: {COLOR_DANGER};")
         adapter = self.combo_adapters.currentData()
         if adapter:
             self._update_current_dns_label(adapter)

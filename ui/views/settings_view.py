@@ -177,7 +177,7 @@ class SettingsView(QWidget):
         cl_layout.setSpacing(10)
 
         cl_header = QHBoxLayout()
-        lbl_cl_title = QLabel("📋  Son Sürüm Güncelleme Notları (v1.0.1)")
+        lbl_cl_title = QLabel(f"📋  Son Sürüm Güncelleme Notları (v{CURRENT_VERSION})")
         lbl_cl_title.setStyleSheet("font-weight: 700; font-size: 13px; color: #00D2FF;")
 
         btn_cl_full = QPushButton("Tüm Geçmişi Aç...")
@@ -198,7 +198,7 @@ class SettingsView(QWidget):
                 background-color: rgba(10, 15, 29, 0.9);
                 border: 1px solid rgba(255, 255, 255, 0.06);
                 border-radius: 6px;
-                color: #CBD5E1;
+                color: #F8FAFC;
                 font-family: 'Segoe UI', sans-serif;
                 font-size: 12px;
                 line-height: 1.4;
@@ -759,7 +759,7 @@ class SettingsView(QWidget):
                 background-color: #111827;
                 border: 1px solid #1E293B;
                 border-radius: 8px;
-                color: #CBD5E1;
+                color: #F8FAFC;
                 font-family: 'Segoe UI', sans-serif;
                 font-size: 13px;
                 padding: 12px;

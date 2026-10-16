@@ -121,7 +121,7 @@ class PrivacyTweaker:
         run_count = 0
         try:
             with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Explorer\RunMRU", 0, winreg.KEY_READ) as k:
-                run_count, _, _ = winreg.QueryInfoKey(k)
+                _, run_count, _ = winreg.QueryInfoKey(k)
         except OSError:
             pass
         items.append(PrivacyTraceItem(
@@ -135,7 +135,7 @@ class PrivacyTweaker:
         typed_count = 0
         try:
             with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Explorer\TypedPaths", 0, winreg.KEY_READ) as k:
-                typed_count, _, _ = winreg.QueryInfoKey(k)
+                _, typed_count, _ = winreg.QueryInfoKey(k)
         except OSError:
             pass
         items.append(PrivacyTraceItem(
@@ -176,7 +176,7 @@ class PrivacyTweaker:
             try:
                 sub = r"Software\Microsoft\Windows\CurrentVersion\Explorer\RunMRU"
                 with winreg.OpenKey(winreg.HKEY_CURRENT_USER, sub, 0, winreg.KEY_ALL_ACCESS) as k:
-                    count, _, _ = winreg.QueryInfoKey(k)
+                    _, count, _ = winreg.QueryInfoKey(k)
                     names = [winreg.EnumValue(k, i)[0] for i in range(count)]
                     for n in names:
                         winreg.DeleteValue(k, n)
@@ -189,7 +189,7 @@ class PrivacyTweaker:
             try:
                 sub = r"Software\Microsoft\Windows\CurrentVersion\Explorer\TypedPaths"
                 with winreg.OpenKey(winreg.HKEY_CURRENT_USER, sub, 0, winreg.KEY_ALL_ACCESS) as k:
-                    count, _, _ = winreg.QueryInfoKey(k)
+                    _, count, _ = winreg.QueryInfoKey(k)
                     names = [winreg.EnumValue(k, i)[0] for i in range(count)]
                     for n in names:
                         winreg.DeleteValue(k, n)
