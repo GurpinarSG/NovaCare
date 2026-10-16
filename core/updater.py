@@ -194,10 +194,12 @@ class GitHubUpdater:
                     elif aname.endswith(".exe") and "setup" not in aname:
                         exe_asset = asset
 
-                # Prefer dedicated update zip > portable zip > generic zip > standalone exe
                 chosen_asset = update_zip or portable_zip or other_zip or exe_asset
                 if chosen_asset:
-                    download_url = chosen_asset.get("browser_download_url") or chosen_asset.get("url")
+                    if self.token and chosen_asset.get("url"):
+                        download_url = chosen_asset.get("url")
+                    else:
+                        download_url = chosen_asset.get("browser_download_url") or chosen_asset.get("url")
                     download_size = chosen_asset.get("size", 0)
 
                 if not download_url:
