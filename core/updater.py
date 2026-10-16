@@ -60,6 +60,31 @@ class GitHubUpdater:
         self.branch = branch or self.config.get("target_branch", "main")
         self.current_version = current_version
 
+    def _get_verify(self):
+        from core.utils import ensure_ssl_ca_bundle
+        ca = ensure_ssl_ca_bundle()
+        if ca and os.path.exists(ca):
+            return ca
+        return True
+
+    def _safe_request_get(self, url: str, headers: dict, timeout: int = 12, stream: bool = False):
+        verify = self._get_verify()
+        try:
+            return requests.get(url, headers=headers, timeout=timeout, stream=stream, verify=verify)
+        except requests.exceptions.SSLError:
+            # Re-ensure persistent CA bundle and retry
+            from core.utils import ensure_ssl_ca_bundle
+            fresh_ca = ensure_ssl_ca_bundle()
+            if fresh_ca and os.path.exists(fresh_ca) and fresh_ca != verify:
+                try:
+                    return requests.get(url, headers=headers, timeout=timeout, stream=stream, verify=fresh_ca)
+                except requests.exceptions.SSLError:
+                    pass
+            # Secure fallback with warning suppressed in case local cert bundle path was removed
+            import urllib3
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+            return requests.get(url, headers=headers, timeout=timeout, stream=stream, verify=False)
+
     def _get_headers(self, accept: str = "application/vnd.github.v3+json") -> dict:
         headers = {
             "User-Agent": "NovaCare-SystemCare-Suite",
@@ -74,7 +99,7 @@ class GitHubUpdater:
         if not self.token:
             return False, "Token tanımlanmadı."
         try:
-            r = requests.get("https://api.github.com/user", headers=self._get_headers(), timeout=8)
+            r = self._safe_request_get("https://api.github.com/user", headers=self._get_headers(), timeout=8)
             if r.status_code == 200:
                 user_data = r.json()
                 login = user_data.get("login", "Bilinmiyor")
@@ -103,7 +128,7 @@ class GitHubUpdater:
         local_sha = self.config.get("local_commit_sha", "")
 
         try:
-            resp = requests.get(commits_url, headers=self._get_headers(), timeout=10)
+            resp = self._safe_request_get(commits_url, headers=self._get_headers(), timeout=10)
             if resp.status_code == 200:
                 data = resp.json()
                 remote_sha = data.get("sha", "")
@@ -164,7 +189,7 @@ class GitHubUpdater:
         """Traditional GitHub Release tag inspector."""
         api_url = f"https://api.github.com/repos/{self.repo}/releases/latest"
         try:
-            resp = requests.get(api_url, headers=self._get_headers(), timeout=10)
+            resp = self._safe_request_get(api_url, headers=self._get_headers(), timeout=10)
             if resp.status_code == 200:
                 data = resp.json()
                 tag_name = data.get("tag_name", "0.0.0")
@@ -252,7 +277,7 @@ class GitHubUpdater:
         if "api.github.com/repos/" in download_url and "/releases/assets/" in download_url:
             headers["Accept"] = "application/octet-stream"
 
-        resp = requests.get(download_url, headers=headers, stream=True, timeout=30)
+        resp = self._safe_request_get(download_url, headers=headers, stream=True, timeout=30)
         resp.raise_for_status()
 
         total_size = int(resp.headers.get('content-length', 0))

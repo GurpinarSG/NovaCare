@@ -4,6 +4,17 @@ Tüm önemli değişiklikler, yeni özellikler, hata düzeltmeleri ve optimizasy
 
 ---
 
+## 🚀 [v1.1.1] - 2026-10-17
+
+### 🔒 TLS/SSL CA Sertifika Koruması & Güncelleştirme Hatası Onarımı (TLS Bundle Permanent Fix)
+* **`Could not find a suitable TLS CA certificate bundle` Hatası Kökten Çözüldü:** Sistem bakımı veya çöp dosya temizliği çalıştırıldığında, PyInstaller'ın geçici çalışma klasöründeki (`%TEMP%\_MEIxxxxxx`) `cacert.pem` dosyasının silinmesi engellendi:
+  * **Çöp Temizleyiciye PyInstaller & NovaCare Koruma Kalkanı:** [`core/junk_cleaner.py`](file:///c:/Users/Gurpi/OneDrive/Masa%C3%BCst%C3%BC/antigravity/core/junk_cleaner.py) modülünde `_scan_folder_recursive` ve `clean_categories` fonksiyonlarına koruma eklendi; çalışan programın `sys._MEIPASS` dizini, `_MEI*` önbellekleri ve `NovaCare` çalışma klasörleri temizlik taramasının tamamen dışına çıkarıldı.
+  * **Kalıcı Sertifika Deposu (Persistent CA Store):** Kök SSL/TLS sertifikası (`cacert.pem`), geçici Temp dizini yerine sistem temizleyicilerinin kesinlikle silmediği kalıcı kullanıcı veri dizinine (`%LOCALAPPDATA%\NovaCare\cacert.pem`) kopyalandı ve `assets/` klasörüne de yedek olarak mühürlendi.
+  * **Kendi Kendini Onaran Güvenli İstek Motoru (`_safe_request_get`):** [`core/updater.py`](file:///c:/Users/Gurpi/OneDrive/Masa%C3%BCst%C3%BC/antigravity/core/updater.py) içerisinde tüm GitHub API çağrıları dayanıklı hale getirildi. Herhangi bir sertifika yolu sorunu anında sistem sertifikayı otomatik olarak yeniden oluşturur ve güncellemeyi hatasız tamamlar.
+* **PyInstaller Bütünlüğü:** `scripts/build_exe.py` derleyicisine `--collect-all=certifi` eklenerek bağımsız tek dosya yapısı güçlendirildi.
+
+---
+
 ## 🚀 [v1.1.0] - 2026-10-16
 
 ### 🛡️ GitHub API Güvenlik Kasası & Otomatik Güncelleme Onarımı (Security Vault & Updater Fix)

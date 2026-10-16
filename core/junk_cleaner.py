@@ -199,10 +199,25 @@ class JunkCleaner:
     def _scan_folder_recursive(self, path: str, cat: CleanerCategory, depth: int = 0):
         if depth > 10:  # Prevent cyclic or extreme folder structures
             return
+
+        # CRITICAL SAFETY: Never scan running PyInstaller bundle or NovaCare directories
+        norm_path = os.path.normpath(path).lower()
+        meipass = getattr(sys, '_MEIPASS', None)
+        if meipass and norm_path.startswith(os.path.normpath(meipass).lower()):
+            return
+        base_name = os.path.basename(norm_path)
+        if base_name.startswith('_mei') or 'novacare' in base_name:
+            return
+
         try:
             with os.scandir(path) as it:
                 for entry in it:
                     try:
+                        e_name = entry.name.lower()
+                        # Strict exclusion of active PyInstaller runtime directories
+                        if e_name.startswith('_mei') or 'novacare' in e_name:
+                            continue
+
                         if entry.is_file(follow_symlinks=False):
                             sz = entry.stat().st_size
                             cat.size += sz
@@ -231,6 +246,9 @@ class JunkCleaner:
         target_cats = [c for c in self.categories if c.id in category_ids]
         total_ops = len(target_cats)
 
+        meipass = getattr(sys, '_MEIPASS', None)
+        meipass_norm = os.path.normpath(meipass).lower() if meipass else None
+
         for idx, cat in enumerate(target_cats):
             if progress_callback:
                 progress_callback(cat.name, idx + 1, total_ops)
@@ -247,6 +265,12 @@ class JunkCleaner:
 
             for f_path in cat.found_files:
                 try:
+                    norm_fp = os.path.normpath(f_path).lower()
+                    if meipass_norm and norm_fp.startswith(meipass_norm):
+                        continue
+                    if '\\_mei' in norm_fp or '/_mei' in norm_fp or 'novacare' in norm_fp:
+                        continue
+
                     if os.path.isfile(f_path):
                         sz = os.path.getsize(f_path)
                         if safe_remove_file(f_path):

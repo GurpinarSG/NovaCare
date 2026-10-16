@@ -46,6 +46,7 @@ def build_executable(onefile: bool = True):
         f"--add-data={v_path};.",
         f"--add-data={os.path.join(ROOT_DIR, 'CHANGELOG.md')};.",
         "--hidden-import=pynvml",
+        "--collect-all=certifi",
         f"--workpath={temp_build}",
         f"--specpath={temp_build}",
     ]

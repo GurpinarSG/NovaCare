@@ -6,6 +6,7 @@ import sys
 import ctypes
 import shutil
 import subprocess
+from typing import Optional
 
 def is_admin() -> bool:
     """Check if the current process has administrative privileges."""
@@ -138,3 +139,56 @@ def empty_recycle_bin() -> bool:
         return res == 0
     except Exception:
         return False
+
+def ensure_ssl_ca_bundle() -> Optional[str]:
+    """
+    Ensures that a valid TLS/SSL CA certificate bundle is always accessible,
+    persisting cacert.pem into %LOCALAPPDATA%\\NovaCare\\cacert.pem.
+    Sets REQUESTS_CA_BUNDLE and SSL_CERT_FILE environment variables.
+    """
+    app_data = os.path.join(os.environ.get('LOCALAPPDATA', os.path.expanduser('~')), 'NovaCare')
+    os.makedirs(app_data, exist_ok=True)
+    permanent_ca = os.path.join(app_data, 'cacert.pem')
+
+    candidates = []
+
+    # 1. assets/cacert.pem relative to ROOT_DIR or sys._MEIPASS
+    root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    candidates.append(os.path.join(root_dir, 'assets', 'cacert.pem'))
+    meipass = getattr(sys, '_MEIPASS', None)
+    if meipass:
+        candidates.append(os.path.join(meipass, 'assets', 'cacert.pem'))
+        candidates.append(os.path.join(meipass, 'certifi', 'cacert.pem'))
+
+    # 2. certifi.where() if valid
+    try:
+        import certifi
+        c_where = certifi.where()
+        if c_where and os.path.exists(c_where):
+            candidates.append(c_where)
+    except Exception:
+        pass
+
+    # Copy candidate to permanent location if needed
+    for cand in candidates:
+        if cand and os.path.exists(cand) and os.path.isfile(cand):
+            try:
+                if not os.path.exists(permanent_ca) or os.path.getsize(permanent_ca) != os.path.getsize(cand):
+                    shutil.copy2(cand, permanent_ca)
+                break
+            except Exception:
+                pass
+
+    chosen = permanent_ca if os.path.exists(permanent_ca) else None
+    if not chosen:
+        for cand in candidates:
+            if cand and os.path.exists(cand):
+                chosen = cand
+                break
+
+    if chosen and os.path.exists(chosen):
+        os.environ['REQUESTS_CA_BUNDLE'] = chosen
+        os.environ['SSL_CERT_FILE'] = chosen
+        return chosen
+    return None
+

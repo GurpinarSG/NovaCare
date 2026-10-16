@@ -46,9 +46,12 @@ from PyQt5.QtWidgets import QApplication, QSystemTrayIcon
 from PyQt5.QtNetwork import QLocalSocket, QLocalServer
 from PyQt5.QtCore import Qt
 from ui.main_window import MainWindow
-from core.utils import format_bytes
+from core.utils import format_bytes, ensure_ssl_ca_bundle
 from core.memory_booster import MemoryBooster
 from core.junk_cleaner import JunkCleaner
+
+# Ensure reliable SSL/TLS root certificates across frozen executables and cleanup cycles
+ensure_ssl_ca_bundle()
 
 LOCAL_SERVER_NAME = "NovaCare_SingleInstance_App_Server_2026"
 
