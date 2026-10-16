@@ -8,8 +8,38 @@ import sys
 import json
 from core.security import encrypt_string, decrypt_string, get_embedded_token
 
-def load_base_version() -> str:
-    """Reads base version from VERSION file if available, otherwise defaults to 1.0.0."""
+import re
+
+def parse_version_content(content: str) -> tuple[str, str]:
+    """
+    Parses VERSION file content, returning (version_number, update_notes).
+    Supports:
+    - Pure version: '1.0.5'
+    - Multi-line with notes:
+        1.0.5
+        ---
+        • Akıllı çerez kalkanı eklendi
+        • Pil sağlığı raporlayıcı entegre edildi
+    - Variations like 'v1.0.5', '[v1.0.5]', 'VERSION = 1.0.5'
+    """
+    lines = content.strip().splitlines()
+    if not lines:
+        return "1.0.0", ""
+    first_line = lines[0].strip()
+    m = re.search(r'(\d+\.\d+(?:\.\d+)?)', first_line)
+    if m:
+        ver = m.group(1)
+    else:
+        ver = first_line.lstrip("vV").strip() or "1.0.0"
+
+    notes_lines = lines[1:]
+    while notes_lines and notes_lines[0].strip() in ('---', '===', '***', '###', ''):
+        notes_lines.pop(0)
+    notes = "\n".join(notes_lines).strip()
+    return ver, notes
+
+def load_version_and_notes() -> tuple[str, str]:
+    """Reads both version number and update notes from VERSION file."""
     try:
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         if getattr(sys, 'frozen', False):
@@ -17,12 +47,15 @@ def load_base_version() -> str:
         v_path = os.path.join(base_dir, "VERSION")
         if os.path.exists(v_path):
             with open(v_path, "r", encoding="utf-8") as vf:
-                v = vf.read().strip()
-                if v:
-                    return v.lstrip("vV")
+                return parse_version_content(vf.read())
     except Exception:
         pass
-    return "1.0.0"
+    return "1.0.0", ""
+
+def load_base_version() -> str:
+    """Reads clean base version string from VERSION file (e.g. '1.0.5')."""
+    ver, _ = load_version_and_notes()
+    return ver
 
 CURRENT_VERSION = load_base_version()
 DEFAULT_GITHUB_REPO = "GurpinarSG/NovaCare"
@@ -56,6 +89,11 @@ class ConfigManager:
         if mode == "branch" and sha:
             return f"v{base_v} (Derleme: {sha[:7]})"
         return f"v{base_v}"
+
+    def get_version_notes(self) -> str:
+        """Returns manually written release notes from VERSION file if present."""
+        _, notes = load_version_and_notes()
+        return notes
 
     def _get_defaults(self) -> dict:
         return {

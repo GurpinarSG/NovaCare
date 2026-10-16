@@ -4,6 +4,19 @@ Tüm önemli değişiklikler, yeni özellikler, hata düzeltmeleri ve optimizasy
 
 ---
 
+## 🚀 [v1.0.6] - 2026-10-16
+
+### 🎮 Oyun & Nihai Performans Kartı Arayüz Düzeltmesi
+* **Metin Kayması ve Sıkışması Giderildi:** Ana paneldeki (Dashboard) "Oyun & Nihai Performans Modu" kartında yer alan açıklama metninin butonlar arasına sıkışıp dikeyde kesilmesi tamamen çözüldü. Metin alanına tam esneme payı (`stretch=1`) ve dikey ortalama verilerek 1366x768 gibi dar ekranlarda dahi metnin tam ve ferah görünmesi sağlandı.
+
+---
+
+### 🛡️ Windows Açılış Uyarısı & Başlangıç Kararlılığı
+* **`COLOR_WARNING` Hata Düzeltmesi:** Bilgisayar açılışında standart kullanıcı ayrıcalığıyla başlayan arka plan işleminde tetiklenen eksik stil sabiti giderildi. Windows açılışında ekrana gelen hata penceresi kalıcı olarak engellendi.
+* **Mükerrer Başlatma Koruması:** Windows Görev Zamanlayıcısı ile Kayıt Defteri (HKCU Run) arasındaki çakışma giderilerek uygulamanın açılışta yalnızca tek bir kararlı örnekle çalışması güvence altına alındı.
+
+---
+
 ## 🚀 [v1.0.5] - 2026-10-16
 
 ### 🍪 Akıllı Çerez Kalkanı (Smart Cookie Shield)
@@ -27,6 +40,7 @@ Tüm önemli değişiklikler, yeni özellikler, hata düzeltmeleri ve optimizasy
 * **Dairesel Sağlık Göstergesi Taşma Düzeltmesi (Gauge Overflow Fix):** Dairesel göstergenin yay sınırlarını aşan uzun `"Sistem Durumu: Mükemmel"` metni giderildi. Gösterge içi değerlendirme `"Mükemmel"`, `"İyi"`, `"Bakım Önerilir"`, `"Kritik"` olarak optimize edildi ve `QFontMetrics` ile yay açıklığına göre dinamik font küçültme eklendi.
 * **"TEK TIKLA SİSTEMİ TARA" Butonu Renk Kontrastı (WCAG AAA):** Koyu mavi üzerine koyu lacivert yazılan ve okunması zor olan buton yazısı; canlı modern okyanus mavisi (`#0284C7` -> `#0EA5E9`) degrade üzerine saf beyaz (`#FFFFFF`) ve kalın (`font-weight: 800`) yazıya geçirilerek %100 net ve göz alıcı hale getirildi.
 * **Tüm Butonlar ve Durum Metinleri:** Onar butonu, durum metni etiketi ve aktif menü sekmelerinde kontrast optimize edildi.
+* **Oyun & Nihai Performans Kartı Metin Kayması Düzeltildi:** Ana paneldeki Oyun Modu kartında açıklama metninin butonlar arasına sıkışıp dikeyde kesilmesi giderildi; metin alanına tam esneme payı (`stretch=1`) ve dikey hizalama verilerek tüm çözünürlüklerde ferah ve tam okunaklı hale getirildi.
 
 ---
 

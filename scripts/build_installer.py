@@ -16,6 +16,8 @@ if sys.platform == 'win32':
         pass
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
 
 def build_installer():
     print("=" * 65)
@@ -39,12 +41,8 @@ def build_installer():
     manifest_path = os.path.join(ROOT_DIR, "app.manifest")
     wizard_py = os.path.join(ROOT_DIR, "scripts", "installer_wizard.py")
 
-    version = "1.0.1"
-    if os.path.exists(v_path):
-        with open(v_path, "r", encoding="utf-8") as vf:
-            v_val = vf.read().strip().lstrip("vV")
-            if v_val:
-                version = v_val
+    from core.config import load_base_version
+    version = load_base_version()
 
     setup_name = f"NovaCare_Setup_v{version}"
     temp_build = os.path.join(os.environ.get("TEMP", os.path.expanduser("~")), "NovaCare_Setup_Build")

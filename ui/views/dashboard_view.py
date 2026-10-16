@@ -170,41 +170,48 @@ class DashboardView(QWidget):
         # 2. Game Mode & Ultimate Performance Banner Card
         game_card = QFrame()
         game_card.setObjectName("CardFrame")
+        game_card.setMinimumHeight(68)
         g_layout = QHBoxLayout(game_card)
         g_layout.setContentsMargins(18, 12, 18, 12)
         g_layout.setSpacing(14)
-        g_layout.setAlignment(Qt.AlignVCenter)
 
         g_icon = QLabel("🎮")
         g_icon.setStyleSheet("font-size: 26px;")
+        g_icon.setAlignment(Qt.AlignCenter)
         g_layout.addWidget(g_icon)
 
         v_gtext = QVBoxLayout()
-        v_gtext.setSpacing(2)
+        v_gtext.setSpacing(3)
+        v_gtext.setAlignment(Qt.AlignVCenter)
         lbl_g_title = QLabel("Oyun & Nihai Performans Modu")
         lbl_g_title.setStyleSheet(f"font-size: 14px; font-weight: 700; color: {COLOR_ACCENT};")
         self.lbl_g_sub = QLabel("Arka plan gereksiz servislerini durdurur ve güç planını 'Nihai Performans' moduna alır.")
-        self.lbl_g_sub.setStyleSheet(f"font-size: 11px; color: {TEXT_SECONDARY};")
+        self.lbl_g_sub.setStyleSheet(f"font-size: 11.5px; color: {TEXT_SECONDARY};")
         self.lbl_g_sub.setWordWrap(True)
         v_gtext.addWidget(lbl_g_title)
         v_gtext.addWidget(self.lbl_g_sub)
-        g_layout.addLayout(v_gtext)
+        g_layout.addLayout(v_gtext, 1)
 
-        g_layout.addStretch()
+        # Action buttons layout
+        actions_layout = QHBoxLayout()
+        actions_layout.setSpacing(10)
+        actions_layout.setAlignment(Qt.AlignVCenter)
 
         # Desktop Overlay Button
         self.btn_overlay = QPushButton("📌  Masaüstü Widget'ı")
         self.btn_overlay.setCursor(Qt.PointingHandCursor)
         self.btn_overlay.setProperty("class", "secondary-btn")
         self.btn_overlay.clicked.connect(self._toggle_overlay)
-        g_layout.addWidget(self.btn_overlay)
+        actions_layout.addWidget(self.btn_overlay)
 
         # Game Mode Toggle Button
         self.btn_game_mode = QPushButton("🎮  Oyun Modunu Başlat")
         self.btn_game_mode.setCursor(Qt.PointingHandCursor)
         self.btn_game_mode.setStyleSheet("padding: 8px 18px; font-size: 12px; font-weight: 700; background-color: #047857; color: #FFFFFF; border: 1px solid #10B981; border-radius: 6px;")
         self.btn_game_mode.clicked.connect(self._toggle_game_mode)
-        g_layout.addWidget(self.btn_game_mode)
+        actions_layout.addWidget(self.btn_game_mode)
+
+        g_layout.addLayout(actions_layout)
 
         main_layout.addWidget(game_card)
         self._sync_game_mode_ui()

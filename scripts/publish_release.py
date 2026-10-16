@@ -37,13 +37,8 @@ HEADERS = {
 }
 
 def get_current_version() -> str:
-    v_path = os.path.join(ROOT_DIR, "VERSION")
-    if os.path.exists(v_path):
-        with open(v_path, "r", encoding="utf-8") as f:
-            v = f.read().strip().lstrip("vV")
-            if v:
-                return v
-    return "1.0.1"
+    from core.config import load_base_version
+    return load_base_version()
 
 def get_latest_commit_sha() -> str:
     url = f"https://api.github.com/repos/{REPO}/git/refs/heads/{BRANCH}"
@@ -149,6 +144,16 @@ def push_files_to_github(commit_msg: Optional[str] = None):
     return True
 
 def get_changelog_for_tag(tag: str) -> str:
+    # 1. First check if VERSION file contains manual update notes
+    try:
+        from core.config import load_version_and_notes
+        v_num, v_notes = load_version_and_notes()
+        if v_notes and v_num == tag.lstrip("vV"):
+            return f"### 🚀 NovaCare System Care Suite {tag} - Güncelleme Notları\n\n{v_notes}"
+    except Exception:
+        pass
+
+    # 2. Check CHANGELOG.md
     cl_path = os.path.join(ROOT_DIR, "CHANGELOG.md")
     if os.path.exists(cl_path):
         try:

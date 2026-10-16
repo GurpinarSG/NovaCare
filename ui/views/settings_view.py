@@ -728,19 +728,31 @@ class SettingsView(QWidget):
         )
 
     def _load_recent_changelog(self):
+        # 1. If VERSION file has manual notes written by user, prioritize them!
+        try:
+            manual_notes = self.config.get_version_notes() if hasattr(self, 'config') else ""
+            if manual_notes:
+                cur_ver = self.config.get_version() if hasattr(self, 'config') else CURRENT_VERSION
+                self.txt_recent_changelog.setPlainText(f"🚀 [v{cur_ver}] Sürüm Güncelleme Notları:\n\n{manual_notes}")
+                return
+        except Exception:
+            pass
+
         full_text = self._get_changelog_text()
-        # Extract v1.0.1 section or first 800 chars
         lines = full_text.splitlines()
-        v101_lines = []
+        v_lines = []
         capture = False
+        target_v = self.config.get_version() if hasattr(self, 'config') else CURRENT_VERSION
         for line in lines:
-            if "v1.0.1" in line:
+            if f"[{target_v}]" in line or f"[v{target_v}]" in line or (not capture and line.startswith("## ")):
                 capture = True
-            elif capture and line.startswith("## ") and "v1.0.1" not in line:
-                break
+                v_lines.append(line)
+                continue
             if capture:
-                v101_lines.append(line)
-        recent_text = "\n".join(v101_lines) if v101_lines else full_text[:600]
+                if line.startswith("## ") and f"[{target_v}]" not in line:
+                    break
+                v_lines.append(line)
+        recent_text = "\n".join(v_lines) if v_lines else full_text[:600]
         self.txt_recent_changelog.setPlainText(recent_text.strip())
 
     def _toggle_changelog_display(self):
