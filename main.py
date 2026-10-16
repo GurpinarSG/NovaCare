@@ -8,6 +8,11 @@ import os
 import ctypes
 import argparse
 
+# Strip PyInstaller onefile parent tracking variables to prevent
+# "Security validation failure: invalid originating onefile parent process (PID not found)!"
+for _pyi_var in ('_PYI_PARENT_PID', '_MEIPASS2', '_PYI_APPLICATION_HOME_DIR', '_PYI_ARCHIVE_FILE', '_PYI_SPLASH_IPC'):
+    os.environ.pop(_pyi_var, None)
+
 # Configure UTF-8 for Windows console
 if sys.platform == 'win32':
     try:

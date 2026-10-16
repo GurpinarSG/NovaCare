@@ -4,6 +4,24 @@ Tüm önemli değişiklikler, yeni özellikler, hata düzeltmeleri ve optimizasy
 
 ---
 
+## 🚀 [v1.1.2] - 2026-10-17
+
+### 🛠️ PyInstaller Onefile PID Doğrulama Hatası Giderildi (Bootloader Fix)
+* **`Security validation failure: invalid originating onefile parent process (PID not found)!` Onarımı:**
+  * Uygulama içi otomatik veya manuel güncelleme sonrası yeni sürüm başlatılırken ortaya çıkan PyInstaller 6+ önyükleyici (bootloader) kilitlenmesi giderildi.
+  * Eski sürecin kapanmasının ardından yeni açılan uygulamanın kapalı parent PID'yi aramasını engellemek için `_PYI_PARENT_PID`, `_MEIPASS2`, `_PYI_APPLICATION_HOME_DIR` ve `_PYI_ARCHIVE_FILE` ortam değişkenleri:
+    * [`main.py`](file:///c:/Users/Gurpi/OneDrive/Masa%C3%BCst%C3%BC/antigravity/main.py) başlangıcında temizlendi.
+    * [`core/updater.py`](file:///c:/Users/Gurpi/OneDrive/Masa%C3%BCst%C3%BC/antigravity/core/updater.py) `launch_updater_and_exit` fonksiyonunda izole edildi.
+    * `apply_update.bat` güncelleme betiğinde yeni uygulama çalıştırılmadan hemen önce sıfırlandı.
+
+---
+
+### 📦 Otomatik Güncelleme Paketi ve SHA256 Bütünlük Sistemi
+* **Tam Otomatik `NovaCare_Update.zip` Üretimi:** [`scripts/publish_release.py`](file:///c:/Users/Gurpi/OneDrive/Masa%C3%BCst%C3%BC/antigravity/scripts/publish_release.py) betiğine doğrudan derlenmiş `NovaCare.exe`, sürüm dosyaları ve varlıkları içeren `NovaCare_Update.zip` ve `Portable.zip` arşivini derleme anında otomatik üretip GitHub Release varlıklarına ekleme yeteneği kazandırıldı.
+* **Güvenlik Doğrulaması:** Her GitHub sürümü için otomatik `SHA256SUMS.txt` özet dosyası oluşturulup yüklendi.
+
+---
+
 ## 🚀 [v1.1.1] - 2026-10-17
 
 ### 🔒 TLS/SSL CA Sertifika Koruması & Güncelleştirme Hatası Onarımı (TLS Bundle Permanent Fix)

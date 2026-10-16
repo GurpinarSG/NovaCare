@@ -283,21 +283,61 @@ def create_release(tag_name: str, release_title: Optional[str] = None, changelog
         delete_existing_asset(f"NovaCare_Setup_v{clean_tag}.exe")
         upload_release_asset(upload_url, setup_file, f"NovaCare_Setup_v{clean_tag}.exe")
 
-    # 3. Prepare & Upload Portable Zip
+    # Auto-generate NovaCare_Update.zip and Portable zip from compiled NovaCare.exe
+    core_exe = None
+    for cand in [
+        os.path.join(ROOT_DIR, "NovaCare.exe"),
+        os.path.join(ROOT_DIR, "dist", "NovaCare.exe")
+    ]:
+        if os.path.exists(cand):
+            core_exe = cand
+            break
+
+    update_file = os.path.join(rel_folder, "NovaCare_Update.zip")
     portable_file = os.path.join(rel_folder, f"NovaCare_v{clean_tag}_Portable.zip")
+
+    if core_exe and (not os.path.exists(update_file) or not os.path.exists(portable_file)):
+        print("  [*] Güncelleme ve Taşınabilir paketler sıkıştırılıyor...")
+        with zipfile.ZipFile(update_file, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.write(core_exe, "NovaCare.exe")
+            v_p = os.path.join(ROOT_DIR, "VERSION")
+            if os.path.exists(v_p):
+                zf.write(v_p, "VERSION")
+            cl_p = os.path.join(ROOT_DIR, "CHANGELOG.md")
+            if os.path.exists(cl_p):
+                zf.write(cl_p, "CHANGELOG.md")
+            assets_dir = os.path.join(ROOT_DIR, "assets")
+            if os.path.exists(assets_dir):
+                for f in os.listdir(assets_dir):
+                    zf.write(os.path.join(assets_dir, f), os.path.join("assets", f))
+
+        import shutil
+        shutil.copy2(update_file, portable_file)
+
+    # 3. Prepare & Upload Portable Zip
     if os.path.exists(portable_file):
         delete_existing_asset(f"NovaCare_v{clean_tag}_Portable.zip")
         upload_release_asset(upload_url, portable_file, f"NovaCare_v{clean_tag}_Portable.zip", "application/zip")
 
     # 4. Prepare & Upload NovaCare_Update.zip
-    update_file = os.path.join(rel_folder, "NovaCare_Update.zip")
     if os.path.exists(update_file):
         delete_existing_asset("NovaCare_Update.zip")
         upload_release_asset(upload_url, update_file, "NovaCare_Update.zip", "application/zip")
 
-    # 5. Upload SHA256SUMS.txt
+    # 5. Compute & Upload SHA256SUMS.txt
     sums_file = os.path.join(rel_folder, "SHA256SUMS.txt")
-    if os.path.exists(sums_file):
+    sums_lines = []
+    for fn in os.listdir(rel_folder):
+        if fn == "SHA256SUMS.txt":
+            continue
+        fp = os.path.join(rel_folder, fn)
+        if os.path.isfile(fp):
+            with open(fp, "rb") as f_obj:
+                digest = hashlib.sha256(f_obj.read()).hexdigest()
+            sums_lines.append(f"{digest}  {fn}")
+    if sums_lines:
+        with open(sums_file, "w", encoding="utf-8") as sf:
+            sf.write("\n".join(sums_lines) + "\n")
         delete_existing_asset("SHA256SUMS.txt")
         upload_release_asset(upload_url, sums_file, "SHA256SUMS.txt", "text/plain")
 

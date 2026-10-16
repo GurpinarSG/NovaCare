@@ -348,6 +348,13 @@ chcp 65001 > nul
 title NovaCare Guncelleme Uygulaniyor...
 echo NovaCare yeni surum dosyalari yukleniyor, lutfen bekleyin...
 
+:: PyInstaller onefile child-process validation variables strip
+set _PYI_PARENT_PID=
+set _MEIPASS2=
+set _PYI_APPLICATION_HOME_DIR=
+set _PYI_ARCHIVE_FILE=
+set _PYI_SPLASH_IPC=
+
 :: Onceki NovaCare surecinin tamamen kapanmasini bekle (dosya kilidi kalmasin)
 for /l %%i in (1,1,15) do (
     tasklist /fi "imagename eq NovaCare.exe" 2>nul | find /i "NovaCare.exe" >nul
@@ -364,6 +371,13 @@ xcopy /s /e /y /i /q "{source_dir}\\*" "{app_root}\\" > nul 2>&1
 echo Guncelleme basariyla tamamlandi. NovaCare yeniden baslatiliyor...
 timeout /t 1 /nobreak > nul
 
+:: Clear again before launching to guarantee clean environment
+set _PYI_PARENT_PID=
+set _MEIPASS2=
+set _PYI_APPLICATION_HOME_DIR=
+set _PYI_ARCHIVE_FILE=
+set _PYI_SPLASH_IPC=
+
 if exist "{launcher_target}" (
     start "" "{launcher_target}"
 ) else (
@@ -379,7 +393,12 @@ exit
 
     def launch_updater_and_exit(self, batch_path: str):
         """Spawns the updater batch script in background and exits current application."""
+        clean_env = os.environ.copy()
+        for k in list(clean_env.keys()):
+            if k.startswith('_PYI') or k.startswith('_MEI'):
+                clean_env.pop(k, None)
+
         flags = getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0)
         # Directly invokes Windows Unicode CreateProcessW without shell quoting distortions
-        subprocess.Popen(["cmd.exe", "/c", batch_path], creationflags=flags)
+        subprocess.Popen(["cmd.exe", "/c", batch_path], env=clean_env, creationflags=flags)
         sys.exit(0)
