@@ -16,6 +16,7 @@ import shutil
 import winreg
 import subprocess
 import time
+import json
 
 from PyQt5.QtWidgets import (
     QApplication, QDialog, QWidget, QLabel, QVBoxLayout, QHBoxLayout,
@@ -57,12 +58,13 @@ class InstallWorker(QThread):
     progress = pyqtSignal(int, str)
     finished = pyqtSignal(bool, str)
 
-    def __init__(self, target_dir: str, create_desktop_lnk: bool, create_start_lnk: bool, autostart: bool):
+    def __init__(self, target_dir: str, create_desktop_lnk: bool, create_start_lnk: bool, autostart: bool, autostart_widget: bool = False):
         super().__init__()
         self.target_dir = target_dir
         self.create_desktop_lnk = create_desktop_lnk
         self.create_start_lnk = create_start_lnk
         self.autostart = autostart
+        self.autostart_widget = autostart_widget
 
     def run(self):
         try:
@@ -116,15 +118,39 @@ class InstallWorker(QThread):
             self.progress.emit(95, "Windows Denetim Masası kayıtları tamamlanıyor...")
             self._register_uninstaller(dest_exe)
 
-            # 8. Autostart if selected
+            # 8. Autostart and Desktop Widget preference
             if self.autostart:
                 self._register_autostart(dest_exe)
+
+            # 9. Save user initial preferences
+            self._save_initial_preferences()
 
             time.sleep(0.4)
             self.progress.emit(100, "Kurulum tamamlandı!")
             self.finished.emit(True, "")
         except Exception as e:
             self.finished.emit(False, str(e))
+
+    def _save_initial_preferences(self):
+        try:
+            local_app = os.environ.get('LOCALAPPDATA', os.path.expanduser('~'))
+            cfg_dir = os.path.join(local_app, 'NovaCare')
+            os.makedirs(cfg_dir, exist_ok=True)
+            cfg_file = os.path.join(cfg_dir, 'settings.json')
+            data = {}
+            if os.path.exists(cfg_file):
+                try:
+                    with open(cfg_file, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                except Exception:
+                    data = {}
+            data["autostart_on_boot"] = bool(self.autostart)
+            data["autostart_widget_on_boot"] = bool(self.autostart_widget)
+            data["widget_autostart_prompted"] = True
+            with open(cfg_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+        except Exception:
+            pass
 
     def _generate_uninstaller(self):
         uninst_bat = os.path.join(self.target_dir, "uninstall.bat")
@@ -527,8 +553,9 @@ class NovaCareSetupWizard(QDialog):
         desktop = self.chk_desktop.isChecked()
         start = self.chk_startmenu.isChecked()
         autostart = self.chk_autostart.isChecked()
+        autostart_widget = self.chk_autostart_widget.isChecked()
 
-        self.worker = InstallWorker(target_dir, desktop, start, autostart)
+        self.worker = InstallWorker(target_dir, desktop, start, autostart, autostart_widget)
         self.worker.progress.connect(self._on_install_progress)
         self.worker.finished.connect(self._on_install_finished)
         self.worker.start()
@@ -728,9 +755,14 @@ class NovaCareSetupWizard(QDialog):
         self.chk_startmenu.setChecked(True)
         self.chk_autostart = QCheckBox("Windows açıldığında NovaCare'i arka planda otomatik başlat (Önerilen)")
         self.chk_autostart.setChecked(True)
+        self.chk_autostart_widget = QCheckBox("📌  Windows açıldığında Masaüstü Donanım Widget'ını (Monitör) da otomatik başlat")
+        self.chk_autostart_widget.setChecked(False)
+        self.chk_autostart.stateChanged.connect(lambda s: self.chk_autostart_widget.setEnabled(s == Qt.Checked))
+
         c2_lay.addWidget(self.chk_desktop)
         c2_lay.addWidget(self.chk_startmenu)
         c2_lay.addWidget(self.chk_autostart)
+        c2_lay.addWidget(self.chk_autostart_widget)
         l2.addWidget(card2)
         l2.addStretch()
         self.stack.addWidget(p2)

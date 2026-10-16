@@ -6,7 +6,7 @@ Theme-aware dynamic rendering with seamless dark/light contrast support.
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QSizePolicy, QPushButton
 )
-from PyQt5.QtCore import Qt, QRectF, pyqtProperty
+from PyQt5.QtCore import Qt, QRectF, pyqtProperty, pyqtSignal
 from PyQt5.QtGui import QPainter, QColor, QPen, QFont, QFontMetrics
 from ui.styles import get_active_theme_colors
 
@@ -162,6 +162,8 @@ class HardwareOverlayWidget(QWidget):
     Floating desktop mini hardware & temperature widget.
     Draggable, semi-transparent, stays on top, displays real-time CPU, GPU, and RAM stats.
     """
+    visibilityChanged = pyqtSignal(bool)
+
     def __init__(self, parent=None):
         super().__init__(None, Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
@@ -262,6 +264,14 @@ class HardwareOverlayWidget(QWidget):
 
         self.lbl_ram.setText(f"RAM: %{ram_pct:.0f}  ({ram_used} / {ram_total} GB)")
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.visibilityChanged.emit(True)
+
+    def hideEvent(self, event):
+        super().hideEvent(event)
+        self.visibilityChanged.emit(False)
+
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
             self.drag_position = event.globalPos() - self.frameGeometry().topLeft()
@@ -271,4 +281,5 @@ class HardwareOverlayWidget(QWidget):
         if event.buttons() == Qt.LeftButton and self.drag_position is not None:
             self.move(event.globalPos() - self.drag_position)
             event.accept()
+
 

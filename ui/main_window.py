@@ -139,6 +139,8 @@ class MainWindow(QMainWindow):
         self._setup_auto_update()
         log_debug("MainWindow: setting up auto clean...")
         self._setup_auto_clean()
+        if self.config.get("autostart_widget_on_boot", False):
+            QTimer.singleShot(800, self.show_desktop_widget)
         log_debug("MainWindow.__init__ finished successfully")
 
     def _setup_icon(self):
@@ -468,6 +470,10 @@ class MainWindow(QMainWindow):
         act_boost.triggered.connect(self._tray_boost_ram)
         self.tray_menu.addAction(act_boost)
 
+        act_widget = QAction("📌  Masaüstü Widget'ını Aç / Kapat", self)
+        act_widget.triggered.connect(self.toggle_desktop_widget)
+        self.tray_menu.addAction(act_widget)
+
         self.tray_menu.addSeparator()
 
         act_exit = QAction("❌  Çıkış", self)
@@ -497,6 +503,25 @@ class MainWindow(QMainWindow):
             QSystemTrayIcon.Information,
             3000
         )
+
+    def show_desktop_widget(self):
+        """Displays the floating hardware & temperature overlay widget on the desktop."""
+        if hasattr(self, 'view_dashboard') and hasattr(self.view_dashboard, 'overlay_widget'):
+            w = self.view_dashboard.overlay_widget
+            w.show()
+            w.raise_()
+            if hasattr(self.view_dashboard, 'btn_overlay'):
+                self.view_dashboard.btn_overlay.setText("📌  Widget'ı Kapat")
+
+    def toggle_desktop_widget(self):
+        """Toggles the visibility of the floating desktop hardware widget."""
+        if hasattr(self, 'view_dashboard') and hasattr(self.view_dashboard, 'overlay_widget'):
+            w = self.view_dashboard.overlay_widget
+            if w.isVisible():
+                w.hide()
+            else:
+                w.show()
+                w.raise_()
 
     def closeEvent(self, event):
         if not getattr(self, '_force_exit', False) and self.config.get("close_to_tray", True):

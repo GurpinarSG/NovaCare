@@ -428,9 +428,29 @@ class SettingsView(QWidget):
         g_layout.addWidget(lbl_g_title)
 
         self.chk_autostart = QCheckBox("🚀  Windows başladığında NovaCare'i arka planda otomatik olarak çalıştır")
-        self.chk_autostart.setChecked(is_autostart_enabled())
-        self.chk_autostart.stateChanged.connect(lambda s: set_autostart(s == Qt.Checked))
+        is_auto = is_autostart_enabled()
+        self.chk_autostart.setChecked(is_auto)
+        self.chk_autostart.stateChanged.connect(self._on_autostart_toggle)
         g_layout.addWidget(self.chk_autostart)
+
+        # Desktop Widget autostart preference
+        self.widget_autostart_container = QWidget()
+        w_lay = QVBoxLayout(self.widget_autostart_container)
+        w_lay.setContentsMargins(28, 0, 0, 4)
+        w_lay.setSpacing(2)
+
+        self.chk_autostart_widget = QCheckBox("📌  Bilgisayar açıldığında Masaüstü Donanım Widget'ını (Monitör) da otomatik başlat")
+        self.chk_autostart_widget.setChecked(self.config.get("autostart_widget_on_boot", False))
+        self.chk_autostart_widget.stateChanged.connect(self._on_autostart_widget_changed)
+        w_lay.addWidget(self.chk_autostart_widget)
+
+        lbl_w_hint = QLabel("Windows açıldığında masaüstünüzde CPU, GPU ve RAM sıcaklık & kullanım monitörünü otomatik olarak gösterir.")
+        lbl_w_hint.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 11px;")
+        lbl_w_hint.setWordWrap(True)
+        w_lay.addWidget(lbl_w_hint)
+
+        self.widget_autostart_container.setEnabled(is_auto)
+        g_layout.addWidget(self.widget_autostart_container)
 
         self.chk_auto_reg = QCheckBox("Kayıt defteri onarımları öncesinde her zaman otomatik geri yükleme yedeği al")
         self.chk_auto_reg.setChecked(self.config.get("auto_backup_registry", True))
@@ -508,6 +528,36 @@ class SettingsView(QWidget):
 
         scroll.setWidget(scroll_content)
         main_layout.addWidget(scroll)
+
+    def _on_autostart_toggle(self, state: int):
+        enable = (state == Qt.Checked)
+        set_autostart(enable)
+        self.config.set("autostart_on_boot", enable)
+        if hasattr(self, 'widget_autostart_container'):
+            self.widget_autostart_container.setEnabled(enable)
+
+        # When autostart is enabled, offer the desktop widget preference if not already prompted
+        if enable and not self.config.get("widget_autostart_prompted", False):
+            self.config.set("widget_autostart_prompted", True)
+            reply = QMessageBox.question(
+                self,
+                "Masaüstü Widget Tercihi",
+                "NovaCare otomatik başlatma tercihi etkinleştirildi.\n\n"
+                "Bilgisayarınız her açıldığında Masaüstü Donanım ve Sıcaklık Monitörünün de (Widget) "
+                "otomatik olarak masaüstünüzde başlatılmasını ister misiniz?\n\n"
+                "(Bu tercihi dilediğiniz zaman bu ekrandan değiştirebilirsiniz.)",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            want_widget = (reply == QMessageBox.Yes)
+            if hasattr(self, 'chk_autostart_widget'):
+                self.chk_autostart_widget.setChecked(want_widget)
+            self.config.set("autostart_widget_on_boot", want_widget)
+
+    def _on_autostart_widget_changed(self, state: int):
+        enabled = (state == Qt.Checked)
+        self.config.set("autostart_widget_on_boot", enabled)
+        self.config.set("widget_autostart_prompted", True)
 
     def _handle_restart_as_admin(self):
         confirm = QMessageBox.question(

@@ -4,6 +4,17 @@ Tüm önemli değişiklikler, yeni özellikler, hata düzeltmeleri ve optimizasy
 
 ---
 
+## 🚀 [v1.0.9] - 2026-10-16
+
+### 📌 Masaüstü Donanım Widget'ı Otomatik Başlatma Tercihi (Desktop Widget Autostart Preference)
+* **Kullanıcıya Özel Başlatma Tercihi:** Kullanıcının isteği doğrultusunda, bilgisayar açıldığında masaüstü donanım ve sıcaklık monitörünün (CPU, GPU, RAM ve sıcaklık widget'ı) otomatik olarak başlatılıp başlatılmayacağına dair çok kanallı tercih sistemi entegre edildi:
+  * **Ayarlar ve Güncelleme Sekmesi:** "Genel Uygulama Tercihleri" altına `📌 Bilgisayar açıldığında Masaüstü Donanım Widget'ını (Monitör) da otomatik başlat` seçeneği eklendi.
+  * **Akıllı Etkileşimli İletişim Kutusu:** Kullanıcı Windows ile başlatmayı veya ana paneldeki Masaüstü Widget'ını ilk kez açtığında, widget'ın her açılışta masaüstünde otomatik başlatılmasını isteyip istemediğini soran onay penceresi sunuldu.
+  * **Modern Kurulum Sihirbazı (Setup Wizard):** `NovaCare_Setup.exe` kurulum adımlarında "Ek Görevler" sekmesine doğrudan widget otomatik başlatma kutucuğu eklendi; kullanıcı daha kurulum aşamasındayken tercihini belirleyebiliyor.
+  * **Sistem Tepsisi (Tray) & Canlı Senkronizasyon:** Widget açıldığında veya kapatıldığında ana paneldeki buton ("📌 Widget'ı Kapat" / "📌 Masaüstü Widget'ı") ve Sistem Tepsisi sağ tık menüsündeki "📌 Masaüstü Widget'ını Aç / Kapat" seçeneği çift yönlü dinamik sinyalle (`visibilityChanged`) tam senkronize hale getirildi.
+
+---
+
 ## 🚀 [v1.0.8] - 2026-10-16
 
 ### 🔍 Kod Tabanı Derin Denetimi & Tam Dosya İncelemesi (Deep Codebase Audit)

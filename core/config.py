@@ -118,6 +118,8 @@ class ConfigManager:
             "auto_install_updates": True,
             "theme": "system",             # "system" (Windows uyumlu), "dark", "light"
             "autostart_on_boot": True,
+            "autostart_widget_on_boot": False,
+            "widget_autostart_prompted": False,
             "notify_on_update": True,
             "last_update_check": "",
             "minimize_to_tray": True,

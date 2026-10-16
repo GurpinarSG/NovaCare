@@ -21,6 +21,7 @@ from core.startup_manager import StartupManager
 from core.memory_booster import MemoryBooster
 from core.game_booster import GameBooster
 from core.hardware_monitor import HardwareMonitor
+from core.config import ConfigManager
 
 class DashboardScanWorker(QThread):
     progress = pyqtSignal(str, int)  # status_message, percent
@@ -128,7 +129,9 @@ class DashboardView(QWidget):
         self.mem_booster = MemoryBooster()
         self.game_booster = GameBooster()
         self.hw_monitor = HardwareMonitor()
+        self.config = ConfigManager()
         self.overlay_widget = HardwareOverlayWidget()
+        self.overlay_widget.visibilityChanged.connect(self._on_overlay_visibility_changed)
         
         self.scan_worker = None
         self.fix_worker = None
@@ -334,14 +337,30 @@ class DashboardView(QWidget):
             )
         self._sync_game_mode_ui()
 
+    def _on_overlay_visibility_changed(self, visible: bool):
+        if hasattr(self, 'btn_overlay'):
+            self.btn_overlay.setText("📌  Widget'ı Kapat" if visible else "📌  Masaüstü Widget'ı")
+
     def _toggle_overlay(self):
         if self.overlay_widget.isVisible():
             self.overlay_widget.hide()
-            self.btn_overlay.setText("📌  Masaüstü Widget'ı")
         else:
             self.overlay_widget.show()
             self.overlay_widget.raise_()
-            self.btn_overlay.setText("📌  Widget'ı Kapat")
+
+            # Offer preference if user has not yet decided about starting widget on boot
+            if not self.config.get("widget_autostart_prompted", False):
+                self.config.set("widget_autostart_prompted", True)
+                reply = QMessageBox.question(
+                    self,
+                    "Masaüstü Widget Tercihi",
+                    "Masaüstü Donanım ve Sıcaklık Monitörünü açtınız.\n\n"
+                    "Bilgisayarınız her açıldığında bu widget'ın otomatik olarak masaüstünüzde başlatılmasını ister misiniz?\n\n"
+                    "(Bu tercihi daha sonra 'Ayarlar' sekmesinden dilediğiniz zaman değiştirebilirsiniz.)",
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.No
+                )
+                self.config.set("autostart_widget_on_boot", reply == QMessageBox.Yes)
 
     def _start_live_timer(self):
         self.timer = QTimer(self)
