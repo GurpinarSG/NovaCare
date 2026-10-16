@@ -47,8 +47,8 @@ DARK_PALETTE = {
     "MENU_HOVER_TEXT": "#041326",
     "MENU_BORDER": "#475569",
     "INPUT_BG": "#1E293B",
-    "BTN_PRIMARY_TEXT": "#041326",
-    "BTN_SUCCESS_TEXT": "#022C1B",
+    "BTN_PRIMARY_TEXT": "#FFFFFF",
+    "BTN_SUCCESS_TEXT": "#FFFFFF",
     "GAUGE_TRACK": "#334155"
 }
 
@@ -213,7 +213,7 @@ QPushButton.nav-btn:hover {{
 
 QPushButton.nav-btn:checked {{
     background-color: {p['TABLE_SEL_BG']};
-    color: {p['COLOR_ACCENT']};
+    color: #FFFFFF;
     font-weight: 700;
     border-left: 3px solid {p['COLOR_ACCENT']};
 }}
@@ -369,13 +369,13 @@ QPushButton.secondary-btn:hover {{
     border-color: {p['BORDER_HIGHLIGHT']};
 }}
 
-/* Big 1-Click Scan Button */
+/* Big 1-Click Scan Button (High Contrast Ultra Crisp) */
 QPushButton#BigScanBtn {{
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {p['COLOR_ACCENT']}, stop:1 #0284C7);
-    color: {p['BTN_PRIMARY_TEXT']};
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0284C7, stop:1 #0EA5E9);
+    color: #FFFFFF;
     font-size: 15px;
     font-weight: 800;
-    border: none;
+    border: 1px solid rgba(255, 255, 255, 0.25);
     border-radius: 26px;
     min-width: 380px;
     max-width: 380px;
@@ -386,15 +386,29 @@ QPushButton#BigScanBtn {{
 }}
 
 QPushButton#BigScanBtn:hover {{
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #7DD3FC, stop:1 #0369A1);
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0369A1, stop:1 #0284C7);
+    color: #FFFFFF;
+    border: 1px solid #7DD3FC;
 }}
 
+QPushButton#BigScanBtn:pressed {{
+    background-color: #0369A1;
+    color: #FFFFFF;
+}}
+
+QPushButton#BigScanBtn:disabled {{
+    background-color: {p['BORDER_COLOR']};
+    color: {p['TEXT_MUTED']};
+    border: none;
+}}
+
+/* Big 1-Click Fix Button (High Contrast Ultra Crisp) */
 QPushButton#BigFixBtn {{
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {p['COLOR_SUCCESS']}, stop:1 #047857);
-    color: {p['BTN_SUCCESS_TEXT']};
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #059669, stop:1 #10B981);
+    color: #FFFFFF;
     font-size: 15px;
     font-weight: 800;
-    border: none;
+    border: 1px solid rgba(255, 255, 255, 0.25);
     border-radius: 26px;
     min-width: 380px;
     max-width: 380px;
@@ -405,7 +419,20 @@ QPushButton#BigFixBtn {{
 }}
 
 QPushButton#BigFixBtn:hover {{
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #6EE7B7, stop:1 #065F46);
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #047857, stop:1 #059669);
+    color: #FFFFFF;
+    border: 1px solid #34D399;
+}}
+
+QPushButton#BigFixBtn:pressed {{
+    background-color: #047857;
+    color: #FFFFFF;
+}}
+
+QPushButton#BigFixBtn:disabled {{
+    background-color: {p['BORDER_COLOR']};
+    color: {p['TEXT_MUTED']};
+    border: none;
 }}
 
 /* Table Views */

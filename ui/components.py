@@ -7,7 +7,7 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QSizePolicy, QPushButton
 )
 from PyQt5.QtCore import Qt, QRectF, pyqtProperty
-from PyQt5.QtGui import QPainter, QColor, QPen, QFont
+from PyQt5.QtGui import QPainter, QColor, QPen, QFont, QFontMetrics
 from ui.styles import get_active_theme_colors
 
 class CircularHealthGauge(QWidget):
@@ -19,7 +19,7 @@ class CircularHealthGauge(QWidget):
         super().__init__(parent)
         self._score = 100
         self._display_score = 100
-        self.status_text = "Sistem Durumu: Mükemmel"
+        self.status_text = "Mükemmel"
         self.setFixedSize(220, 205)
 
     @pyqtProperty(int)
@@ -34,13 +34,13 @@ class CircularHealthGauge(QWidget):
 
     def _update_status_text(self):
         if self._score >= 85:
-            self.status_text = "Sistem Durumu: Mükemmel"
+            self.status_text = "Mükemmel"
         elif self._score >= 65:
-            self.status_text = "Sistem Durumu: İyi"
+            self.status_text = "İyi"
         elif self._score >= 40:
-            self.status_text = "Sistem Durumu: Orta (Bakım Önerilir)"
+            self.status_text = "Bakım Önerilir"
         else:
-            self.status_text = "Sistem Durumu: Kritik (Temizlik Gerekli)"
+            self.status_text = "Kritik"
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -84,22 +84,39 @@ class CircularHealthGauge(QWidget):
             f"{self._score}"
         )
 
-        font_unit = QFont("Segoe UI", 10, QFont.Bold)
+        font_unit = QFont("Segoe UI", 9, QFont.Bold)
+        font_unit.setLetterSpacing(QFont.AbsoluteSpacing, 1.0)
         painter.setFont(font_unit)
-        painter.setPen(QColor(p["TEXT_SECONDARY"]))
+        painter.setPen(QColor(p["TEXT_MUTED"]))
         painter.drawText(
-            QRectF(0, center_y + 4, width, 20),
+            QRectF(0, center_y + 4, width, 18),
             Qt.AlignCenter,
             "SAĞLIK SKORU"
         )
 
-        font_status = QFont("Segoe UI", 10, QFont.DemiBold)
+        # Normalize status text to prevent any overflow
+        display_status = self.status_text
+        for prefix in ("Sistem Durumu: ", "Sistem Durumu:", "İstek Durumu: ", "İstek Durumu:", "Durum: ", "Durum:"):
+            if display_status.startswith(prefix):
+                display_status = display_status[len(prefix):].strip()
+                break
+
+        # Dynamically scale font so text NEVER collides with or overflows the arc
+        status_pt = 11
+        font_status = QFont("Segoe UI", status_pt, QFont.Bold)
+        fm = QFontMetrics(font_status)
+        max_allowed_w = size - 64  # safe inner chord width
+        while status_pt > 8 and fm.horizontalAdvance(display_status) > max_allowed_w:
+            status_pt -= 1
+            font_status.setPointSize(status_pt)
+            fm = QFontMetrics(font_status)
+
         painter.setFont(font_status)
         painter.setPen(arc_color)
         painter.drawText(
-            QRectF(0, center_y + 26, width, 24),
+            QRectF(0, center_y + 24, width, 22),
             Qt.AlignCenter,
-            self.status_text
+            display_status
         )
 
 class StatCard(QFrame):

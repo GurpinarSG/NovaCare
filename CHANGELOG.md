@@ -23,10 +23,10 @@ Tüm önemli değişiklikler, yeni özellikler, hata düzeltmeleri ve optimizasy
 
 ---
 
-### 📦 Toplu Program Kaldırma & Başlangıç Yöneticisi Onarımları
-* **Çoklu / Toplu Kaldırma:** Kaldırma yöneticisine onay kutuları (checkbox) ve "Seçilenleri Toplu Kaldır" özelliği eklendi. Seçilen tüm yazılımlar sıra sıra kaldırılır.
-* **Başlangıç Yöneticisi Kayıt Defteri Düzeltmesi:** `winreg.QueryInfoKey` değer adlandırma hatası düzeltildi; MuiCache, Run, RunOnce ve Başlangıç programları eksiksiz listelenir hale getirildi.
-* **Kayıt Defteri Temizleyicisi Derinleşti:** SharedDLLs, RunMRU ve TypedPaths taramaları aktifleşerek 85+ gizli hata tespit edilebilir hale geldi.
+### 🎨 Dairesel Gösterge Taşma Düzeltmesi & Yüksek Kontrastlı Butonlar
+* **Dairesel Sağlık Göstergesi Taşma Düzeltmesi (Gauge Overflow Fix):** Dairesel göstergenin yay sınırlarını aşan uzun `"Sistem Durumu: Mükemmel"` metni giderildi. Gösterge içi değerlendirme `"Mükemmel"`, `"İyi"`, `"Bakım Önerilir"`, `"Kritik"` olarak optimize edildi ve `QFontMetrics` ile yay açıklığına göre dinamik font küçültme eklendi.
+* **"TEK TIKLA SİSTEMİ TARA" Butonu Renk Kontrastı (WCAG AAA):** Koyu mavi üzerine koyu lacivert yazılan ve okunması zor olan buton yazısı; canlı modern okyanus mavisi (`#0284C7` -> `#0EA5E9`) degrade üzerine saf beyaz (`#FFFFFF`) ve kalın (`font-weight: 800`) yazıya geçirilerek %100 net ve göz alıcı hale getirildi.
+* **Tüm Butonlar ve Durum Metinleri:** Onar butonu, durum metni etiketi ve aktif menü sekmelerinde kontrast optimize edildi.
 
 ---
 

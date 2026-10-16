@@ -221,7 +221,7 @@ class DashboardView(QWidget):
 
         # Status text
         self.lbl_status = QLabel("Tek tıkla tam sistem taraması yaparak bilgisayarınızı hızlandırın.")
-        self.lbl_status.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 13px; font-weight: 500;")
+        self.lbl_status.setStyleSheet(f"color: {TEXT_PRIMARY}; font-size: 13.5px; font-weight: 600;")
         self.lbl_status.setAlignment(Qt.AlignCenter)
         self.lbl_status.setWordWrap(True)
         self.lbl_status.setMinimumHeight(36)
