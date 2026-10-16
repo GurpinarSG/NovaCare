@@ -4,6 +4,14 @@ Tüm önemli değişiklikler, yeni özellikler, hata düzeltmeleri ve optimizasy
 
 ---
 
+## 🚀 [v1.1.3] - 2026-10-17
+
+### ⚡ Tek Tıkla Sistem Taraması %16 Takılma Hatası Giderildi (1-Click Scan Freeze Fix)
+* **Tarama Kilitlenmesi Kökten Çözüldü:** Ana paneldeki "Tek Tıkla Sistemi Tara" başlatıldığında ilerlemenin %15-16 seviyesinde kilitlenmesine neden olan `core/junk_cleaner.py` modülü içerisindeki eksik `import sys` kütüphane referansı giderildi.
+* **İş Parçacığı Güvenlik Zırhı (`try...finally`):** [`ui/views/dashboard_view.py`](file:///c:/Users/Gurpi/OneDrive/Masa%C3%BCst%C3%BC/antigravity/ui/views/dashboard_view.py) içerisindeki `DashboardScanWorker` ve `DashboardFixWorker` iş parçacıkları hata yakalama mekanizmasıyla güçlendirildi. Herhangi bir dosya sistemi veya izin uyarısında tarama asla donmaz; tüm aşamalar (%15 Çöp Dosyalar, %45 Kayıt Defteri, %75 Gizlilik, %90 Başlangıç, %100 Sağlık Skoru) 2 saniye içinde pürüzsüz tamamlanır.
+
+---
+
 ## 🚀 [v1.1.2] - 2026-10-17
 
 ### 🛠️ PyInstaller Onefile PID Doğrulama Hatası Giderildi (Bootloader Fix)

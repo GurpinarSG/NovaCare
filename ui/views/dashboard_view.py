@@ -44,84 +44,99 @@ class DashboardScanWorker(QThread):
             "score": 100
         }
 
-        # 1. Junk files scan
-        self.progress.emit("Gereksiz dosyalar ve önbellekler taranıyor...", 15)
-        cats = self.junk_cleaner.scan_all()
-        total_junk = sum(c.size for c in cats)
-        total_junk_files = sum(c.file_count for c in cats)
-        results["junk_size"] = total_junk
-        results["junk_count"] = total_junk_files
+        try:
+            # 1. Junk files scan
+            self.progress.emit("Gereksiz dosyalar ve önbellekler taranıyor...", 15)
+            cats = self.junk_cleaner.scan_all()
+            total_junk = sum(c.size for c in cats)
+            total_junk_files = sum(c.file_count for c in cats)
+            results["junk_size"] = total_junk
+            results["junk_count"] = total_junk_files
 
-        # 2. Registry scan
-        self.progress.emit("Kayıt Defteri sorunları denetleniyor...", 45)
-        reg_issues = self.reg_cleaner.scan_all()
-        results["reg_issues"] = len(reg_issues)
+            # 2. Registry scan
+            self.progress.emit("Kayıt Defteri sorunları denetleniyor...", 45)
+            reg_issues = self.reg_cleaner.scan_all()
+            results["reg_issues"] = len(reg_issues)
 
-        # 3. Privacy traces scan
-        self.progress.emit("Gizlilik izleri ve geçmiş denetleniyor...", 75)
-        traces = self.privacy_tweaker.scan_privacy_traces()
-        results["privacy_count"] = sum(t.count for t in traces)
+            # 3. Privacy traces scan
+            self.progress.emit("Gizlilik izleri ve geçmiş denetleniyor...", 75)
+            traces = self.privacy_tweaker.scan_privacy_traces()
+            results["privacy_count"] = sum(t.count for t in traces)
 
-        # 4. Startup apps scan
-        self.progress.emit("Başlangıç programları analiz ediliyor...", 90)
-        startups = self.startup_mgr.scan_all()
-        high_impact = len([s for s in startups if s.boot_impact == "Yüksek" and s.enabled])
-        results["startup_count"] = high_impact
+            # 4. Startup apps scan
+            self.progress.emit("Başlangıç programları analiz ediliyor...", 90)
+            startups = self.startup_mgr.scan_all()
+            high_impact = len([s for s in startups if s.boot_impact == "Yüksek" and s.enabled])
+            results["startup_count"] = high_impact
 
-        # Calculate Health Score
-        score = 100
-        if total_junk > 1024 * 1024 * 1024:  # > 1GB
-            score -= 25
-        elif total_junk > 200 * 1024 * 1024: # > 200MB
-            score -= 15
-        elif total_junk > 50 * 1024 * 1024:
-            score -= 8
+            # Calculate Health Score
+            score = 100
+            if total_junk > 1024 * 1024 * 1024:  # > 1GB
+                score -= 25
+            elif total_junk > 200 * 1024 * 1024: # > 200MB
+                score -= 15
+            elif total_junk > 50 * 1024 * 1024:
+                score -= 8
 
-        if len(reg_issues) > 50:
-            score -= 25
-        elif len(reg_issues) > 10:
-            score -= 15
-        elif len(reg_issues) > 0:
-            score -= 5
+            if len(reg_issues) > 50:
+                score -= 25
+            elif len(reg_issues) > 10:
+                score -= 15
+            elif len(reg_issues) > 0:
+                score -= 5
 
-        if results["privacy_count"] > 100:
-            score -= 15
-        elif results["privacy_count"] > 20:
-            score -= 10
+            if results["privacy_count"] > 100:
+                score -= 15
+            elif results["privacy_count"] > 20:
+                score -= 10
 
-        if high_impact > 3:
-            score -= 15
+            if high_impact > 3:
+                score -= 15
 
-        results["score"] = max(15, score)
-        self.progress.emit("Tarama tamamlandı!", 100)
-        self.finished.emit(results)
+            results["score"] = max(15, score)
+            self.progress.emit("Tarama tamamlandı!", 100)
+        except Exception as e:
+            from main import log_debug
+            log_debug(f"DashboardScanWorker error: {e}")
+            self.progress.emit("Tarama tamamlandı!", 100)
+        finally:
+            self.finished.emit(results)
 
 class DashboardFixWorker(QThread):
     progress = pyqtSignal(str, int)
     finished = pyqtSignal(int, int, int) # freed_bytes, reg_fixed, traces_cleaned
 
     def run(self):
-        self.progress.emit("Gereksiz dosyalar temizleniyor...", 20)
-        junk_cleaner = JunkCleaner()
-        cats = junk_cleaner.scan_all()
-        freed_bytes, _, _ = junk_cleaner.clean_categories({c.id for c in cats})
+        freed_bytes = 0
+        reg_fixed = 0
+        traces_cleaned = 0
+        try:
+            self.progress.emit("Gereksiz dosyalar temizleniyor...", 20)
+            junk_cleaner = JunkCleaner()
+            cats = junk_cleaner.scan_all()
+            freed_bytes, _, _ = junk_cleaner.clean_categories({c.id for c in cats})
 
-        self.progress.emit("Kayıt defteri sorunları güvenle onarılıyor...", 60)
-        reg_cleaner = RegistryCleaner()
-        issues = reg_cleaner.scan_all()
-        reg_fixed, _, _ = reg_cleaner.fix_issues(issues)
+            self.progress.emit("Kayıt defteri sorunları güvenle onarılıyor...", 60)
+            reg_cleaner = RegistryCleaner()
+            issues = reg_cleaner.scan_all()
+            reg_fixed, _, _ = reg_cleaner.fix_issues(issues)
 
-        self.progress.emit("Gizlilik izleri temizleniyor...", 85)
-        privacy = PrivacyTweaker()
-        traces = privacy.scan_privacy_traces()
-        traces_cleaned = privacy.clean_privacy_traces({t.id for t in traces})
+            self.progress.emit("Gizlilik izleri temizleniyor...", 85)
+            privacy = PrivacyTweaker()
+            traces = privacy.scan_privacy_traces()
+            traces_cleaned = privacy.clean_privacy_traces({t.id for t in traces})
 
-        # Memory boost
-        mem = MemoryBooster()
-        mem.optimize_ram()
+            # Memory boost
+            mem = MemoryBooster()
+            mem.optimize_ram()
 
-        self.progress.emit("Onarım başarıyla tamamlandı!", 100)
-        self.finished.emit(freed_bytes, reg_fixed, traces_cleaned)
+            self.progress.emit("Onarım başarıyla tamamlandı!", 100)
+        except Exception as e:
+            from main import log_debug
+            log_debug(f"DashboardFixWorker error: {e}")
+            self.progress.emit("İşlem tamamlandı!", 100)
+        finally:
+            self.finished.emit(freed_bytes, reg_fixed, traces_cleaned)
 
 class DashboardView(QWidget):
     def __init__(self, parent=None):

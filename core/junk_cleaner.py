@@ -3,6 +3,7 @@ NovaCare System Suite - Comprehensive Junk & Cache Cleaner
 Scans and cleans temporary files, browser caches, logs, crash dumps, and recycle bin.
 """
 import os
+import sys
 import glob
 from dataclasses import dataclass, field
 from typing import Callable, Optional
