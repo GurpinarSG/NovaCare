@@ -4,6 +4,15 @@ Tüm önemli değişiklikler, yeni özellikler, hata düzeltmeleri ve optimizasy
 
 ---
 
+## 🚀 [v1.0.7] - 2026-10-16
+
+### 🔢 Sürüm Numarasının Kesintisiz İlerlemesi (Dynamic Version Advancement)
+* **Otomatik Sürüm İlerleme Mekanizması:** Uygulama güncellendiğinde sürüm numarasının eski sürümlerde (`v1.0.5`) takılı kalması engellendi. `ConfigManager.get_version()` semantik sürüm ayrıştırması (`parse_version_tuple`) ile güçlendirilerek her yeni güncellemede sistemin daima en güncel sürüm numarasını (`v1.0.7`) okuması ve göstermesi güvence altına alındı.
+* **Canlı Arayüz Göstergeleri:** Ana pencere başlığına (`NovaCare System Care Suite 2026 - v1.0.7`), sol gezinme menüsü logosunun altına ve Ayarlar ekranındaki başlığa dinamik sürüm bilgisi entegre edildi.
+* **Uygulama İçi Güncelleyici Eşitlemesi:** Yeni sürüm paketleri indirildiğinde yerel yapılandırma ve kayıt defteri anında yeni sürüme yükseltilecek şekilde optimize edildi.
+
+---
+
 ## 🚀 [v1.0.6] - 2026-10-16
 
 ### 🎮 Oyun & Nihai Performans Kartı Arayüz Düzeltmesi

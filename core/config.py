@@ -75,11 +75,23 @@ class ConfigManager:
         self.settings = self._load()
 
     def get_version(self) -> str:
-        """Returns clean base version string like '1.0.0'."""
+        """Returns clean base version string like '1.0.7', prioritizing the highest known version."""
         base_file_ver = load_base_version()
-        stored_ver = self.settings.get("version", "").lstrip("vV")
-        # If VERSION file was bumped, prioritize it
-        return base_file_ver if base_file_ver != "1.0.0" else (stored_ver or base_file_ver)
+        stored_ver = self.settings.get("version", "").lstrip("vV").strip()
+        if not stored_ver:
+            return base_file_ver or "1.0.0"
+        if not base_file_ver:
+            return stored_ver
+
+        try:
+            import re
+            def to_tuple(v):
+                return tuple(int(x) for x in re.findall(r'\d+', v)) or (0, 0, 0)
+            if to_tuple(stored_ver) > to_tuple(base_file_ver):
+                return stored_ver
+        except Exception:
+            pass
+        return base_file_ver
 
     def get_display_version(self) -> str:
         """Returns formatted version string for UI display, e.g. 'v1.0.0 (Derleme: c77c7b8)'."""

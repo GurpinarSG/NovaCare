@@ -71,13 +71,18 @@ def build_executable(onefile: bool = True):
             size_mb = os.path.getsize(target_exe) / (1024 * 1024)
             # Copy to project root so user can run it directly from root folder
             root_exe = os.path.join(ROOT_DIR, "NovaCare.exe")
-            try:
-                shutil.copy2(target_exe, root_exe)
-            except PermissionError:
-                subprocess.run(["taskkill", "/f", "/im", "NovaCare.exe"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                import time
-                time.sleep(1)
-                shutil.copy2(target_exe, root_exe)
+            copied = False
+            for attempt in range(5):
+                try:
+                    shutil.copy2(target_exe, root_exe)
+                    copied = True
+                    break
+                except PermissionError:
+                    subprocess.run(["taskkill", "/f", "/im", "NovaCare.exe"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    import time
+                    time.sleep(1.2)
+            if not copied:
+                print(f"[!] Uyarı: {root_exe} kullanımda olduğu için güncellenemedi, ancak {target_exe} hazır.")
             
             # Sync shortcuts without invalid arguments
             try:

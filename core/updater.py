@@ -296,13 +296,15 @@ class GitHubUpdater:
         if os.path.exists(v_file):
             try:
                 with open(v_file, "r", encoding="utf-8") as vf:
-                    extracted_ver = vf.read().strip().lstrip("vV")
+                    from core.config import parse_version_content
+                    extracted_ver, _ = parse_version_content(vf.read())
                     if extracted_ver:
                         self.config.set("version", extracted_ver)
             except Exception:
                 pass
         elif new_version:
-            clean_nv = new_version.lstrip("vV")
+            from core.config import parse_version_content
+            clean_nv, _ = parse_version_content(new_version)
             self.config.set("version", clean_nv)
 
         # Create apply_update.bat with UTF-8 and chcp 65001 for flawless Turkish characters support

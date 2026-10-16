@@ -100,7 +100,7 @@ class MainWindow(QMainWindow):
         self.auto_install_thread = None
         self.prepared_update_batch = None
         self._visited_tabs: set[int] = {0}
-        self.setWindowTitle("NovaCare System Care Suite 2026")
+        self.setWindowTitle(f"NovaCare System Care Suite 2026 - {self.config.get_display_version()}")
 
         # Responsive geometry calculation based on primary monitor's available workspace
         screen = QApplication.primaryScreen()
@@ -194,7 +194,7 @@ class MainWindow(QMainWindow):
         v_brand = QVBoxLayout()
         lbl_brand = QLabel("NovaCare")
         lbl_brand.setObjectName("SidebarBrand")
-        lbl_sub = QLabel("ULTIMATE CARE 2026")
+        lbl_sub = QLabel(f"ULTIMATE CARE 2026 • v{self.config.get_version()}")
         lbl_sub.setObjectName("SidebarSubtitle")
         v_brand.addWidget(lbl_brand)
         v_brand.addWidget(lbl_sub)

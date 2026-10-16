@@ -177,7 +177,7 @@ class SettingsView(QWidget):
         cl_layout.setSpacing(10)
 
         cl_header = QHBoxLayout()
-        lbl_cl_title = QLabel(f"📋  Son Sürüm Güncelleme Notları (v{CURRENT_VERSION})")
+        lbl_cl_title = QLabel(f"📋  Son Sürüm Güncelleme Notları (v{self.config.get_version()})")
         lbl_cl_title.setStyleSheet("font-weight: 700; font-size: 13px; color: #00D2FF;")
 
         btn_cl_full = QPushButton("Tüm Geçmişi Aç...")
