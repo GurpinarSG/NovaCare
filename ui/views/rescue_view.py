@@ -31,6 +31,7 @@ class RescueView(QWidget):
         lbl_title.setObjectName("ViewTitle")
         lbl_sub = QLabel("Temizlik öncesi alınan kayıt defteri yedeklerini geri yükleyin veya Windows Sistem Geri Yükleme noktası oluşturun.")
         lbl_sub.setObjectName("ViewSubtitle")
+        lbl_sub.setWordWrap(True)
         layout.addWidget(lbl_title)
         layout.addWidget(lbl_sub)
 
@@ -45,17 +46,20 @@ class RescueView(QWidget):
         lbl_r_title.setStyleSheet("font-size: 15px; font-weight: 700;")
         lbl_r_sub = QLabel("Önemli sistem değişiklikleri öncesinde tam bir Windows kurtarma noktası oluşturabilirsiniz.")
         lbl_r_sub.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 12px;")
+        lbl_r_sub.setWordWrap(True)
         v_desc.addWidget(lbl_r_title)
         v_desc.addWidget(lbl_r_sub)
         top_layout.addLayout(v_desc)
 
         top_layout.addStretch()
 
-        self.btn_create_point = QPushButton("➕  Geri Yükleme Noktası Oluştur")
+        self.btn_create_point = QPushButton("➕  Geri Yükleme Noktası")
+        self.btn_create_point.setToolTip("Yeni bir Windows Sistem Geri Yükleme Noktası oluşturur")
         self.btn_create_point.setProperty("class", "primary-btn")
         self.btn_create_point.clicked.connect(self._create_restore_point)
 
-        self.btn_open_rstrui = QPushButton("⚙️  Windows Kurtarma Aracını Aç")
+        self.btn_open_rstrui = QPushButton("⚙️  Kurtarma Aracı")
+        self.btn_open_rstrui.setToolTip("Windows Sistem Geri Yükleme Sihirbazını (rstrui.exe) açar")
         self.btn_open_rstrui.setProperty("class", "secondary-btn")
         self.btn_open_rstrui.clicked.connect(self.mgr.open_system_restore_ui)
 

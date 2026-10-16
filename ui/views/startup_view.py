@@ -32,6 +32,7 @@ class StartupView(QWidget):
         lbl_title.setObjectName("ViewTitle")
         lbl_sub = QLabel("Bilgisayar açılışında arka planda başlayan uygulamaları yöneterek açılışı hızlandırın.")
         lbl_sub.setObjectName("ViewSubtitle")
+        lbl_sub.setWordWrap(True)
         layout.addWidget(lbl_title)
         layout.addWidget(lbl_sub)
 

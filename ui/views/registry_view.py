@@ -8,8 +8,9 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from core.registry_cleaner import RegistryCleaner, RegistryIssue
+from core.utils import is_admin
 from ui.styles import (
-    BG_CARD, BORDER_COLOR, COLOR_ACCENT, COLOR_SUCCESS, COLOR_DANGER,
+    BG_CARD, BORDER_COLOR, COLOR_ACCENT, COLOR_SUCCESS, COLOR_WARNING, COLOR_DANGER,
     TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED
 )
 
@@ -62,8 +63,36 @@ class RegistryView(QWidget):
         lbl_title.setObjectName("ViewTitle")
         lbl_sub = QLabel("Bozuk uygulama yollarını, silinmiş program kalıntılarını ve geçersiz anahtarları onarır.")
         lbl_sub.setObjectName("ViewSubtitle")
+        lbl_sub.setWordWrap(True)
         layout.addWidget(lbl_title)
         layout.addWidget(lbl_sub)
+
+        # Admin Depth Banner
+        self.admin_banner = QFrame()
+        has_admin = is_admin()
+        bg_col = "rgba(16, 185, 129, 0.12)" if has_admin else "rgba(251, 191, 36, 0.12)"
+        border_col = "rgba(16, 185, 129, 0.35)" if has_admin else "rgba(251, 191, 36, 0.35)"
+        text_col = COLOR_SUCCESS if has_admin else COLOR_WARNING
+
+        self.admin_banner.setStyleSheet(f"""
+            background-color: {bg_col};
+            border: 1px solid {border_col};
+            border-radius: 8px;
+            padding: 8px 12px;
+        """)
+        ab_lay = QHBoxLayout(self.admin_banner)
+        ab_lay.setContentsMargins(8, 4, 8, 4)
+
+        banner_msg = (
+            "🛡️ <b>Yönetici Modu Aktif:</b> HKEY_LOCAL_MACHINE dahil tüm sistem genelindeki kayıt defteri anahtarlarına tam erişimle en derin onarım yapılır."
+            if has_admin else
+            "💡 <b>Daha Derin Onarım İpucu:</b> Sistem genelindeki HKEY_LOCAL_MACHINE anahtarlarını onarmak için NovaCare'i <b>Yönetici olarak</b> çalıştırın."
+        )
+        lbl_ab = QLabel(banner_msg)
+        lbl_ab.setStyleSheet(f"color: {text_col}; font-size: 12px;")
+        lbl_ab.setWordWrap(True)
+        ab_lay.addWidget(lbl_ab)
+        layout.addWidget(self.admin_banner)
 
         # Toolbar
         toolbar = QFrame()
@@ -193,10 +222,17 @@ class RegistryView(QWidget):
         if not selected:
             return
 
+        has_admin = is_admin()
+        admin_note = (
+            "\n\n🛡️ Yönetici Yetkisi Aktif: HKEY_LOCAL_MACHINE ve sistem düzeyindeki bozuk anahtarlar tam yetkiyle derinlemesine onarılacaktır."
+            if has_admin else
+            "\n\n💡 İpucu: Yönetici olarak çalıştırdığınızda sistem genelindeki anahtarlar çok daha derin ve kapsamlı onarılır."
+        )
+
         confirm = QMessageBox.question(
             self,
             "Kayıt Defteri Onarımı",
-            f"Seçilen {len(selected)} kayıt defteri sorunu onarılacak.\n"
+            f"Seçilen {len(selected)} kayıt defteri sorunu onarılacak.{admin_note}\n\n"
             "İşlem öncesinde otomatik olarak güvenli bir geri yükleme yedeği oluşturulacaktır. Devam edilsin mi?",
             QMessageBox.Yes | QMessageBox.No
         )

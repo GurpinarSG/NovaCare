@@ -4,7 +4,7 @@ Includes Circular Health Gauge, Stat Cards, and Styled Category Items.
 Theme-aware dynamic rendering with seamless dark/light contrast support.
 """
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QSizePolicy
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QSizePolicy, QPushButton
 )
 from PyQt5.QtCore import Qt, QRectF, pyqtProperty
 from PyQt5.QtGui import QPainter, QColor, QPen, QFont
@@ -20,7 +20,7 @@ class CircularHealthGauge(QWidget):
         self._score = 100
         self._display_score = 100
         self.status_text = "Sistem Durumu: Mükemmel"
-        self.setMinimumSize(220, 220)
+        self.setMinimumSize(185, 185)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
     @pyqtProperty(int)
@@ -129,9 +129,126 @@ class StatCard(QFrame):
 
         self.sub_lbl = QLabel(subtitle)
         self.sub_lbl.setStyleSheet("font-size: 11px;")
+        self.sub_lbl.setWordWrap(True)
         layout.addWidget(self.sub_lbl)
 
     def set_value(self, value: str, subtitle: str = ""):
         self.value_lbl.setText(value)
         if subtitle:
             self.sub_lbl.setText(subtitle)
+
+class HardwareOverlayWidget(QWidget):
+    """
+    Floating desktop mini hardware & temperature widget.
+    Draggable, semi-transparent, stays on top, displays real-time CPU, GPU, and RAM stats.
+    """
+    def __init__(self, parent=None):
+        super().__init__(None, Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint | Qt.Tool)
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.drag_position = None
+        self.setFixedSize(220, 160)
+        self._init_ui()
+
+    def _init_ui(self):
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+
+        # Card container
+        self.card = QFrame(self)
+        self.card.setStyleSheet("""
+            QFrame {
+                background-color: rgba(15, 23, 42, 0.94);
+                border: 1px solid #38BDF8;
+                border-radius: 12px;
+            }
+            QLabel {
+                color: #FFFFFF;
+                background: transparent;
+                border: none;
+            }
+        """)
+        card_layout = QVBoxLayout(self.card)
+        card_layout.setContentsMargins(12, 8, 12, 10)
+        card_layout.setSpacing(6)
+
+        # Header with drag handle & close button
+        hdr = QHBoxLayout()
+        hdr.setSpacing(4)
+        lbl_title = QLabel("⚡ NovaCare Monitör")
+        lbl_title.setStyleSheet("font-weight: 700; font-size: 11px; color: #38BDF8;")
+        hdr.addWidget(lbl_title)
+        hdr.addStretch()
+
+        btn_close = QPushButton("✕")
+        btn_close.setFixedSize(18, 18)
+        btn_close.setCursor(Qt.PointingHandCursor)
+        btn_close.setStyleSheet("""
+            QPushButton {
+                background: transparent;
+                color: #94A3B8;
+                border: none;
+                font-size: 11px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                color: #EF4444;
+            }
+        """)
+        btn_close.clicked.connect(self.hide)
+        hdr.addWidget(btn_close)
+        card_layout.addLayout(hdr)
+
+        # Stats Rows
+        self.lbl_cpu = QLabel("CPU: %0  (0.0 GHz)")
+        self.lbl_cpu.setStyleSheet("font-size: 11px; font-weight: 600; color: #F8FAFC;")
+        card_layout.addWidget(self.lbl_cpu)
+
+        self.lbl_cpu_temp = QLabel("CPU Sıcaklık: - °C")
+        self.lbl_cpu_temp.setStyleSheet("font-size: 10px; color: #CBD5E1;")
+        card_layout.addWidget(self.lbl_cpu_temp)
+
+        self.lbl_gpu = QLabel("GPU: %0  (- °C)")
+        self.lbl_gpu.setStyleSheet("font-size: 11px; font-weight: 600; color: #34D399;")
+        card_layout.addWidget(self.lbl_gpu)
+
+        self.lbl_ram = QLabel("RAM: %0  (0.0 / 0.0 GB)")
+        self.lbl_ram.setStyleSheet("font-size: 11px; font-weight: 600; color: #A78BFA;")
+        card_layout.addWidget(self.lbl_ram)
+
+        root.addWidget(self.card)
+
+    def update_stats(self, stats: dict):
+        cpu_pct = stats.get("cpu_percent", 0)
+        cpu_freq = stats.get("cpu_freq_ghz", 0.0)
+        cpu_temp = stats.get("cpu_temp")
+        gpu_load = stats.get("gpu_load", 0)
+        gpu_temp = stats.get("gpu_temp")
+        ram_pct = stats.get("ram_percent", 0)
+        ram_used = stats.get("ram_used_gb", 0)
+        ram_total = stats.get("ram_total_gb", 0)
+
+        self.lbl_cpu.setText(f"CPU: %{cpu_pct:.0f}  ({cpu_freq:.1f} GHz)")
+        if cpu_temp is not None:
+            c_color = "#EF4444" if cpu_temp > 75 else ("#FBBF24" if cpu_temp > 60 else "#34D399")
+            self.lbl_cpu_temp.setText(f"CPU Sıcaklık: <b style='color:{c_color};'>{cpu_temp:.1f} °C</b>")
+        else:
+            self.lbl_cpu_temp.setText("CPU Sıcaklık: Ölçülüyor...")
+
+        if stats.get("has_gpu", False):
+            g_temp_str = f"{gpu_temp} °C" if gpu_temp is not None else "N/A"
+            self.lbl_gpu.setText(f"GPU: %{gpu_load}  ({g_temp_str})")
+        else:
+            self.lbl_gpu.setText("GPU: Harici GPU Yok")
+
+        self.lbl_ram.setText(f"RAM: %{ram_pct:.0f}  ({ram_used} / {ram_total} GB)")
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.drag_position = event.globalPos() - self.frameGeometry().topLeft()
+            event.accept()
+
+    def mouseMoveEvent(self, event):
+        if event.buttons() == Qt.LeftButton and self.drag_position is not None:
+            self.move(event.globalPos() - self.drag_position)
+            event.accept()
+

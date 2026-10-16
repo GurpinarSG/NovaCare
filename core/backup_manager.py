@@ -101,7 +101,8 @@ class BackupManager:
         """Invokes PowerShell to create a Windows System Restore Point."""
         cmd = f'powershell.exe -ExecutionPolicy Bypass -Command "Checkpoint-Computer -Description \\"{description}\\" -RestorePointType \\"MODIFY_SETTINGS\\""'
         try:
-            res = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+            flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+            res = subprocess.run(cmd, shell=True, capture_output=True, text=True, creationflags=flags)
             return res.returncode == 0
         except Exception:
             return False
@@ -109,6 +110,7 @@ class BackupManager:
     def open_system_restore_ui(self):
         """Launches the Windows native System Restore wizard (rstrui.exe)."""
         try:
-            subprocess.Popen("rstrui.exe", shell=True)
+            flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+            subprocess.Popen("rstrui.exe", shell=True, creationflags=flags)
         except Exception:
             pass

@@ -6,7 +6,7 @@ Cryptographically protects GitHub tokens using Windows DPAPI.
 import os
 import sys
 import json
-from core.security import encrypt_string, decrypt_string
+from core.security import encrypt_string, decrypt_string, get_embedded_token
 
 def load_base_version() -> str:
     """Reads base version from VERSION file if available, otherwise defaults to 1.0.0."""
@@ -71,8 +71,19 @@ class ConfigManager:
             "notify_on_update": True,
             "last_update_check": "",
             "minimize_to_tray": True,
-            "close_to_tray": False,
-            "auto_backup_registry": True
+            "close_to_tray": True,
+            "always_run_as_admin": True,
+            "auto_backup_registry": True,
+            "auto_clean_enabled": True,
+            "auto_clean_schedule": "daily",
+            "auto_clean_threshold_mb": 1024,
+            "auto_clean_junk": True,
+            "auto_clean_ram": True,
+            "auto_clean_traces": False,
+            "auto_clean_notify": True,
+            "last_auto_clean_time": "",
+            "last_auto_clean_display": "Henüz yapılmadı",
+            "last_auto_clean_freed_bytes": 0
         }
 
     def _load(self) -> dict:
@@ -86,14 +97,20 @@ class ConfigManager:
                 for k, v in defaults.items():
                     if k not in data:
                         data[k] = v
+                # Remove any plaintext token legacy leak if present
+                if "github_token" in data:
+                    data.pop("github_token", None)
+                    self._save(data)
                 return data
         except Exception:
             return defaults
 
     def _save(self, data: dict):
         try:
+            # Ensure plaintext token is never written to disk
+            clean_data = {k: v for k, v in data.items() if k != "github_token"}
             with open(self.config_file, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
+                json.dump(clean_data, f, indent=2, ensure_ascii=False)
         except Exception:
             pass
 
@@ -105,33 +122,35 @@ class ConfigManager:
         self._save(self.settings)
 
     def get_secure_token(self) -> str:
-        """Returns the decrypted GitHub token for the current Windows user."""
-        # 1. Check encrypted token
+        """
+        Returns the decrypted GitHub token for repository synchronization.
+        Prioritizes user override (DPAPI) if defined, otherwise securely unpacks
+        the in-memory cryptographic vault. Never exposes token in settings or logs.
+        """
+        # 1. Custom local user override (DPAPI encrypted)
         enc_token = self.settings.get("github_token_encrypted")
         if enc_token:
             dec = decrypt_string(enc_token)
             if dec:
                 return dec
 
-        # 2. Migration from legacy plaintext if present
-        plain = self.settings.get("github_token")
-        if plain:
-            # Upgrade to encrypted
-            self.set_secure_token(plain)
-            return plain
+        # 2. Cryptographic in-memory vault (AES/HMAC keystream, cross-machine safe)
+        vault_token = get_embedded_token()
+        if vault_token:
+            return vault_token
 
         return ""
 
     def set_secure_token(self, token: str):
-        """Encrypts and stores token securely using Windows DPAPI."""
-        if token:
+        """Encrypts and stores a custom user token securely using Windows DPAPI."""
+        embedded = get_embedded_token()
+        if token and token.strip() and token.strip() != embedded:
             enc = encrypt_string(token.strip())
             self.settings["github_token_encrypted"] = enc
-            # Remove any plaintext token key
-            self.settings.pop("github_token", None)
         else:
+            # If empty or matching default embedded vault, clean up settings.json
             self.settings.pop("github_token_encrypted", None)
-            self.settings.pop("github_token", None)
+        self.settings.pop("github_token", None)
         self._save(self.settings)
 
     def save_all(self):

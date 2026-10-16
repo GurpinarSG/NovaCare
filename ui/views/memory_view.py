@@ -56,6 +56,7 @@ class MemoryView(QWidget):
         lbl_title.setObjectName("ViewTitle")
         lbl_sub = QLabel("Arka planda çalışan uygulamaları denetleyin ve tek tıkla boşta duran RAM belleğini geri kazanın.")
         lbl_sub.setObjectName("ViewSubtitle")
+        lbl_sub.setWordWrap(True)
         layout.addWidget(lbl_title)
         layout.addWidget(lbl_sub)
 
@@ -152,13 +153,14 @@ class MemoryView(QWidget):
     def _start_timer(self):
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._on_timer_tick)
-        self.timer.start(2500)
+        self.timer.start(3500)
         self._on_timer_tick()
-        self.refresh_processes()
 
     def _on_timer_tick(self):
-        # Only update live meters when this view is currently visible
+        # Only update live meters when this view is currently the active tab
         if not self.isVisible():
+            return
+        if self.parent() and hasattr(self.parent(), 'currentWidget') and self.parent().currentWidget() != self:
             return
 
         try:

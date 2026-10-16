@@ -8,9 +8,9 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from core.junk_cleaner import JunkCleaner, CleanerCategory
-from core.utils import format_bytes
+from core.utils import format_bytes, is_admin
 from ui.styles import (
-    BG_CARD, BORDER_COLOR, COLOR_ACCENT, COLOR_SUCCESS, COLOR_DANGER,
+    BG_CARD, BORDER_COLOR, COLOR_ACCENT, COLOR_SUCCESS, COLOR_WARNING, COLOR_DANGER,
     TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED
 )
 
@@ -63,8 +63,36 @@ class JunkView(QWidget):
         lbl_title.setObjectName("ViewTitle")
         lbl_sub = QLabel("Sisteminizde biriken geçici dosyaları, tarayıcı önbelleklerini ve sistem artıklarını temizleyin.")
         lbl_sub.setObjectName("ViewSubtitle")
+        lbl_sub.setWordWrap(True)
         layout.addWidget(lbl_title)
         layout.addWidget(lbl_sub)
+
+        # Admin Depth Banner
+        self.admin_banner = QFrame()
+        has_admin = is_admin()
+        bg_col = "rgba(16, 185, 129, 0.12)" if has_admin else "rgba(251, 191, 36, 0.12)"
+        border_col = "rgba(16, 185, 129, 0.35)" if has_admin else "rgba(251, 191, 36, 0.35)"
+        text_col = COLOR_SUCCESS if has_admin else COLOR_WARNING
+
+        self.admin_banner.setStyleSheet(f"""
+            background-color: {bg_col};
+            border: 1px solid {border_col};
+            border-radius: 8px;
+            padding: 8px 12px;
+        """)
+        ab_lay = QHBoxLayout(self.admin_banner)
+        ab_lay.setContentsMargins(8, 4, 8, 4)
+
+        banner_msg = (
+            "🛡️ <b>Yönetici Modu Aktif:</b> Windows Prefetch, Sistem Bellek Dökümleri ve sistem korumalı tüm önbelleklere tam erişimle %100 derinlikte temizlik sağlanır."
+            if has_admin else
+            "💡 <b>Daha İyi Temizlik İpucu:</b> Sistem korumalı bazı önbellekler standart modda atlanabilir. Maksimum derinlikte temizlik için NovaCare'i <b>Yönetici olarak</b> çalıştırın."
+        )
+        lbl_ab = QLabel(banner_msg)
+        lbl_ab.setStyleSheet(f"color: {text_col}; font-size: 12px;")
+        lbl_ab.setWordWrap(True)
+        ab_lay.addWidget(lbl_ab)
+        layout.addWidget(self.admin_banner)
 
         # Action Toolbar
         toolbar = QFrame()
@@ -200,10 +228,17 @@ class JunkView(QWidget):
         if not selected_ids:
             return
 
+        has_admin = is_admin()
+        admin_note = (
+            "\n\n🛡️ Yönetici Yetkisi Aktif: Windows Prefetch, Sistem Hata Dökümleri ve korumalı önbellekler tam yetkiyle derinlemesine temizlenecektir."
+            if has_admin else
+            "\n\n💡 İpucu: NovaCare'i Yönetici olarak çalıştırdığınızda kilitli sistem dosyaları ve korumalı önbellekler çok daha derin ve kapsamlı temizlenir."
+        )
+
         confirm = QMessageBox.question(
             self,
             "Temizliği Onayla",
-            f"Seçili {len(selected_ids)} kategorideki gereksiz dosyalar kalıcı olarak temizlenecek. Devam etmek istiyor musunuz?",
+            f"Seçili {len(selected_ids)} kategorideki gereksiz dosyalar kalıcı olarak temizlenecek.{admin_note}\n\nDevam etmek istiyor musunuz?",
             QMessageBox.Yes | QMessageBox.No
         )
         if confirm != QMessageBox.Yes:
@@ -231,6 +266,13 @@ class JunkView(QWidget):
         self.btn_scan.setEnabled(True)
         self._populate_table()
 
+        has_admin = is_admin()
+        admin_summary = (
+            "\n\n🛡️ Yönetici ayrıcalıkları sayesinde sistem ve kullanıcı düzeyindeki tüm artıklar derinlemesine temizlendi."
+            if has_admin else
+            "\n\n💡 Daha fazla disk alanı kazanmak ve kilitli sistem artıklarını temizlemek için uygulamayı Yönetici olarak çalıştırmayı deneyin."
+        )
+
         QMessageBox.information(
             self,
             "Temizlik Başarılı",
@@ -238,4 +280,5 @@ class JunkView(QWidget):
             f"• Boşaltılan Alan: {format_bytes(freed)}\n"
             f"• Silinen Dosya: {cleaned_count:,} adet\n"
             f"• Kilitli/Atlanan: {failed_count:,} adet"
+            f"{admin_summary}"
         )

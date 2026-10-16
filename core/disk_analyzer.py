@@ -92,7 +92,10 @@ class DiskAnalyzer:
         found: list[LargeFileInfo] = []
         scanned_count = 0
 
-        for root, dirs, files in os.walk(target_dir):
+        if not target_dir or not os.path.exists(target_dir):
+            return found
+
+        for root, dirs, files in os.walk(target_dir, onerror=lambda _: None):
             for fname in files:
                 scanned_count += 1
                 if scanned_count % 500 == 0 and progress_callback:

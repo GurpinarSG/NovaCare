@@ -1,0 +1,77 @@
+# ==============================================================================
+# NovaCare System Care Suite - Git Ignore File
+# ==============================================================================
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyd
+
+# C extensions
+*.so
+
+# Distribution / packaging
+bin/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller & Build artifacts
+*.spec
+NovaCare.exe
+NovaCare_Setup.exe
+NovaCare.lnk
+*.zip
+*.tar.gz
+github_release_*/
+
+# Local Logs, Diagnostics and Temp
+*.log
+err.txt
+out.txt
+*.tmp
+*.bak
+temp/
+NovaCare_Build/
+NovaCare_Setup_Build/
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Editor / IDE directories
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Operating System files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store
+
+# Local sensitive configuration (if generated at runtime)
+config.json
+*.token

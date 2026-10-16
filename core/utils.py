@@ -14,6 +14,38 @@ def is_admin() -> bool:
     except Exception:
         return False
 
+def restart_as_admin() -> bool:
+    """Relaunches the current application with elevated administrator rights via Windows UAC."""
+    if sys.platform != 'win32':
+        return False
+    try:
+        if getattr(sys, 'frozen', False):
+            executable = sys.executable
+            params = " ".join([f'"{arg}"' for arg in sys.argv[1:]])
+        else:
+            executable = sys.executable
+            script = os.path.abspath(sys.argv[0])
+            params = f'"{script}" ' + " ".join([f'"{arg}"' for arg in sys.argv[1:]])
+
+        ret = ctypes.windll.shell32.ShellExecuteW(None, "runas", executable, params, None, 1)
+        if ret > 32:
+            sys.exit(0)
+            return True
+    except Exception:
+        pass
+    return False
+
+def elevate_if_needed():
+    """If not running as administrator on Windows, triggers UAC prompt to elevate privileges if configured."""
+    if sys.platform == 'win32' and not is_admin():
+        try:
+            from core.config import ConfigManager
+            config = ConfigManager()
+            if config.get("always_run_as_admin", True):
+                restart_as_admin()
+        except Exception:
+            pass
+
 def format_bytes(bytes_count: int | float) -> str:
     """Convert bytes count to human-readable string (KB, MB, GB, etc.)."""
     if bytes_count <= 0:

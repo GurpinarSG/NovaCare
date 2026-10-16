@@ -55,6 +55,7 @@ class DiskView(QWidget):
         lbl_title.setObjectName("ViewTitle")
         lbl_sub = QLabel("Sürücü doluluk oranlarını inceleyin ve diskinizi dolduran devasa dosyaları kolayca tespit edin.")
         lbl_sub.setObjectName("ViewSubtitle")
+        lbl_sub.setWordWrap(True)
         layout.addWidget(lbl_title)
         layout.addWidget(lbl_sub)
 
@@ -237,7 +238,8 @@ class DiskView(QWidget):
 
         fpath = self.large_files[row].path
         if os.path.exists(fpath):
-            subprocess.run(f'explorer.exe /select,"{fpath}"', shell=True)
+            norm = os.path.normpath(fpath)
+            subprocess.Popen(["explorer.exe", f"/select,{norm}"])
         else:
             QMessageBox.warning(self, "Bulunamadı", "Dosya diskte mevcut değil.")
 

@@ -25,6 +25,7 @@ from ui.views import (
     MemoryView,
     DiskView,
     PrivacyView,
+    NetworkView,
     RescueView,
     SettingsView
 )
@@ -32,6 +33,25 @@ from core.utils import is_admin
 from core.memory_booster import MemoryBooster
 from core.config import ConfigManager
 from core.updater import GitHubUpdater, UpdateInfo
+from core.auto_cleaner import AutoCleaner
+import time
+
+def log_debug(msg: str):
+    try:
+        log_dir = os.path.join(os.environ.get('LOCALAPPDATA', os.path.expanduser('~')), 'NovaCare')
+        os.makedirs(log_dir, exist_ok=True)
+        with open(os.path.join(log_dir, 'startup.log'), "a", encoding="utf-8") as f:
+            f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {msg}\n")
+    except Exception:
+        pass
+
+class BackgroundAutoCleanWorker(QThread):
+    finished = pyqtSignal(dict)
+
+    def run(self):
+        cleaner = AutoCleaner()
+        res = cleaner.execute_cleanup()
+        self.finished.emit(res)
 
 class AutoUpdateCheckThread(QThread):
     finished = pyqtSignal(object)
@@ -72,22 +92,51 @@ class SilentAutoInstallThread(QThread):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
+        log_debug("MainWindow.__init__ started")
         self.config = ConfigManager()
         self.auto_check_thread = None
         self.auto_install_thread = None
         self.prepared_update_batch = None
         self.setWindowTitle("NovaCare System Care Suite 2026")
-        self.resize(1180, 780)
-        self.setMinimumSize(980, 640)
+
+        # Responsive geometry calculation based on primary monitor's available workspace
+        screen = QApplication.primaryScreen()
+        if screen:
+            avail = screen.availableGeometry()
+            target_w = min(1220, max(980, int(avail.width() * 0.85)))
+            target_h = min(750, max(620, int(avail.height() * 0.88)))
+            self.resize(target_w, target_h)
+            self.setGeometry(
+                avail.x() + (avail.width() - target_w) // 2,
+                avail.y() + (avail.height() - target_h) // 2,
+                target_w,
+                target_h
+            )
+        else:
+            self.resize(1180, 720)
+
+        self.setMinimumSize(940, 580)
 
         # Apply user/system theme
+        log_debug("MainWindow: applying theme...")
         self.current_theme = self.config.get("theme", "system")
-        self.setStyleSheet(get_stylesheet(self.current_theme))
+        init_qss = get_stylesheet(self.current_theme)
+        app_inst = QApplication.instance()
+        if app_inst:
+            app_inst.setStyleSheet(init_qss)
+        self.setStyleSheet(init_qss)
 
+        log_debug("MainWindow: setting up icon...")
         self._setup_icon()
+        log_debug("MainWindow: setting up UI...")
         self._init_ui()
+        log_debug("MainWindow: setting up tray...")
         self._setup_tray()
+        log_debug("MainWindow: setting up auto update...")
         self._setup_auto_update()
+        log_debug("MainWindow: setting up auto clean...")
+        self._setup_auto_clean()
+        log_debug("MainWindow.__init__ finished successfully")
 
     def _setup_icon(self):
         if getattr(sys, 'frozen', False):
@@ -129,10 +178,10 @@ class MainWindow(QMainWindow):
         # 1. Left Sidebar
         sidebar = QFrame()
         sidebar.setObjectName("SidebarWidget")
-        sidebar.setFixedWidth(250)
+        sidebar.setFixedWidth(240)
         side_layout = QVBoxLayout(sidebar)
-        side_layout.setContentsMargins(12, 20, 12, 16)
-        side_layout.setSpacing(6)
+        side_layout.setContentsMargins(10, 16, 10, 14)
+        side_layout.setSpacing(3)
 
         # Branding
         brand_row = QHBoxLayout()
@@ -153,7 +202,7 @@ class MainWindow(QMainWindow):
         brand_row.addStretch()
         side_layout.addLayout(brand_row)
 
-        side_layout.addSpacing(18)
+        side_layout.addSpacing(14)
 
         # Nav Buttons & ButtonGroup
         self.btn_group = QButtonGroup(self)
@@ -167,9 +216,10 @@ class MainWindow(QMainWindow):
             ("📦  Program Kaldırıcı", 4),
             ("🧠  RAM & Süreç Yöneticisi", 5),
             ("📊  Disk Alanı Analizi", 6),
-            ("🛡️  Gizlilik & Optimizasyon", 7),
-            ("💾  Kurtarma Merkezi", 8),
-            ("⚙️  Ayarlar & Güncelleme", 9)
+            ("🛡️  Gizlilik & Bloatware", 7),
+            ("🌐  Ağ & DNS Optimize Edici", 8),
+            ("💾  Kurtarma Merkezi", 9),
+            ("⚙️  Ayarlar & Güncelleme", 10)
         ]
 
         self.nav_buttons: list[QPushButton] = []
@@ -189,18 +239,25 @@ class MainWindow(QMainWindow):
         side_layout.addStretch()
 
         # Admin Badge
+        has_admin = is_admin()
         admin_card = QFrame()
+        admin_card.setCursor(Qt.PointingHandCursor)
+        admin_card.setToolTip("Yönetici izinlerini görüntülemek ve yapılandırmak için tıklayın")
+        bg_col = "rgba(16, 185, 129, 0.12)" if has_admin else "rgba(251, 191, 36, 0.15)"
+        border_col = "rgba(16, 185, 129, 0.35)" if has_admin else "rgba(251, 191, 36, 0.40)"
+        text_col = COLOR_SUCCESS if has_admin else COLOR_WARNING
         admin_card.setStyleSheet(f"""
-            background-color: rgba(16, 185, 129, 0.12);
-            border: 1px solid rgba(16, 185, 129, 0.35);
+            background-color: {bg_col};
+            border: 1px solid {border_col};
             border-radius: 8px;
             padding: 8px 10px;
         """)
         a_lay = QHBoxLayout(admin_card)
         a_lay.setContentsMargins(6, 4, 6, 4)
-        lbl_admin = QLabel("🛡️  Yönetici Modu Aktif" if is_admin() else "⚠️  Standart Kullanıcı Modu")
-        lbl_admin.setStyleSheet(f"color: {COLOR_SUCCESS if is_admin() else TEXT_SECONDARY}; font-weight: 700; font-size: 11px;")
+        lbl_admin = QLabel("🛡️  Yönetici Modu Aktif" if has_admin else "⚠️  Standart Mod (Yükselt)")
+        lbl_admin.setStyleSheet(f"color: {text_col}; font-weight: 700; font-size: 11px;")
         a_lay.addWidget(lbl_admin)
+        admin_card.mousePressEvent = lambda ev: self._navigate_to_settings_admin()
         side_layout.addWidget(admin_card)
 
         root_layout.addWidget(sidebar)
@@ -208,16 +265,29 @@ class MainWindow(QMainWindow):
         # 2. Main Stacked Views Area
         self.stack = QStackedWidget()
         
+        log_debug("Init view: DashboardView")
         self.view_dashboard = DashboardView(self)
+        log_debug("Init view: JunkView")
         self.view_junk = JunkView(self)
+        log_debug("Init view: RegistryView")
         self.view_registry = RegistryView(self)
+        log_debug("Init view: StartupView")
         self.view_startup = StartupView(self)
+        log_debug("Init view: UninstallerView")
         self.view_uninstaller = UninstallerView(self)
+        log_debug("Init view: MemoryView")
         self.view_memory = MemoryView(self)
+        log_debug("Init view: DiskView")
         self.view_disk = DiskView(self)
+        log_debug("Init view: PrivacyView")
         self.view_privacy = PrivacyView(self)
+        log_debug("Init view: NetworkView")
+        self.view_network = NetworkView(self)
+        log_debug("Init view: RescueView")
         self.view_rescue = RescueView(self)
+        log_debug("Init view: SettingsView")
         self.view_settings = SettingsView(self)
+        log_debug("All views created successfully.")
 
         self.stack.addWidget(self.view_dashboard)    # 0
         self.stack.addWidget(self.view_junk)         # 1
@@ -227,19 +297,38 @@ class MainWindow(QMainWindow):
         self.stack.addWidget(self.view_memory)       # 5
         self.stack.addWidget(self.view_disk)         # 6
         self.stack.addWidget(self.view_privacy)      # 7
-        self.stack.addWidget(self.view_rescue)       # 8
-        self.stack.addWidget(self.view_settings)     # 9
+        self.stack.addWidget(self.view_network)      # 8
+        self.stack.addWidget(self.view_rescue)       # 9
+        self.stack.addWidget(self.view_settings)     # 10
 
         root_layout.addWidget(self.stack)
 
     def _on_nav_clicked(self, index: int):
         self.stack.setCurrentIndex(index)
+        # Optimization: Trim NovaCare's own unused RAM pages and load tab on-demand
+        from core.memory_booster import MemoryBooster
+        MemoryBooster.trim_own_memory()
+
+        if index == 5 and hasattr(self.view_memory, 'refresh_processes'):
+            self.view_memory.refresh_processes()
+        elif index == 7 and hasattr(self.view_privacy, 'refresh_all'):
+            self.view_privacy.refresh_all()
+        elif index == 8 and hasattr(self.view_network, '_load_network_info'):
+            self.view_network._load_network_info()
+
+    def _navigate_to_settings_admin(self):
+        if len(self.nav_buttons) > 10:
+            self.nav_buttons[10].setChecked(True)
+            self.stack.setCurrentIndex(10)
 
     def apply_theme(self, theme_mode: str):
         """Applies theme dynamically across the entire application and all views."""
         self.current_theme = theme_mode
         self.config.set("theme", theme_mode)
         qss = get_stylesheet(theme_mode)
+        app_inst = QApplication.instance()
+        if app_inst:
+            app_inst.setStyleSheet(qss)
         self.setStyleSheet(qss)
         if hasattr(self, 'tray_menu'):
             self.tray_menu.setStyleSheet(qss)
@@ -260,8 +349,8 @@ class MainWindow(QMainWindow):
     def _on_auto_update_result(self, result):
         if isinstance(result, UpdateInfo) and result.available:
             # Highlight Settings nav button
-            if len(self.nav_buttons) > 9:
-                self.nav_buttons[9].setText("⚙️  Ayarlar & Güncelleme 🔴")
+            if len(self.nav_buttons) > 10:
+                self.nav_buttons[10].setText("⚙️  Ayarlar & Güncelleme 🔴")
 
             # If auto install is enabled, download and prepare in background automatically!
             if self.config.get("auto_install_updates", True) and result.download_url:
@@ -293,8 +382,8 @@ class MainWindow(QMainWindow):
                         QMessageBox.Yes | QMessageBox.No
                     )
                     if ans == QMessageBox.Yes:
-                        self.nav_buttons[9].setChecked(True)
-                        self.stack.setCurrentIndex(9)
+                        self.nav_buttons[10].setChecked(True)
+                        self.stack.setCurrentIndex(10)
                         self.view_settings.check_for_updates_manual()
 
     def _on_auto_install_finished(self, batch_path: str, info: UpdateInfo):
@@ -323,6 +412,35 @@ class MainWindow(QMainWindow):
                 updater = GitHubUpdater(self.config.get("github_repo", "GurpinarSG/NovaCare"))
                 updater.launch_updater_and_exit(batch_path)
 
+    def _setup_auto_clean(self):
+        """Initializes automated background cleaning monitor and scheduler."""
+        self.auto_clean_worker = None
+        # Initial check 12 seconds after launch
+        QTimer.singleShot(12000, self._check_and_run_auto_clean)
+        # Recurring check every 1 hour (3600 seconds)
+        self.auto_clean_timer = QTimer(self)
+        self.auto_clean_timer.timeout.connect(self._check_and_run_auto_clean)
+        self.auto_clean_timer.start(3600 * 1000)
+
+    def _check_and_run_auto_clean(self):
+        cleaner = AutoCleaner()
+        should_run, reason = cleaner.should_trigger()
+        if should_run:
+            self.auto_clean_worker = BackgroundAutoCleanWorker()
+            self.auto_clean_worker.finished.connect(self._on_background_auto_clean_finished)
+            self.auto_clean_worker.start()
+
+    def _on_background_auto_clean_finished(self, res: dict):
+        if self.config.get("auto_clean_notify", True) and hasattr(self, 'tray_icon') and self.tray_icon.isVisible():
+            total = res.get("total_freed_str", "0 B")
+            files = res.get("cleaned_files_count", 0)
+            self.tray_icon.showMessage(
+                "NovaCare Otomatik Bakım Tamamlandı",
+                f"Sisteminiz optimize edildi: {total} alan boşaltıldı ({files} dosya temizlendi).",
+                QSystemTrayIcon.Information,
+                4000
+            )
+
     def _setup_tray(self):
         self.tray_icon = QSystemTrayIcon(self.app_icon, self)
         self.tray_icon.setToolTip("NovaCare System Care Suite 2026")
@@ -341,12 +459,16 @@ class MainWindow(QMainWindow):
         self.tray_menu.addSeparator()
 
         act_exit = QAction("❌  Çıkış", self)
-        act_exit.triggered.connect(QApplication.instance().quit)
+        act_exit.triggered.connect(self._exit_application)
         self.tray_menu.addAction(act_exit)
 
         self.tray_icon.setContextMenu(self.tray_menu)
         self.tray_icon.activated.connect(self._on_tray_activated)
         self.tray_icon.show()
+
+    def _exit_application(self):
+        self._force_exit = True
+        QApplication.instance().quit()
 
     def _on_tray_activated(self, reason):
         if reason == QSystemTrayIcon.DoubleClick:
@@ -365,13 +487,15 @@ class MainWindow(QMainWindow):
         )
 
     def closeEvent(self, event):
-        if self.config.get("close_to_tray", False):
+        if not getattr(self, '_force_exit', False) and self.config.get("close_to_tray", True):
             event.ignore()
             self.hide()
+            from core.memory_booster import MemoryBooster
+            MemoryBooster.trim_own_memory()
             if hasattr(self, 'tray_icon') and self.tray_icon.isVisible():
                 self.tray_icon.showMessage(
-                    "NovaCare Çalışıyor",
-                    "NovaCare arka planda sisteminizi korumaya devam ediyor.",
+                    "NovaCare Arka Planda Çalışıyor",
+                    "NovaCare sisteminizi korumaya devam etmek için sistem tepsisine küçültüldü.",
                     QSystemTrayIcon.Information,
                     2000
                 )
@@ -391,6 +515,11 @@ class MainWindow(QMainWindow):
             if hasattr(self.view_uninstaller, 'scan_worker') and self.view_uninstaller.scan_worker and self.view_uninstaller.scan_worker.isRunning():
                 self.view_uninstaller.scan_worker.quit()
                 self.view_uninstaller.scan_worker.wait(300)
+            if hasattr(self, 'auto_clean_worker') and self.auto_clean_worker and self.auto_clean_worker.isRunning():
+                self.auto_clean_worker.quit()
+                self.auto_clean_worker.wait(300)
+            if hasattr(self.view_dashboard, 'overlay_widget') and self.view_dashboard.overlay_widget:
+                self.view_dashboard.overlay_widget.close()
         except Exception:
             pass
 

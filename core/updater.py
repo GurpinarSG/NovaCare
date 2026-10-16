@@ -178,11 +178,27 @@ class GitHubUpdater:
                 download_size = 0
 
                 assets = data.get("assets", [])
+                update_zip = None
+                portable_zip = None
+                other_zip = None
+                exe_asset = None
+
                 for asset in assets:
-                    if asset.get("name", "").endswith(".zip"):
-                        download_url = asset.get("browser_download_url") or asset.get("url")
-                        download_size = asset.get("size", 0)
-                        break
+                    aname = asset.get("name", "").lower()
+                    if "update" in aname and aname.endswith(".zip"):
+                        update_zip = asset
+                    elif "portable" in aname and aname.endswith(".zip"):
+                        portable_zip = asset
+                    elif aname.endswith(".zip"):
+                        other_zip = asset
+                    elif aname.endswith(".exe") and "setup" not in aname:
+                        exe_asset = asset
+
+                # Prefer dedicated update zip > portable zip > generic zip > standalone exe
+                chosen_asset = update_zip or portable_zip or other_zip or exe_asset
+                if chosen_asset:
+                    download_url = chosen_asset.get("browser_download_url") or chosen_asset.get("url")
+                    download_size = chosen_asset.get("size", 0)
 
                 if not download_url:
                     download_url = data.get("zipball_url", "")
@@ -249,17 +265,25 @@ class GitHubUpdater:
                     if progress_callback and total_size > 0:
                         progress_callback(downloaded, total_size)
 
-        # Extract zip
-        with zipfile.ZipFile(zip_path, 'r') as zf:
-            zf.extractall(extracted_dir)
+        # Extract zip or handle direct executable
+        is_zip = zip_path.lower().endswith('.zip') and zipfile.is_zipfile(zip_path)
+        if is_zip:
+            with zipfile.ZipFile(zip_path, 'r') as zf:
+                zf.extractall(extracted_dir)
 
-        # Handle zipball inner root directory
-        source_dir = extracted_dir
-        items = os.listdir(extracted_dir)
-        if len(items) == 1 and os.path.isdir(os.path.join(extracted_dir, items[0])):
-            inner_dir = os.path.join(extracted_dir, items[0])
-            if any(os.path.exists(os.path.join(inner_dir, f)) for f in ('main.py', 'core', 'ui', 'VERSION')):
-                source_dir = inner_dir
+            # Handle zipball inner root directory
+            source_dir = extracted_dir
+            items = os.listdir(extracted_dir)
+            if len(items) == 1 and os.path.isdir(os.path.join(extracted_dir, items[0])):
+                inner_dir = os.path.join(extracted_dir, items[0])
+                if any(os.path.exists(os.path.join(inner_dir, f)) for f in ('main.py', 'core', 'ui', 'VERSION', 'NovaCare.exe')):
+                    source_dir = inner_dir
+        else:
+            # Standalone exe payload
+            source_dir = temp_dir
+            if os.path.exists(zip_path):
+                dest_direct_exe = os.path.join(temp_dir, "NovaCare.exe")
+                shutil.copy2(zip_path, dest_direct_exe)
 
         # 1. If we updated to a new commit sha, save it to local settings now
         if new_commit_sha:
@@ -279,7 +303,7 @@ class GitHubUpdater:
             clean_nv = new_version.lstrip("vV")
             self.config.set("version", clean_nv)
 
-        # Create apply_update.bat
+        # Create apply_update.bat with UTF-8 and chcp 65001 for flawless Turkish characters support
         if getattr(sys, 'frozen', False):
             app_root = os.path.dirname(sys.executable)
             launcher_target = os.path.join(app_root, "NovaCare.exe")
@@ -289,14 +313,24 @@ class GitHubUpdater:
         main_py = os.path.join(app_root, "main.py")
 
         batch_path = os.path.join(temp_dir, "apply_update.bat")
-        with open(batch_path, "w", encoding="cp1254", errors="ignore") as bf:
+        with open(batch_path, "w", encoding="utf-8") as bf:
             bf.write(f"""@echo off
+chcp 65001 > nul
 title NovaCare Guncelleme Uygulaniyor...
 echo NovaCare yeni surum dosyalari yukleniyor, lutfen bekleyin...
-timeout /t 2 /nobreak > nul
 
-:: Copy updated files over current directory
-xcopy /s /e /y "{source_dir}\\*" "{app_root}\\"
+:: Onceki NovaCare surecinin tamamen kapanmasini bekle (dosya kilidi kalmasin)
+for /l %%i in (1,1,15) do (
+    tasklist /fi "imagename eq NovaCare.exe" 2>nul | find /i "NovaCare.exe" >nul
+    if errorlevel 1 (
+        goto ready_to_copy
+    )
+    timeout /t 1 /nobreak > nul
+)
+
+:ready_to_copy
+:: Guncel dosyalari uygulama klasorune kopyala (Turkce karakter ve bosluk tam destekli)
+xcopy /s /e /y /i /q "{source_dir}\\*" "{app_root}\\" > nul 2>&1
 
 echo Guncelleme basariyla tamamlandi. NovaCare yeniden baslatiliyor...
 timeout /t 1 /nobreak > nul
@@ -307,7 +341,7 @@ if exist "{launcher_target}" (
     start "" pythonw "{main_py}"
 )
 
-:: Self clean batch
+:: Gecici guncelleme betigini temizle
 del /f /q "%~f0"
 exit
 """)
@@ -316,5 +350,7 @@ exit
 
     def launch_updater_and_exit(self, batch_path: str):
         """Spawns the updater batch script in background and exits current application."""
-        subprocess.Popen(f'cmd.exe /c "{batch_path}"', shell=True, creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
+        flags = getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0)
+        # Directly invokes Windows Unicode CreateProcessW without shell quoting distortions
+        subprocess.Popen(["cmd.exe", "/c", batch_path], creationflags=flags)
         sys.exit(0)

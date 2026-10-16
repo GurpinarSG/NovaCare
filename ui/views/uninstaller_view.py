@@ -113,6 +113,7 @@ class UninstallerView(QWidget):
         lbl_title.setObjectName("ViewTitle")
         lbl_sub = QLabel("Yüklü programları kaldırın ve geride bıraktıkları tüm kayıt defteri ve dosya artıklarını temizleyin.")
         lbl_sub.setObjectName("ViewSubtitle")
+        lbl_sub.setWordWrap(True)
         layout.addWidget(lbl_title)
         layout.addWidget(lbl_sub)
 

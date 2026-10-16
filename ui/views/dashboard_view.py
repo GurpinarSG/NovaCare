@@ -1,23 +1,26 @@
 """
-NovaCare System Suite - Dashboard View (1-Click Care)
-Signature 1-Click Scan & Repair featuring health score gauge, live metrics, and category checklist.
+NovaCare System Suite - Dashboard View (1-Click Care & Performance)
+Signature 1-Click Scan & Repair, Game & Ultimate Performance Booster,
+Real-Time CPU/GPU Hardware & Temperature Telemetry, and Desktop Overlay.
 """
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QProgressBar,
-    QGridLayout, QFrame, QScrollArea
+    QGridLayout, QFrame, QScrollArea, QMessageBox
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
-from ui.components import CircularHealthGauge, StatCard
+from ui.components import CircularHealthGauge, StatCard, HardwareOverlayWidget
 from ui.styles import (
     BG_CARD, BORDER_COLOR, COLOR_ACCENT, COLOR_SUCCESS, COLOR_WARNING, COLOR_DANGER,
     TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED
 )
-from core.utils import format_bytes
+from core.utils import format_bytes, is_admin
 from core.junk_cleaner import JunkCleaner
 from core.registry_cleaner import RegistryCleaner
 from core.privacy_tweaker import PrivacyTweaker
 from core.startup_manager import StartupManager
 from core.memory_booster import MemoryBooster
+from core.game_booster import GameBooster
+from core.hardware_monitor import HardwareMonitor
 
 class DashboardScanWorker(QThread):
     progress = pyqtSignal(str, int)  # status_message, percent
@@ -123,6 +126,10 @@ class DashboardView(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.mem_booster = MemoryBooster()
+        self.game_booster = GameBooster()
+        self.hw_monitor = HardwareMonitor()
+        self.overlay_widget = HardwareOverlayWidget()
+        
         self.scan_worker = None
         self.fix_worker = None
         self.last_results = None
@@ -130,30 +137,83 @@ class DashboardView(QWidget):
         self._start_live_timer()
 
     def _init_ui(self):
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(28, 24, 28, 24)
-        main_layout.setSpacing(18)
+        outer_layout = QVBoxLayout(self)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
 
-        # 1. Top Stat Cards Row
+        # Smooth, transparent scroll container for responsive adaptability
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setStyleSheet("background-color: transparent; background: transparent; border: none;")
+        scroll.viewport().setStyleSheet("background-color: transparent; background: transparent; border: none;")
+
+        container = QWidget()
+        container.setStyleSheet("background-color: transparent; background: transparent;")
+        main_layout = QVBoxLayout(container)
+        main_layout.setContentsMargins(24, 16, 24, 16)
+        main_layout.setSpacing(14)
+
+        # 1. Top Stat Cards Row (Live CPU, GPU, RAM, Junk)
         stats_layout = QHBoxLayout()
-        stats_layout.setSpacing(14)
-        self.card_cpu = StatCard("⚡", "İşlemci Yükü", "0%", "Çekirdekler Aktif")
-        self.card_ram = StatCard("🧠", "Bellek (RAM)", "0%", "Boş: -")
+        stats_layout.setSpacing(12)
+        self.card_cpu = StatCard("⚡", "İşlemci (CPU)", "0%", "0.0 GHz | - °C")
+        self.card_gpu = StatCard("🎮", "Grafik (GPU)", "0%", "- °C | Yükleniyor...")
+        self.card_ram = StatCard("🧠", "Bellek (RAM)", "0%", "0.0 / 0.0 GB")
         self.card_junk = StatCard("🗑️", "Gereksiz Dosya", "Taranmadı", "Temizlik Bekliyor")
-        self.card_health = StatCard("🛡️", "Kayıt Defteri", "0 Sorun", "Stabilite Durumu")
 
         stats_layout.addWidget(self.card_cpu)
+        stats_layout.addWidget(self.card_gpu)
         stats_layout.addWidget(self.card_ram)
         stats_layout.addWidget(self.card_junk)
-        stats_layout.addWidget(self.card_health)
         main_layout.addLayout(stats_layout)
 
-        # 2. Central 1-Click Maintenance Area (Gauge + Action Button)
+        # 2. Game Mode & Ultimate Performance Banner Card
+        game_card = QFrame()
+        game_card.setObjectName("CardFrame")
+        g_layout = QHBoxLayout(game_card)
+        g_layout.setContentsMargins(18, 12, 18, 12)
+        g_layout.setSpacing(14)
+
+        g_icon = QLabel("🎮")
+        g_icon.setStyleSheet("font-size: 26px;")
+        g_layout.addWidget(g_icon)
+
+        v_gtext = QVBoxLayout()
+        v_gtext.setSpacing(2)
+        lbl_g_title = QLabel("Oyun & Nihai Performans Modu")
+        lbl_g_title.setStyleSheet(f"font-size: 14px; font-weight: 700; color: {COLOR_ACCENT};")
+        self.lbl_g_sub = QLabel("Arka plan gereksiz servislerini durdurur ve güç planını 'Nihai Performans' moduna alır.")
+        self.lbl_g_sub.setStyleSheet(f"font-size: 11px; color: {TEXT_SECONDARY};")
+        self.lbl_g_sub.setWordWrap(True)
+        v_gtext.addWidget(lbl_g_title)
+        v_gtext.addWidget(self.lbl_g_sub)
+        g_layout.addLayout(v_gtext)
+
+        g_layout.addStretch()
+
+        # Desktop Overlay Button
+        self.btn_overlay = QPushButton("📌  Masaüstü Widget'ı")
+        self.btn_overlay.setCursor(Qt.PointingHandCursor)
+        self.btn_overlay.setProperty("class", "secondary-btn")
+        self.btn_overlay.clicked.connect(self._toggle_overlay)
+        g_layout.addWidget(self.btn_overlay)
+
+        # Game Mode Toggle Button
+        self.btn_game_mode = QPushButton("🎮  Oyun Modunu Başlat")
+        self.btn_game_mode.setCursor(Qt.PointingHandCursor)
+        self.btn_game_mode.setStyleSheet("padding: 8px 18px; font-size: 12px; font-weight: 700; background-color: #059669; color: #FFFFFF; border-radius: 6px;")
+        self.btn_game_mode.clicked.connect(self._toggle_game_mode)
+        g_layout.addWidget(self.btn_game_mode)
+
+        main_layout.addWidget(game_card)
+        self._sync_game_mode_ui()
+
+        # 3. Central 1-Click Maintenance Area (Gauge + Action Button)
         center_card = QFrame()
         center_card.setObjectName("CenterCard")
         center_layout = QVBoxLayout(center_card)
-        center_layout.setContentsMargins(24, 24, 24, 24)
-        center_layout.setSpacing(16)
+        center_layout.setContentsMargins(20, 14, 20, 14)
+        center_layout.setSpacing(10)
         center_layout.setAlignment(Qt.AlignCenter)
 
         self.gauge = CircularHealthGauge()
@@ -161,14 +221,15 @@ class DashboardView(QWidget):
 
         # Status text
         self.lbl_status = QLabel("Tek tıkla tam sistem taraması yaparak bilgisayarınızı hızlandırın.")
-        self.lbl_status.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 14px;")
+        self.lbl_status.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 13px;")
         self.lbl_status.setAlignment(Qt.AlignCenter)
+        self.lbl_status.setWordWrap(True)
         center_layout.addWidget(self.lbl_status)
 
         # Progress bar
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
-        self.progress_bar.setFixedHeight(12)
+        self.progress_bar.setFixedHeight(10)
         center_layout.addWidget(self.progress_bar)
 
         # Big Button (Scan / Fix)
@@ -183,12 +244,12 @@ class DashboardView(QWidget):
 
         main_layout.addWidget(center_card)
 
-        # 3. Scan Items Breakdown Grid
+        # 4. Scan Items Breakdown Grid
         self.breakdown_frame = QFrame()
         self.breakdown_frame.setObjectName("CardFrame")
         grid = QGridLayout(self.breakdown_frame)
-        grid.setContentsMargins(20, 16, 20, 16)
-        grid.setSpacing(16)
+        grid.setContentsMargins(18, 12, 18, 12)
+        grid.setSpacing(12)
 
         self.lbl_item_junk = QLabel("🗑️  Gereksiz Dosyalar & Önbellek: <b>Taranmadı</b>")
         self.lbl_item_reg = QLabel("🛠️  Kayıt Defteri Sorunları: <b>Taranmadı</b>")
@@ -196,7 +257,8 @@ class DashboardView(QWidget):
         self.lbl_item_startup = QLabel("🚀  Yüksek Başlangıç Yükü: <b>Taranmadı</b>")
 
         for lbl in (self.lbl_item_junk, self.lbl_item_reg, self.lbl_item_privacy, self.lbl_item_startup):
-            lbl.setStyleSheet(f"color: {TEXT_PRIMARY}; font-size: 13px;")
+            lbl.setStyleSheet(f"color: {TEXT_PRIMARY}; font-size: 12px;")
+            lbl.setWordWrap(True)
 
         grid.addWidget(self.lbl_item_junk, 0, 0)
         grid.addWidget(self.lbl_item_reg, 0, 1)
@@ -204,30 +266,104 @@ class DashboardView(QWidget):
         grid.addWidget(self.lbl_item_startup, 1, 1)
 
         main_layout.addWidget(self.breakdown_frame)
-        main_layout.addStretch()
+
+        # Admin cleaning depth hint
+        has_admin = is_admin()
+        self.lbl_admin_depth_hint = QLabel(
+            "🛡️ <b>Yönetici Modu Devrede:</b> Korumalı sistem önbellekleri, derin kayıt defteri anahtarları ve RAM çalışma kümeleri tam yetkiyle temizlenir."
+            if has_admin else
+            "💡 <b>Daha İyi Temizlik İpucu:</b> NovaCare'i Yönetici olarak çalıştırdığınızda Windows kilitli sistem dosyaları ve derin kayıt defteri kalıntıları çok daha iyi temizlenir."
+        )
+        self.lbl_admin_depth_hint.setAlignment(Qt.AlignCenter)
+        self.lbl_admin_depth_hint.setStyleSheet(f"color: {COLOR_SUCCESS if has_admin else COLOR_ACCENT}; font-size: 12px; padding: 4px;")
+        self.lbl_admin_depth_hint.setWordWrap(True)
+        main_layout.addWidget(self.lbl_admin_depth_hint)
+
+        scroll.setWidget(container)
+        outer_layout.addWidget(scroll)
+
+    def _sync_game_mode_ui(self):
+        if self.game_booster.is_active():
+            self.btn_game_mode.setText("↩️  Normale Döndür")
+            self.btn_game_mode.setStyleSheet("padding: 8px 18px; font-size: 12px; font-weight: 700; background-color: #D97706; color: #FFFFFF; border-radius: 6px;")
+            self.lbl_g_sub.setText("Oyun Modu AKTİF: Nihai Performans Güç Planı etkin, arka plan servisleri durduruldu.")
+        else:
+            self.btn_game_mode.setText("🎮  Oyun Modunu Başlat")
+            self.btn_game_mode.setStyleSheet("padding: 8px 18px; font-size: 12px; font-weight: 700; background-color: #059669; color: #FFFFFF; border-radius: 6px;")
+            self.lbl_g_sub.setText("Arka plan gereksiz servislerini durdurur ve güç planını 'Nihai Performans' moduna alır.")
+
+    def _toggle_game_mode(self):
+        if not self.game_booster.is_active():
+            state = self.game_booster.activate()
+            freed_str = format_bytes(state.get("freed_ram_bytes", 0))
+            stopped_cnt = len(state.get("stopped_services", []))
+            QMessageBox.information(
+                self,
+                "Oyun Modu Etkinleştirildi",
+                f"Nihai Performans Güç Planı başarıyla devreye alındı!\n\n"
+                f"• {stopped_cnt} adet arka plan servisi geçici olarak durduruldu.\n"
+                f"• {freed_str} RAM oyunlar için hazır hale getirildi.\n\n"
+                "Oyununuz bittiğinde aynı butona basarak servisleri ve önceki güç planınızı tek tıkla geri yükleyebilirsiniz."
+            )
+        else:
+            state = self.game_booster.deactivate()
+            restarted_cnt = state.get("restored_services", 0)
+            prev_name = state.get("previous_power_name", "Standart")
+            QMessageBox.information(
+                self,
+                "Normal Moda Dönüldü",
+                f"Sistem ayarları geri yüklendi!\n\n"
+                f"• Güç Planı: {prev_name}\n"
+                f"• {restarted_cnt} adet servis yeniden başlatıldı."
+            )
+        self._sync_game_mode_ui()
+
+    def _toggle_overlay(self):
+        if self.overlay_widget.isVisible():
+            self.overlay_widget.hide()
+            self.btn_overlay.setText("📌  Masaüstü Widget'ı")
+        else:
+            self.overlay_widget.show()
+            self.overlay_widget.raise_()
+            self.btn_overlay.setText("📌  Widget'ı Kapat")
 
     def _start_live_timer(self):
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._update_live_metrics)
-        self.timer.start(2000)
+        self.timer.start(2500)
         self._update_live_metrics()
 
     def _update_live_metrics(self):
-        if not self.isVisible():
+        # Update metrics when Dashboard or Overlay is visible
+        if not self.isVisible() and not self.overlay_widget.isVisible():
             return
+
         try:
-            metrics = self.mem_booster.get_system_metrics()
-            self.card_cpu.set_value(f"{metrics['cpu_percent']}%", "Tüm Çekirdekler")
-            self.card_ram.set_value(f"{metrics['ram_percent']}%", f"Boş: {metrics['ram_free_str']}")
+            stats = self.hw_monitor.get_hardware_stats()
+
+            # Update Overlay if open
+            if self.overlay_widget.isVisible():
+                self.overlay_widget.update_stats(stats)
+
+            # Update StatCards
+            if self.isVisible():
+                c_temp = f" | {stats['cpu_temp']} °C" if stats.get("cpu_temp") else ""
+                self.card_cpu.set_value(f"{stats['cpu_percent']:.0f}%", f"{stats['cpu_freq_ghz']} GHz{c_temp}")
+
+                if stats.get("has_gpu", False):
+                    g_temp = f"{stats['gpu_temp']} °C" if stats.get("gpu_temp") is not None else ""
+                    self.card_gpu.set_value(f"{stats['gpu_load']}%", f"{g_temp} | VRAM: {stats['gpu_mem_used_mb']} MB")
+                else:
+                    self.card_gpu.set_value("Yok", "Harici GPU Yok")
+
+                self.card_ram.set_value(f"{stats['ram_percent']:.0f}%", f"{stats['ram_used_gb']} / {stats['ram_total_gb']} GB")
         except Exception:
             pass
 
     def _handle_action_click(self):
         if self.btn_action.text().startswith("🚀"):
-            # Start Scanning
             self._start_scan()
         elif self.btn_action.text().startswith("✨"):
-            # Start Fixing
             self._start_fix()
 
     def _start_scan(self):
@@ -254,7 +390,6 @@ class DashboardView(QWidget):
         junk_str = format_bytes(results["junk_size"])
 
         self.card_junk.set_value(junk_str, f"{results['junk_count']} dosya")
-        self.card_health.set_value(f"{results['reg_issues']} Sorun", "Onarım Hazır")
 
         self.lbl_item_junk.setText(f"🗑️  Gereksiz Dosyalar & Önbellek: <b style='color:{COLOR_WARNING};'>{junk_str} ({results['junk_count']} öğe)</b>")
         self.lbl_item_reg.setText(f"🛠️  Kayıt Defteri Sorunları: <b style='color:{COLOR_DANGER};'>{results['reg_issues']} sorun bulundu</b>")
@@ -263,7 +398,6 @@ class DashboardView(QWidget):
 
         self.lbl_status.setText(f"Tarama bitti! Toplam <b>{junk_str}</b> gereksiz dosya ve <b>{results['reg_issues']}</b> kayıt defteri sorunu tespit edildi.")
 
-        # Switch button to Fix mode
         self.btn_action.setText("✨  ŞİMDİ SİSTEMİ ONAR VE HIZLANDIR")
         self.btn_action.setObjectName("BigFixBtn")
         self.btn_action.setStyle(self.btn_action.style())
@@ -286,16 +420,20 @@ class DashboardView(QWidget):
 
         freed_str = format_bytes(freed_bytes)
         self.card_junk.set_value("0 B", "Temizlendi")
-        self.card_health.set_value("0 Sorun", "Sağlıklı")
 
         self.lbl_item_junk.setText("🗑️  Gereksiz Dosyalar & Önbellek: <b style='color:#10B981;'>Temizlendi ✔</b>")
         self.lbl_item_reg.setText(f"🛠️  Kayıt Defteri Sorunları: <b style='color:#10B981;'>{reg_fixed} Sorun Onarıldı ✔</b>")
         self.lbl_item_privacy.setText(f"🛡️  Gizlilik & İz Kayıtları: <b style='color:#10B981;'>{traces_cleaned} İz Silindi ✔</b>")
         self.lbl_item_startup.setText("🚀  Sistem Belleği & Performans: <b style='color:#10B981;'>Optimize Edildi ✔</b>")
 
-        self.lbl_status.setText(f"Tebrikler! <b>{freed_str}</b> disk alanı boşaltıldı ve sisteminiz başarıyla optimize edildi.")
+        has_admin = is_admin()
+        admin_note = (
+            " (🛡️ Yönetici Modu: Tam sistem derinliğinde onarıldı)"
+            if has_admin else
+            " (💡 Daha derin sistem temizliği için Yönetici Modu önerilir)"
+        )
+        self.lbl_status.setText(f"Tebrikler! <b>{freed_str}</b> disk alanı boşaltıldı ve sisteminiz optimize edildi.{admin_note}")
 
-        # Switch button back to Scan
         self.btn_action.setText("🚀  TEK TIKLA SİSTEMİ TARA")
         self.btn_action.setObjectName("BigScanBtn")
         self.btn_action.setStyle(self.btn_action.style())

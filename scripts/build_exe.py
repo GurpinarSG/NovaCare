@@ -32,15 +32,20 @@ def build_executable(onefile: bool = True):
     temp_build = os.path.join(os.environ.get("TEMP", os.path.expanduser("~")), "NovaCare_Build")
     os.makedirs(temp_build, exist_ok=True)
 
+    manifest_path = os.path.join(ROOT_DIR, "app.manifest")
+
     cmd = [
         sys.executable, "-m", "PyInstaller",
         "--name=NovaCare",
         "--windowed",
         "--noconfirm",
         "--clean",
+        f"--manifest={manifest_path}",
         f"--icon={ico_path}",
         f"--add-data={assets_dir};assets",
         f"--add-data={v_path};.",
+        f"--add-data={os.path.join(ROOT_DIR, 'CHANGELOG.md')};.",
+        "--hidden-import=pynvml",
         f"--workpath={temp_build}",
         f"--specpath={temp_build}",
     ]
@@ -64,14 +69,53 @@ def build_executable(onefile: bool = True):
         target_exe = os.path.join(dist_dir, "NovaCare.exe")
         if os.path.exists(target_exe):
             size_mb = os.path.getsize(target_exe) / (1024 * 1024)
+            # Copy to project root so user can run it directly from root folder
+            root_exe = os.path.join(ROOT_DIR, "NovaCare.exe")
+            try:
+                shutil.copy2(target_exe, root_exe)
+            except PermissionError:
+                subprocess.run(["taskkill", "/f", "/im", "NovaCare.exe"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                import time
+                time.sleep(1)
+                shutil.copy2(target_exe, root_exe)
+            
+            # Sync shortcuts without invalid arguments
+            try:
+                import win32com.client # optional or use PowerShell
+            except ImportError:
+                pass
+            ps_script = f"""
+            $wsh = New-Object -ComObject WScript.Shell
+            $root_dir = '{ROOT_DIR}'
+            $exe_path = '{root_exe}'
+            $icon_path = Join-Path $root_dir 'assets\\icon.ico'
+            $desktop_lnk = Join-Path ([Environment]::GetFolderPath('Desktop')) 'NovaCare.lnk'
+            $local_lnk = Join-Path $root_dir 'NovaCare.lnk'
+
+            foreach ($lnk in @($desktop_lnk, $local_lnk)) {{
+                $s = $wsh.CreateShortcut($lnk)
+                $s.TargetPath = $exe_path
+                $s.WorkingDirectory = $root_dir
+                $s.Arguments = ''
+                $s.IconLocation = "$icon_path,0"
+                $s.Description = 'NovaCare System Care Suite 2026'
+                $s.Save()
+            }}
+            """
+            try:
+                flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+                subprocess.run(["powershell", "-NoProfile", "-Command", ps_script], creationflags=flags)
+            except Exception:
+                pass
+
             print("\n" + "=" * 60)
             print(f"  [✔] Derleme Başarılı! Tek Dosya EXE Hazır:")
-            print(f"  Konum: {target_exe}")
+            print(f"  Konum: {root_exe}")
+            print(f"  Ayrıca: {target_exe}")
             print(f"  Boyut: {size_mb:.1f} MB")
             print("=" * 60)
-            print("Bu 'NovaCare.exe' dosyasını herhangi bir Windows bilgisayara")
-            print("gönderip doğrudan çift tıklayarak çalıştırabilirsiniz.")
-            print("Karşı tarafta Python veya ek hiçbir yazılım gerekmez!")
+            print("Masaüstündeki ve klasördeki 'NovaCare' kısayolları doğrudan")
+            print("bu dosyaya yönlendirildi. Çift tıklayarak başlatabilirsiniz!")
             return True
     else:
         target_folder = os.path.join(dist_dir, "NovaCare")

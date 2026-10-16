@@ -27,7 +27,7 @@ DARK_PALETTE = {
     "BG_SIDEBAR": "#0F172A",
     "BG_CARD": "#1E293B",
     "BG_CARD_HOVER": "#27354E",
-    "BG_INPUT": "#1E293B",
+    "BG_INPUT": "#162032",
     "BORDER_COLOR": "#334155",
     "BORDER_HIGHLIGHT": "#475569",
     "COLOR_ACCENT": "#38BDF8",
@@ -116,13 +116,25 @@ TEXT_MUTED = _def["TEXT_MUTED"]
 
 def get_stylesheet(theme_mode: Optional[str] = None) -> str:
     """Generates the full Qt stylesheet for the requested or current system theme."""
+    import os
     p = get_active_theme_colors(theme_mode)
+    base_assets = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets")
+    if getattr(sys, 'frozen', False):
+        base_assets = os.path.join(getattr(sys, '_MEIPASS', os.path.dirname(sys.executable)), "assets")
+    check_ico = os.path.join(base_assets, "check_white.png").replace("\\", "/")
 
     return f"""
-QMainWindow, QDialog {{
+QMainWindow, QDialog, QMessageBox, QInputDialog {{
     background-color: {p['BG_DARK']};
     color: {p['TEXT_PRIMARY']};
     font-family: 'Segoe UI', 'Segoe UI Variable Display', Roboto, sans-serif;
+}}
+
+QMessageBox QLabel, QDialog QLabel, QInputDialog QLabel {{
+    color: {p['TEXT_PRIMARY']};
+    background-color: transparent;
+    font-size: 13px;
+    font-weight: 500;
 }}
 
 QWidget {{
@@ -154,14 +166,14 @@ QWidget {{
 /* Navigation Buttons */
 QPushButton.nav-btn {{
     text-align: left;
-    padding: 11px 16px;
+    padding: 9px 14px;
     background-color: transparent;
     border: none;
     border-radius: 8px;
     color: {p['TEXT_SECONDARY']};
-    font-size: 13px;
+    font-size: 12.5px;
     font-weight: 600;
-    margin: 2px 8px;
+    margin: 1px 6px;
 }}
 
 QPushButton.nav-btn:hover {{
@@ -200,6 +212,72 @@ QPushButton.nav-btn:checked {{
 }}
 
 /* Action Buttons */
+/* Universal Base QPushButton (Provides high contrast, solid border & background to all standard buttons) */
+QPushButton {{
+    background-color: {p['BG_CARD']};
+    color: {p['TEXT_PRIMARY']};
+    border: 1px solid {p['BORDER_COLOR']};
+    border-radius: 8px;
+    padding: 8px 18px;
+    font-size: 13px;
+    font-weight: 600;
+    min-height: 22px;
+}}
+
+QPushButton:hover {{
+    background-color: {p['BG_CARD_HOVER']};
+    border-color: {p['COLOR_ACCENT']};
+    color: {p['TEXT_PRIMARY']};
+}}
+
+QPushButton:pressed {{
+    background-color: {p['BORDER_COLOR']};
+}}
+
+QPushButton:disabled {{
+    background-color: {p['BG_INPUT']};
+    color: {p['TEXT_MUTED']};
+    border-color: {p['BORDER_COLOR']};
+}}
+
+/* High-Contrast Confirmation Dialog Buttons (Evet/Hayır, OK/Cancel, Yes/No) */
+QMessageBox QPushButton, QDialog QPushButton, QDialogButtonBox QPushButton {{
+    background-color: {p['BG_CARD']};
+    color: {p['TEXT_PRIMARY']};
+    border: 1px solid {p['BORDER_COLOR']};
+    border-radius: 6px;
+    padding: 8px 22px;
+    font-size: 13px;
+    font-weight: 700;
+    min-width: 82px;
+    min-height: 24px;
+}}
+
+QMessageBox QPushButton:hover, QDialog QPushButton:hover, QDialogButtonBox QPushButton:hover {{
+    background-color: {p['BG_CARD_HOVER']};
+    border-color: {p['COLOR_ACCENT']};
+    color: {p['COLOR_ACCENT']};
+}}
+
+QMessageBox QPushButton:pressed, QDialog QPushButton:pressed, QDialogButtonBox QPushButton:pressed {{
+    background-color: {p['BORDER_COLOR']};
+}}
+
+QMessageBox QPushButton:default, QDialog QPushButton:default, QDialogButtonBox QPushButton:default,
+QMessageBox QPushButton:focus, QDialog QPushButton:focus {{
+    background-color: {p['COLOR_ACCENT']};
+    color: {p['BTN_PRIMARY_TEXT']};
+    border: 1px solid {p['COLOR_ACCENT']};
+    font-weight: 700;
+}}
+
+QMessageBox QPushButton:default:hover, QDialog QPushButton:default:hover, QDialogButtonBox QPushButton:default:hover,
+QMessageBox QPushButton:focus:hover, QDialog QPushButton:focus:hover {{
+    background-color: {p['COLOR_ACCENT_HOVER']};
+    border-color: {p['COLOR_ACCENT_HOVER']};
+    color: {p['BTN_PRIMARY_TEXT']};
+}}
+
 QPushButton.primary-btn {{
     background-color: {p['COLOR_ACCENT']};
     color: {p['BTN_PRIMARY_TEXT']};
@@ -446,14 +524,39 @@ QComboBox QAbstractItemView {{
     padding: 4px;
 }}
 
-/* Checkboxes */
+/* Scroll Area & Viewports - Eliminates white flashes and unstyled backgrounds */
+QScrollArea {{
+    background-color: transparent;
+    background: transparent;
+    border: none;
+}}
+
+QScrollArea > QWidget > QWidget {{
+    background-color: transparent;
+    background: transparent;
+}}
+
+QScrollArea > .QWidget {{
+    background-color: transparent;
+    background: transparent;
+}}
+
+QScrollArea QWidget#qt_scrollarea_viewport {{
+    background-color: transparent;
+    background: transparent;
+    border: none;
+}}
+
+/* Checkboxes & Radio Buttons */
 QCheckBox, QRadioButton {{
     color: {p['TEXT_PRIMARY']};
     spacing: 8px;
     font-size: 13px;
+    background-color: transparent;
+    background: transparent;
 }}
 
-QCheckBox::indicator, QRadioButton::indicator {{
+QCheckBox::indicator {{
     width: 18px;
     height: 18px;
     border: 1px solid {p['BORDER_COLOR']};
@@ -461,13 +564,41 @@ QCheckBox::indicator, QRadioButton::indicator {{
     background-color: {p['BG_INPUT']};
 }}
 
-QCheckBox::indicator:hover, QRadioButton::indicator:hover {{
+QCheckBox::indicator:hover {{
     border-color: {p['COLOR_ACCENT']};
 }}
 
-QCheckBox::indicator:checked, QRadioButton::indicator:checked {{
+QCheckBox::indicator:checked {{
     background-color: {p['COLOR_ACCENT']};
     border-color: {p['COLOR_ACCENT']};
+    image: url("{check_ico}");
+}}
+
+QRadioButton::indicator {{
+    width: 18px;
+    height: 18px;
+    border: 1px solid {p['BORDER_COLOR']};
+    border-radius: 9px;
+    background-color: {p['BG_INPUT']};
+}}
+
+QRadioButton::indicator:hover {{
+    border-color: {p['COLOR_ACCENT']};
+}}
+
+QRadioButton::indicator:checked {{
+    background-color: {p['COLOR_ACCENT']};
+    border: 4px solid {p['BG_CARD']};
+}}
+
+/* Plain Text & Changelog Box */
+QPlainTextEdit {{
+    background-color: {p['BG_INPUT']};
+    border: 1px solid {p['BORDER_COLOR']};
+    border-radius: 8px;
+    padding: 8px 14px;
+    color: {p['TEXT_PRIMARY']};
+    font-size: 13px;
 }}
 """
 
