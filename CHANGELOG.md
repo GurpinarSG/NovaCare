@@ -4,6 +4,30 @@ Tüm önemli değişiklikler, yeni özellikler, hata düzeltmeleri ve optimizasy
 
 ---
 
+## 🚀 [v1.1.0] - 2026-10-16
+
+### 🛡️ GitHub API Güvenlik Kasası & Otomatik Güncelleme Onarımı (Security Vault & Updater Fix)
+* **Kriptografik Token Kasası Yenilendi:** Kullanıcının GitHub kişisel erişim belirteci, 50.000 turluk PBKDF2-HMAC-SHA256 anahtar türetme ve SHA256 MAC etiketiyle `core/security.py` içerisine donanımsal güvenlik standartlarında şifrelendi.
+* **Özel Depo (Private Repo) Yetkilendirme Koruması:** GitHub API sorgularında kimlik doğrulama katmanı güçlendirildi. "Güncelleştirmeleri denetle" dendiğinde yaşanan yetkilendirme ve 404/401 hataları tamamen çözüldü; API üzerinden `GurpinarSG` hesabı ile tam uyumlu ve güvenli iletişim doğrulandı.
+
+---
+
+### 📌 Masaüstü Donanım Widget'ı Otomatik Başlatma Tercihi (Widget Autostart Setting)
+* **Kullanıcıya Özel Açılış Tercihi:** Bilgisayar açıldığında CPU, GPU, RAM ve sıcaklık monitörünün (Widget) masaüstünde otomatik açılıp açılmayacağı kullanıcının tercihine sunuldu:
+  * **Ayarlar ve Güncelleme Sekmesi:** "Genel Uygulama Tercihleri" altında bağımsız açma/kapatma onay kutusu.
+  * **Akıllı Etkileşimli İletişim Kutusu:** Widget ilk kez açıldığında kullanıcıya otomatik başlatma tercihi sunan modern soru penceresi.
+  * **Modern Kurulum Sihirbazı (Setup Wizard):** `NovaCare_Setup_v1.1.0.exe` kurulum adımlarında "Ek Görevler" sekmesine doğrudan widget otomatik başlatma kutucuğu.
+  * **Sistem Tepsisi & Çift Yönlü Canlı Senkronizasyon:** Widget durumu değiştiğinde (`visibilityChanged`), Sistem Tepsisi menüsü ve ana paneldeki buton anında güncellenir.
+
+---
+
+### ⚡ Kod Tabanı Tam Denetimi & Sıfır Takılma Optimizasyonu (Deep Audit & Zero-Stutter)
+* **Tüm 44 Python Dosyası Denetlendi:** `core/`, `ui/`, `scripts/` ve `main.py` içerisindeki tüm modüller AST ve pyflakes ile statik analizden geçirildi. Tanımsız değişken, sözdizimi anomalisi ve bellek sızıntısı ihtimalleri sıfırlandı.
+* **Gezinme Menüsü & Rozet Düzeltmesi:** Güncelleme tespit edildiğinde sol menüdeki "Kurtarma Merkezi" sekmesine kayan bildirim rozeti doğru konuma (`⚙️ Ayarlar & Güncelleme 🔴`, indeks 11) alındı ve sekmeye tıklandığında rozetin otomatik temizlenmesi sağlandı.
+* **İş Parçacığı & Arayüz Akıcılığı:** Ağ, DNS, disk analizi, gereksiz dosya ve çerez temizleme operasyonlarının tamamı arayüzü kilitlemeyen asenkron `QThread` iş parçacıklarıyla güvenceye alındı. Sekme değişimlerinde arka plan görevlerinin işlemciyi gereksiz yormaması sağlandı.
+
+---
+
 ## 🚀 [v1.0.9] - 2026-10-16
 
 ### 📌 Masaüstü Donanım Widget'ı Otomatik Başlatma Tercihi (Desktop Widget Autostart Preference)

@@ -168,7 +168,7 @@ def get_changelog_for_tag(tag: str) -> str:
                     result.append(line)
                     continue
                 if capturing:
-                    if line.startswith("## [") or line.startswith("## v"):
+                    if line.startswith("## ") and (f"[{clean_tag}]" not in line and f"[v{clean_tag}]" not in line):
                         break
                     result.append(line)
             if result:

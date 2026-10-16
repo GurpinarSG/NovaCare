@@ -329,6 +329,8 @@ class MainWindow(QMainWindow):
             self.view_network._load_network_info()
         elif index == 9 and hasattr(self.view_battery, 'refresh_metrics'):
             self.view_battery.refresh_metrics(query_hardware=False)
+        elif index == 11 and len(self.nav_buttons) > 11:
+            self.nav_buttons[11].setText("⚙️  Ayarlar & Güncelleme")
 
     def _navigate_to_settings_admin(self):
         if len(self.nav_buttons) > 11:
@@ -363,8 +365,8 @@ class MainWindow(QMainWindow):
     def _on_auto_update_result(self, result):
         if isinstance(result, UpdateInfo) and result.available:
             # Highlight Settings nav button
-            if len(self.nav_buttons) > 10:
-                self.nav_buttons[10].setText("⚙️  Ayarlar & Güncelleme 🔴")
+            if len(self.nav_buttons) > 11:
+                self.nav_buttons[11].setText("⚙️  Ayarlar & Güncelleme 🔴")
 
             # If auto install is enabled, download and prepare in background automatically!
             if self.config.get("auto_install_updates", True) and result.download_url:
