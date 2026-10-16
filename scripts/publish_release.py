@@ -183,7 +183,7 @@ def get_changelog_for_tag(tag: str) -> str:
         "• GitHub Otomatik ve Manuel Güncelleme Sistemi"
     )
 
-def upload_release_asset(upload_url: str, file_path: str, asset_name: str, content_type: str = "application/octet-stream"):
+def upload_release_asset(upload_url: str, file_path: str, asset_name: str, content_type: str = "application/octet-stream", max_retries: int = 4):
     print(f"  [*] Yükleniyor: {asset_name} ({os.path.getsize(file_path) / (1024 * 1024):.1f} MB)...")
     url = upload_url.split("{")[0]
     headers = {
@@ -191,10 +191,20 @@ def upload_release_asset(upload_url: str, file_path: str, asset_name: str, conte
         "Content-Type": content_type,
         "User-Agent": "NovaCare-Publisher"
     }
-    with open(file_path, "rb") as f:
-        r = requests.post(url, headers=headers, params={"name": asset_name}, data=f, timeout=120)
-        r.raise_for_status()
-    print(f"  [✔] Yüklendi: {asset_name}")
+    import time
+    for attempt in range(1, max_retries + 1):
+        try:
+            with open(file_path, "rb") as f:
+                r = requests.post(url, headers=headers, params={"name": asset_name}, data=f, timeout=180)
+                r.raise_for_status()
+            print(f"  [✔] Yüklendi: {asset_name}")
+            return True
+        except Exception as e:
+            if attempt < max_retries:
+                print(f"  [!] Yükleme denemesi {attempt} başarısız ({e}). 3 saniye sonra tekrar deneniyor...")
+                time.sleep(3)
+            else:
+                raise e
 
 def create_release(tag_name: str, release_title: Optional[str] = None, changelog: Optional[str] = None):
     if not TOKEN:
@@ -235,16 +245,18 @@ def create_release(tag_name: str, release_title: Optional[str] = None, changelog
         return False
 
     upload_url = rel_data.get("upload_url", "")
-    existing_assets = {a.get("name"): a.get("id") for a in rel_data.get("assets", [])}
+    rel_id = rel_data.get("id")
 
     # Helper to remove duplicate asset before re-upload
     def delete_existing_asset(name):
-        if name in existing_assets:
-            aid = existing_assets[name]
-            try:
-                requests.delete(f"https://api.github.com/repos/{REPO}/releases/assets/{aid}", headers=HEADERS, timeout=15)
-            except Exception:
-                pass
+        try:
+            r_assets = requests.get(f"https://api.github.com/repos/{REPO}/releases/{rel_id}/assets", headers=HEADERS, timeout=15)
+            if r_assets.status_code == 200:
+                for a in r_assets.json():
+                    if a.get("name") == name:
+                        requests.delete(f"https://api.github.com/repos/{REPO}/releases/assets/{a.get('id')}", headers=HEADERS, timeout=15)
+        except Exception:
+            pass
 
     rel_folder = os.path.join(ROOT_DIR, f"github_release_v{clean_tag}")
     os.makedirs(rel_folder, exist_ok=True)

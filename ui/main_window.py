@@ -14,6 +14,7 @@ from PyQt5.QtGui import QIcon, QPixmap, QPainter, QColor, QFont
 from ui.styles import (
     get_stylesheet, get_active_theme_colors, MAIN_STYLESHEET,
     BG_SIDEBAR, BORDER_COLOR, COLOR_ACCENT, COLOR_SUCCESS,
+    COLOR_WARNING, COLOR_DANGER,
     TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED
 )
 from ui.views import (

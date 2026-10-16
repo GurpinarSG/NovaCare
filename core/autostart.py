@@ -79,6 +79,7 @@ def set_autostart(enable: bool) -> bool:
         exe, args = get_target_executable_and_args()
         cmd_str = f'"{exe}" {args}'
 
+        task_created = False
         # 1. Register in Windows Task Scheduler (Elevated - Highest Privileges)
         try:
             ps_script = f"""
@@ -88,23 +89,33 @@ def set_autostart(enable: bool) -> bool:
             $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Days 0)
             Register-ScheduledTask -TaskName '{TASK_NAME}' -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
             """
-            subprocess.run(["powershell", "-NoProfile", "-Command", ps_script], creationflags=flags, timeout=8)
+            r = subprocess.run(["powershell", "-NoProfile", "-Command", ps_script], creationflags=flags, timeout=8)
+            task_created = (r.returncode == 0)
         except Exception:
             try:
-                subprocess.run(
+                r = subprocess.run(
                     ["schtasks", "/create", "/tn", TASK_NAME, "/tr", cmd_str, "/sc", "onlogon", "/rl", "highest", "/f"],
                     creationflags=flags,
                     timeout=5
                 )
+                task_created = (r.returncode == 0)
+            except Exception:
+                task_created = False
+
+        if task_created:
+            # Task scheduler is active and elevated; remove duplicate HKCU Run entry so Windows won't launch 2 instances
+            try:
+                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE) as key:
+                    winreg.DeleteValue(key, APP_NAME)
+            except OSError:
+                pass
+        else:
+            # Fallback to HKCU Run key only if Task Scheduler could not be created
+            try:
+                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE) as key:
+                    winreg.SetValueEx(key, APP_NAME, 0, winreg.REG_SZ, cmd_str)
             except Exception:
                 pass
-
-        # 2. Also write to HKCU Run key as secondary fallback
-        try:
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE) as key:
-                winreg.SetValueEx(key, APP_NAME, 0, winreg.REG_SZ, cmd_str)
-        except Exception:
-            pass
 
         return True
     else:
@@ -125,19 +136,24 @@ def set_autostart(enable: bool) -> bool:
 
 def ensure_default_autostart():
     """Ensures autostart is active by default on user system with proper elevated task scheduler integration."""
-    if not is_autostart_enabled():
-        set_autostart(True)
-    else:
-        # Verify Task Scheduler exists; if only registry exists, upgrade to elevated task
-        try:
-            flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
-            res = subprocess.run(
-                ["schtasks", "/query", "/tn", TASK_NAME],
-                capture_output=True,
-                creationflags=flags,
-                timeout=4
-            )
-            if res.returncode != 0:
-                set_autostart(True)
-        except Exception:
-            pass
+    # Check if elevated task scheduler exists
+    try:
+        flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+        res = subprocess.run(
+            ["schtasks", "/query", "/tn", TASK_NAME],
+            capture_output=True,
+            creationflags=flags,
+            timeout=4
+        )
+        if res.returncode == 0:
+            # Elevated task exists! Clean up duplicate HKCU Run key if present
+            try:
+                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE) as key:
+                    winreg.DeleteValue(key, APP_NAME)
+            except OSError:
+                pass
+            return
+    except Exception:
+        pass
+
+    set_autostart(True)
