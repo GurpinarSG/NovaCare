@@ -7,7 +7,7 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QProgressBar,
     QFrame, QScrollArea, QMessageBox, QGridLayout
 )
-from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal
 from PyQt5.QtGui import QFont, QColor
 from core.battery_reporter import BatteryReporter, BatteryInfo
 from ui.components import StatCard
@@ -16,18 +16,41 @@ from ui.styles import (
     TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED
 )
 
+class BatteryHardwareWorker(QThread):
+    finished = pyqtSignal(dict)
+
+    def __init__(self, reporter: BatteryReporter):
+        super().__init__()
+        self.reporter = reporter
+
+    def run(self):
+        hw = self.reporter.fetch_hardware_details()
+        self.finished.emit(hw)
+
 class BatteryView(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.reporter = BatteryReporter()
         self.last_info: BatteryInfo | None = None
+        self.hw_worker = None
         self._init_ui()
-        self.refresh_metrics()
+        self.refresh_metrics(query_hardware=False)
+        self._fetch_hardware_async()
 
-        # Auto-refresh timer every 10 seconds
+        # Auto-refresh timer every 10 seconds (ultra-fast, non-blocking psutil query)
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._on_timer)
         self.timer.start(10000)
+
+    def _fetch_hardware_async(self):
+        if BatteryReporter._cached_hardware is not None:
+            return
+        self.hw_worker = BatteryHardwareWorker(self.reporter)
+        self.hw_worker.finished.connect(self._on_hardware_loaded)
+        self.hw_worker.start()
+
+    def _on_hardware_loaded(self, hw: dict):
+        self.refresh_metrics(query_hardware=False)
 
     def _init_ui(self):
         root_layout = QVBoxLayout(self)
@@ -194,11 +217,11 @@ class BatteryView(QWidget):
 
     def _on_timer(self):
         if self.isVisible():
-            self.refresh_metrics()
+            self.refresh_metrics(query_hardware=False)
 
-    def refresh_metrics(self):
+    def refresh_metrics(self, query_hardware: bool = False):
         try:
-            info = self.reporter.get_battery_info()
+            info = self.reporter.get_battery_info(load_hardware_if_missing=query_hardware)
             self.last_info = info
 
             if not info.has_battery:

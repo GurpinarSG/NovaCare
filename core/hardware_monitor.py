@@ -28,7 +28,13 @@ class HardwareMonitor:
         self.last_cpu_temp_update = 0
         self._running = True
 
-        # Initialize NVML for NVIDIA GPUs
+        # Non-blocking async hardware probes to keep UI completely free from stutters
+        threading.Thread(target=self._init_nvml_worker, daemon=True).start()
+        self._temp_thread = threading.Thread(target=self._poll_cpu_temp_worker, daemon=True)
+        self._temp_thread.start()
+
+    def _init_nvml_worker(self):
+        """Asynchronously initialize NVML for NVIDIA GPUs without blocking main thread."""
         try:
             import pynvml
             pynvml.nvmlInit()
@@ -40,10 +46,6 @@ class HardwareMonitor:
                 self.has_nvml = True
         except Exception:
             self.has_nvml = False
-
-        # Launch background worker for ACPI CPU temperature
-        self._temp_thread = threading.Thread(target=self._poll_cpu_temp_worker, daemon=True)
-        self._temp_thread.start()
 
     def stop(self):
         """Stops the background thermal worker."""
@@ -76,9 +78,11 @@ class HardwareMonitor:
             except Exception:
                 consecutive_failures += 1
 
-            # Adaptive backoff: If ACPI thermal zones aren't exposed by BIOS, sleep longer (10s)
-            sleep_time = 10.0 if consecutive_failures >= 3 else 3.0
-            time.sleep(sleep_time)
+            # Smart backoff: If ACPI thermal zones aren't exposed by BIOS, avoid frequent powershell spawns
+            if consecutive_failures >= 2:
+                time.sleep(60.0)
+            else:
+                time.sleep(5.0)
 
     def get_hardware_stats(self) -> dict:
         """

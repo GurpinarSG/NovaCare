@@ -243,6 +243,13 @@ class PrivacyView(QWidget):
         self.cookie_data: dict = {}
 
         self._init_ui()
+        self._has_initialized = False
+
+    def lazy_init_scan(self):
+        """Called when user navigates to Privacy tab for the first time."""
+        if self._has_initialized:
+            return
+        self._has_initialized = True
         self.refresh_all()
 
     def _init_ui(self):

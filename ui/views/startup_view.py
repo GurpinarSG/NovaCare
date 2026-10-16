@@ -6,7 +6,7 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QTableWidget, QTableWidgetItem, QHeaderView, QMessageBox, QFrame
 )
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QColor
 from core.startup_manager import StartupManager, StartupItem
 from ui.styles import (
@@ -14,13 +14,24 @@ from ui.styles import (
     TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED
 )
 
+class StartupScanWorker(QThread):
+    finished = pyqtSignal(list)
+
+    def __init__(self, mgr: StartupManager):
+        super().__init__()
+        self.mgr = mgr
+
+    def run(self):
+        items = self.mgr.scan_all()
+        self.finished.emit(items)
+
 class StartupView(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.mgr = StartupManager()
         self.items: list[StartupItem] = []
+        self.scan_worker = None
         self._init_ui()
-        self.refresh_items()
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
@@ -81,7 +92,17 @@ class StartupView(QWidget):
         layout.addWidget(self.table)
 
     def refresh_items(self):
-        self.items = self.mgr.scan_all()
+        self.btn_refresh.setEnabled(False)
+        self.btn_refresh.setText("⏳ Yükleniyor...")
+        self.lbl_stats.setText("Taranıyor...")
+        self.scan_worker = StartupScanWorker(self.mgr)
+        self.scan_worker.finished.connect(self._on_items_scanned)
+        self.scan_worker.start()
+
+    def _on_items_scanned(self, items: list[StartupItem]):
+        self.btn_refresh.setEnabled(True)
+        self.btn_refresh.setText("🔄  Yenile")
+        self.items = items
         self.table.setUpdatesEnabled(False)
         try:
             self.table.setRowCount(len(self.items))

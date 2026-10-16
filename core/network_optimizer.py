@@ -9,6 +9,7 @@ import subprocess
 import re
 from dataclasses import dataclass
 from typing import Optional
+import psutil
 
 @dataclass
 class DNSServerInfo:
@@ -68,25 +69,41 @@ class NetworkOptimizer:
         pass
 
     def get_network_interfaces(self) -> list[dict]:
-        """Returns list of network interfaces and their connection status."""
+        """Returns list of network interfaces and their connection status using ultra-fast psutil."""
         interfaces = []
-        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         try:
-            out = subprocess.check_output("netsh interface show interface", shell=True, creationflags=flags).decode("cp1254", errors="ignore")
-            for line in out.splitlines():
-                if "Enabled" in line or "Etkin" in line:
-                    parts = re.split(r"\s{2,}", line.strip())
-                    if len(parts) >= 4:
-                        state = parts[1]
-                        name = parts[-1]
-                        is_connected = ("Connected" in state or "Bağlandı" in state)
-                        interfaces.append({
-                            "name": name,
-                            "state": state,
-                            "connected": is_connected
-                        })
+            stats = psutil.net_if_stats()
+            for name, stat in stats.items():
+                low = name.lower()
+                if "loopback" in low or "isatap" in low or "teredo" in low or "bluetooth" in low:
+                    continue
+                is_connected = bool(stat.isup)
+                interfaces.append({
+                    "name": name,
+                    "state": "Connected" if is_connected else "Disconnected",
+                    "connected": is_connected
+                })
         except Exception:
             pass
+
+        if not interfaces:
+            flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            try:
+                out = subprocess.check_output(["netsh", "interface", "show", "interface"], creationflags=flags).decode("cp1254", errors="ignore")
+                for line in out.splitlines():
+                    if "Enabled" in line or "Etkin" in line:
+                        parts = re.split(r"\s{2,}", line.strip())
+                        if len(parts) >= 4:
+                            state = parts[1]
+                            name = parts[-1]
+                            is_connected = ("Connected" in state or "Bağlandı" in state)
+                            interfaces.append({
+                                "name": name,
+                                "state": state,
+                                "connected": is_connected
+                            })
+            except Exception:
+                pass
         return interfaces
 
     def get_active_adapter(self) -> Optional[str]:

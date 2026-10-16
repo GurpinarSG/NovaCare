@@ -98,6 +98,7 @@ class MainWindow(QMainWindow):
         self.auto_check_thread = None
         self.auto_install_thread = None
         self.prepared_update_batch = None
+        self._visited_tabs: set[int] = {0}
         self.setWindowTitle("NovaCare System Care Suite 2026")
 
         # Responsive geometry calculation based on primary monitor's available workspace
@@ -310,18 +311,21 @@ class MainWindow(QMainWindow):
 
     def _on_nav_clicked(self, index: int):
         self.stack.setCurrentIndex(index)
-        # Optimization: Trim NovaCare's own unused RAM pages and load tab on-demand
-        from core.memory_booster import MemoryBooster
-        MemoryBooster.trim_own_memory()
+        is_first_visit = index not in self._visited_tabs
+        self._visited_tabs.add(index)
 
-        if index == 5 and hasattr(self.view_memory, 'refresh_processes'):
+        if index == 3 and is_first_visit and hasattr(self.view_startup, 'refresh_items'):
+            self.view_startup.refresh_items()
+        elif index == 4 and is_first_visit and hasattr(self.view_uninstaller, 'refresh_apps'):
+            self.view_uninstaller.refresh_apps()
+        elif index == 5 and hasattr(self.view_memory, 'refresh_processes'):
             self.view_memory.refresh_processes()
-        elif index == 7 and hasattr(self.view_privacy, 'refresh_all'):
-            self.view_privacy.refresh_all()
-        elif index == 8 and hasattr(self.view_network, '_load_network_info'):
+        elif index == 7 and is_first_visit and hasattr(self.view_privacy, 'lazy_init_scan'):
+            self.view_privacy.lazy_init_scan()
+        elif index == 8 and is_first_visit and hasattr(self.view_network, '_load_network_info'):
             self.view_network._load_network_info()
         elif index == 9 and hasattr(self.view_battery, 'refresh_metrics'):
-            self.view_battery.refresh_metrics()
+            self.view_battery.refresh_metrics(query_hardware=False)
 
     def _navigate_to_settings_admin(self):
         if len(self.nav_buttons) > 11:

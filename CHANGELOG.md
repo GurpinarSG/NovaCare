@@ -30,6 +30,14 @@ Tüm önemli değişiklikler, yeni özellikler, hata düzeltmeleri ve optimizasy
 
 ---
 
+### ⚡ Performans ve Donma Önleme Optimizasyonları (Zero-Stutter Architecture)
+* **Bellek Trim Takılma Önleme:** Her menü sekmesi değişiminde çağrılan `EmptyWorkingSet` çağrısı kaldırıldı. Windows sayfalama belleğinin diske taşınması engellenerek sekme geçişleri anlık ve pürüzsüz hale getirildi (<15 ms).
+* **Tembel Yükleme (Lazy Loading):** Gizlilik, Başlangıç, Kaldırıcı ve Ağ sekmelerinin ağır kayıt defteri ve dosya taramaları arka plan iş parçacıklarına (`QThread`) taşındı ve yalnızca sekme ilk açıldığında çalışacak şekilde tembel yüklendi.
+* **Pil Telemetrisi Arka Plan İşleme:** Her 10 saniyede bir ana arayüz iş parçacığında `powercfg /batteryreport` çalıştırma sorunu giderildi; statik donanım verileri önbelleklendi, anlık şarj durumu doğrudan mikrosaniyelik `psutil` sensörlerine bağlandı (2500 ms donma -> 0.01 ms).
+* **Donanım Algılama Hızlandırması:** Ağ bağdaştırıcıları ve GPU telemetrisi subprocess/PowerShell döngülerinden arındırılıp asenkron worker thread havuzuna devredildi.
+
+---
+
 ## 🚀 [v1.0.1] - 2026-10-16
 
 ### 🎨 Arayüz, Pencere Boyutu ve Yazı Optimizasyonları

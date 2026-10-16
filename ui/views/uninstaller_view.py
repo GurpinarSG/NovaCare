@@ -296,7 +296,6 @@ class UninstallerView(QWidget):
         self.search_timer.timeout.connect(self._filter_apps)
 
         self._init_ui()
-        self.refresh_apps()
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
