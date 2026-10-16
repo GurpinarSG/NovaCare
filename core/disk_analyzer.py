@@ -82,7 +82,8 @@ class DiskAnalyzer:
         target_dir: str,
         limit: int = 100,
         min_size_mb: int = 50,
-        progress_callback: Optional[Callable[[str, int], None]] = None
+        progress_callback: Optional[Callable[[str, int], None]] = None,
+        cancel_check: Optional[Callable[[], bool]] = None
     ) -> list[LargeFileInfo]:
         """
         Scans target_dir for the largest files exceeding min_size_mb.
@@ -96,7 +97,11 @@ class DiskAnalyzer:
             return found
 
         for root, dirs, files in os.walk(target_dir, onerror=lambda _: None):
+            if cancel_check and cancel_check():
+                break
             for fname in files:
+                if cancel_check and cancel_check():
+                    break
                 scanned_count += 1
                 if scanned_count % 500 == 0 and progress_callback:
                     progress_callback(root, scanned_count)

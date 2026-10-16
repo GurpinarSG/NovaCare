@@ -222,6 +222,7 @@ class CookieShield:
             if self.is_browser_running(exe):
                 locked_browsers.add(browser_name)
                 # Try reading anyway in case read sharing is open
+            con = None
             try:
                 con = sqlite3.connect(db_path)
                 cur = con.cursor()
@@ -248,11 +249,15 @@ class CookieShield:
                         is_protected=is_prot,
                         is_known_tracker=is_track
                     ))
-
-                con.close()
             except Exception:
                 # If locked, record browser as locked
                 locked_browsers.add(browser_name)
+            finally:
+                if con:
+                    try:
+                        con.close()
+                    except Exception:
+                        pass
 
         # Sort: Trackers first, then protected, then alphabetical
         domain_items.sort(key=lambda d: (not d.is_known_tracker, d.is_protected, d.host))
@@ -289,6 +294,7 @@ class CookieShield:
                 locked_browsers.append(browser_name)
                 continue
 
+            con = None
             try:
                 con = sqlite3.connect(db_path)
                 cur = con.cursor()
@@ -319,9 +325,13 @@ class CookieShield:
                         cur.execute("VACUUM")
                     except Exception:
                         pass
-
-                con.close()
             except Exception:
                 locked_browsers.append(browser_name)
+            finally:
+                if con:
+                    try:
+                        con.close()
+                    except Exception:
+                        pass
 
         return deleted_total, preserved_total, list(set(locked_browsers))

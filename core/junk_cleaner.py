@@ -261,7 +261,7 @@ class JunkCleaner:
             for p in cat.paths:
                 if os.path.exists(p) and cat.id not in ("system_temp", "user_temp"):
                     try:
-                        for root, dirs, files in os.walk(p, topdown=False):
+                        for root, dirs, files in os.walk(p, topdown=False, followlinks=False, onerror=lambda _: None):
                             for d in dirs:
                                 dir_to_check = os.path.join(root, d)
                                 try:

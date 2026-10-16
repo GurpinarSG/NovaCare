@@ -10,6 +10,7 @@ import re
 from dataclasses import dataclass
 from typing import Optional
 import psutil
+import winreg
 
 @dataclass
 class DNSServerInfo:
@@ -116,8 +117,52 @@ class NetworkOptimizer:
         return interfaces[0]["name"] if interfaces else None
 
     def get_current_dns(self, adapter_name: str) -> dict:
-        """Retrieves currently configured DNS servers for the specified adapter."""
+        """
+        Retrieves currently configured DNS servers for the specified adapter.
+        Uses ultra-fast Windows Registry lookup (< 1 ms), avoiding UI thread blocking.
+        Falls back to netsh subprocess only if registry keys cannot be resolved.
+        """
         result = {"is_dhcp": True, "servers": []}
+        
+        # 1. Fast Registry Query
+        try:
+            net_path = r"SYSTEM\CurrentControlSet\Control\Network\{4D36E972-E325-11CE-BFC1-08002BE10318}"
+            target_guid = None
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, net_path) as net_key:
+                count = winreg.QueryInfoKey(net_key)[0]
+                for i in range(count):
+                    guid = winreg.EnumKey(net_key, i)
+                    try:
+                        with winreg.OpenKey(net_key, rf"{guid}\Connection") as conn_key:
+                            name, _ = winreg.QueryValueEx(conn_key, "Name")
+                            if name.lower() == adapter_name.lower():
+                                target_guid = guid
+                                break
+                    except Exception:
+                        pass
+            
+            if target_guid:
+                tcp_path = rf"SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\{target_guid}"
+                with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, tcp_path) as tcp_key:
+                    try:
+                        ns, _ = winreg.QueryValueEx(tcp_key, "NameServer")
+                    except Exception:
+                        ns = ""
+                    try:
+                        dhcp_ns, _ = winreg.QueryValueEx(tcp_key, "DhcpNameServer")
+                    except Exception:
+                        dhcp_ns = ""
+
+                    raw = ns.strip() if ns.strip() else dhcp_ns.strip()
+                    servers = [s.strip() for s in re.split(r"[, ]+", raw) if s.strip()]
+                    if servers:
+                        result["servers"] = servers
+                        result["is_dhcp"] = not bool(ns.strip())
+                        return result
+        except Exception:
+            pass
+
+        # 2. Fallback to netsh if registry query yielded no servers
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         try:
             cmd = ["netsh", "interface", "ipv4", "show", "dns", f"name={adapter_name}"]

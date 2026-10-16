@@ -32,7 +32,8 @@ class LargeFileScanThread(QThread):
             self.target_dir,
             limit=self.limit,
             min_size_mb=self.min_size_mb,
-            progress_callback=lambda path, count: self.progress.emit(path, count)
+            progress_callback=lambda path, count: self.progress.emit(path, count),
+            cancel_check=self.isInterruptionRequested
         )
         self.finished.emit(files)
 
@@ -181,7 +182,23 @@ class DiskView(QWidget):
 
             self.drives_layout.addWidget(card)
 
+    def stop_scan(self):
+        if self.scan_thread and self.scan_thread.isRunning():
+            self.scan_thread.requestInterruption()
+            self.scan_thread.wait(500)
+            self.btn_scan.setText("🔍  Büyük Dosyaları Tara")
+            self.progress_bar.setVisible(False)
+            self.lbl_status.setText("Tarama durduruldu.")
+
+    def hideEvent(self, event):
+        self.stop_scan()
+        super().hideEvent(event)
+
     def _start_scan(self):
+        if self.scan_thread and self.scan_thread.isRunning():
+            self.stop_scan()
+            return
+
         target_dir = self.combo_target.currentData()
         if not target_dir or not os.path.exists(target_dir):
             target_dir = os.path.expanduser('~')
@@ -190,7 +207,8 @@ class DiskView(QWidget):
         size_map = {"50 MB": 50, "100 MB": 100, "250 MB": 250, "500 MB": 500, "1 GB": 1024}
         min_mb = size_map.get(size_text, 100)
 
-        self.btn_scan.setEnabled(False)
+        self.btn_scan.setText("⏹️  Taramayı Durdur")
+        self.btn_scan.setEnabled(True)
         self.progress_bar.setVisible(True)
         self.lbl_status.setVisible(True)
         self.progress_bar.setRange(0, 0) # Indeterminate pulse
@@ -207,6 +225,7 @@ class DiskView(QWidget):
         self.large_files = files
         self.progress_bar.setVisible(False)
         self.lbl_status.setVisible(False)
+        self.btn_scan.setText("🔍  Büyük Dosyaları Tara")
         self.btn_scan.setEnabled(True)
 
         self.table.setUpdatesEnabled(False)
