@@ -8,7 +8,8 @@ import subprocess
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit,
     QTableWidget, QTableWidgetItem, QHeaderView, QMessageBox, QFrame,
-    QDialog, QListWidget, QListWidgetItem, QCheckBox, QProgressBar
+    QDialog, QListWidget, QListWidgetItem, QCheckBox, QProgressBar,
+    QAbstractItemView
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
 from PyQt5.QtGui import QColor
@@ -281,7 +282,34 @@ class BatchUninstallDialog(QDialog):
                 self.btn_cancel.setEnabled(False)
                 self.btn_close.setEnabled(True)
 
+class CheckBoxCell(QWidget):
+    def __init__(self, app_id: str, is_checked: bool, on_toggled, parent=None):
+        super().__init__(parent)
+        self.app_id = app_id
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setAlignment(Qt.AlignCenter)
+        self.checkbox = QCheckBox()
+        self.checkbox.setCursor(Qt.PointingHandCursor)
+        self.checkbox.setChecked(is_checked)
+        self.checkbox.stateChanged.connect(lambda state: on_toggled(self.app_id, state == Qt.Checked))
+        layout.addWidget(self.checkbox)
+
+    def setChecked(self, checked: bool):
+        self.checkbox.blockSignals(True)
+        self.checkbox.setChecked(checked)
+        self.checkbox.blockSignals(False)
+
+    def isChecked(self) -> bool:
+        return self.checkbox.isChecked()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.checkbox.toggle()
+        super().mousePressEvent(event)
+
 class UninstallerView(QWidget):
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.uninstaller = AppUninstaller()
@@ -362,7 +390,7 @@ class UninstallerView(QWidget):
         self.table.setColumnCount(6)
         self.table.setHorizontalHeaderLabels(["Seç", "Program Adı", "Yayıncı", "Sürüm", "Yükleme Tarihi", "Tahmini Boyut"])
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Fixed)
-        self.table.setColumnWidth(0, 48)
+        self.table.setColumnWidth(0, 52)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Interactive)
         self.table.setColumnWidth(2, 180)
@@ -373,8 +401,8 @@ class UninstallerView(QWidget):
         self.table.setAlternatingRowColors(True)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setSelectionMode(QTableWidget.SingleSelection)
-        self.table.itemChanged.connect(self._on_item_changed)
-        self.table.cellClicked.connect(self._on_cell_clicked)
+        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table.itemDoubleClicked.connect(self._on_item_double_clicked)
         layout.addWidget(self.table)
 
     def refresh_apps(self):
@@ -409,37 +437,39 @@ class UninstallerView(QWidget):
         try:
             self.table.setRowCount(len(self.filtered_apps))
             for row, app in enumerate(self.filtered_apps):
-                # Column 0: Checkbox
-                chk_item = QTableWidgetItem()
-                chk_item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+                # Column 0: Centered CheckBox Widget
                 is_chk = app.id in self.checked_app_ids
-                chk_item.setCheckState(Qt.Checked if is_chk else Qt.Unchecked)
-                chk_item.setTextAlignment(Qt.AlignCenter)
-                self.table.setItem(row, 0, chk_item)
+                cell = CheckBoxCell(app.id, is_chk, self._on_checkbox_toggled)
+                self.table.setCellWidget(row, 0, cell)
 
-                # Column 1: Name
+                # Column 1: Name (Read-only)
                 name_item = QTableWidgetItem(f"📦  {app.name}")
                 name_item.setToolTip(app.name)
+                name_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
                 self.table.setItem(row, 1, name_item)
 
-                # Column 2: Publisher
+                # Column 2: Publisher (Read-only)
                 pub_item = QTableWidgetItem(app.publisher)
+                pub_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
                 self.table.setItem(row, 2, pub_item)
 
-                # Column 3: Version
+                # Column 3: Version (Read-only)
                 ver_item = QTableWidgetItem(app.version)
                 ver_item.setTextAlignment(Qt.AlignCenter)
+                ver_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
                 self.table.setItem(row, 3, ver_item)
 
-                # Column 4: Date
+                # Column 4: Date (Read-only)
                 date_item = QTableWidgetItem(app.install_date or "-")
                 date_item.setTextAlignment(Qt.AlignCenter)
+                date_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
                 self.table.setItem(row, 4, date_item)
 
-                # Column 5: Size
+                # Column 5: Size (Read-only)
                 sz_str = format_bytes(app.size_bytes) if app.size_bytes > 0 else "-"
                 sz_item = QTableWidgetItem(sz_str)
                 sz_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                sz_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
                 self.table.setItem(row, 5, sz_item)
         finally:
             self._updating_checks = False
@@ -447,24 +477,14 @@ class UninstallerView(QWidget):
 
         self._update_selection_ui()
 
-    def _on_cell_clicked(self, row: int, col: int):
-        if col == 0 and 0 <= row < len(self.filtered_apps):
-            item = self.table.item(row, 0)
-            if item:
-                new_state = Qt.Unchecked if item.checkState() == Qt.Checked else Qt.Checked
-                item.setCheckState(new_state)
-
-    def _on_item_changed(self, item: QTableWidgetItem):
-        if self._updating_checks or item.column() != 0:
+    def _on_checkbox_toggled(self, app_id: str, is_checked: bool):
+        if self._updating_checks:
             return
-        row = item.row()
-        if 0 <= row < len(self.filtered_apps):
-            app = self.filtered_apps[row]
-            if item.checkState() == Qt.Checked:
-                self.checked_app_ids.add(app.id)
-            else:
-                self.checked_app_ids.discard(app.id)
-            self._update_selection_ui()
+        if is_checked:
+            self.checked_app_ids.add(app_id)
+        else:
+            self.checked_app_ids.discard(app_id)
+        self._update_selection_ui()
 
     def _toggle_select_all(self, state: int):
         if self._updating_checks:
@@ -476,11 +496,45 @@ class UninstallerView(QWidget):
                 self.checked_app_ids.add(app.id)
             else:
                 self.checked_app_ids.discard(app.id)
-            item = self.table.item(row, 0)
-            if item:
-                item.setCheckState(Qt.Checked if is_chk else Qt.Unchecked)
+            cell = self.table.cellWidget(row, 0)
+            if isinstance(cell, CheckBoxCell):
+                cell.setChecked(is_chk)
         self._updating_checks = False
         self._update_selection_ui()
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Space:
+            row = self.table.currentRow()
+            if 0 <= row < len(self.filtered_apps):
+                cell = self.table.cellWidget(row, 0)
+                if isinstance(cell, CheckBoxCell):
+                    cell.checkbox.toggle()
+                return
+        super().keyPressEvent(event)
+
+    def _on_item_double_clicked(self, item: QTableWidgetItem):
+        row = item.row()
+        if 0 <= row < len(self.filtered_apps):
+            app = self.filtered_apps[row]
+            confirm = QMessageBox.question(
+                self,
+                "Programı Kaldır",
+                f"'{app.name}' programının resmi kaldırıcı aracı başlatılacak.\nDevam etmek istiyor musunuz?",
+                QMessageBox.Yes | QMessageBox.No
+            )
+            if confirm == QMessageBox.Yes:
+                try:
+                    self.uninstaller.launch_uninstaller(app)
+                    ans = QMessageBox.question(
+                        self,
+                        "Kaldırıcı Başlatıldı",
+                        f"'{app.name}' kaldırıcı programı başlatıldı.\n\nKaldırma işlemi bittikten sonra kalan artık dosyaları şimdi taramak ister misiniz?",
+                        QMessageBox.Yes | QMessageBox.No
+                    )
+                    if ans == QMessageBox.Yes:
+                        self._scan_leftovers_for_apps([app])
+                except Exception as e:
+                    QMessageBox.critical(self, "Hata", f"Kaldırma komutu başlatılamadı:\n{e}")
 
     def _get_checked_apps(self) -> list[InstalledApp]:
         return [a for a in self.all_apps if a.id in self.checked_app_ids]
@@ -496,6 +550,14 @@ class UninstallerView(QWidget):
         cnt = len(checked)
         total = len(self.filtered_apps)
 
+        # Synchronize chk_all state without triggering recursive toggles
+        self.chk_all.blockSignals(True)
+        if total > 0 and cnt == total:
+            self.chk_all.setChecked(True)
+        else:
+            self.chk_all.setChecked(False)
+        self.chk_all.blockSignals(False)
+
         if cnt > 1:
             total_size = sum(a.size_bytes for a in checked)
             size_str = f" ({format_bytes(total_size)})" if total_size > 0 else ""
@@ -507,6 +569,7 @@ class UninstallerView(QWidget):
         else:
             self.btn_uninstall.setText("🗑️  Programı Kaldır")
             self.lbl_stats.setText(f"Toplam Program: {total}")
+
 
     def _uninstall_selected(self):
         checked_apps = self._get_checked_apps()

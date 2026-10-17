@@ -631,7 +631,7 @@ QCheckBox, QRadioButton {{
     background: transparent;
 }}
 
-QCheckBox::indicator {{
+QCheckBox::indicator, QTableWidget::indicator {{
     width: 18px;
     height: 18px;
     border: 1px solid {p['BORDER_COLOR']};
@@ -639,15 +639,16 @@ QCheckBox::indicator {{
     background-color: {p['BG_INPUT']};
 }}
 
-QCheckBox::indicator:hover {{
+QCheckBox::indicator:hover, QTableWidget::indicator:hover {{
     border-color: {p['COLOR_ACCENT']};
 }}
 
-QCheckBox::indicator:checked {{
+QCheckBox::indicator:checked, QTableWidget::indicator:checked {{
     background-color: {p['COLOR_ACCENT']};
     border-color: {p['COLOR_ACCENT']};
     image: url("{check_ico}");
 }}
+
 
 QRadioButton::indicator {{
     width: 18px;

@@ -1,7 +1,7 @@
-1.1.4
+1.1.5
 ---
-• Tüm modüllerde (Gereksiz Dosya, Kayıt Defteri, Büyük Dosya, DNS, Gizlilik, Başlangıç, Pil, Kurtarma) UI kilitlenmelerini ve donmalarını %100 önleyen evrensel try-except-finally iş parçacığı mimarisi.
-• Kurtarma Merkezi'nde sistem geri yükleme noktası oluşturma işlemi asenkron arka plan iş parçacığına (RestorePointWorker) taşınarak arayüzün anlık donması tamamen giderildi.
-• Smart Cookie Shield veritabanı bağlantılarına zaman aşımı (timeout) koruması eklenerek kilitli tarayıcı durumlarında takılma önlendi.
-• DNS gecikme ölçümü (benchmark) hızlandırıldı ve optimize edildi.
-• Hata günlüğü (log_debug) merkezi ve güvenli bir yapıya kavuşturuldu.
+• Program Kaldırıcı (Uninstaller) seçim kutularındaki çift tetiklenme (double-toggle) hatası giderildi; kutucuklar doğrudan veya hücreye tıklanarak anında işaretlenebilir hale getirildi.
+• Program Kaldırıcı ve tüm veri tablolarında metin düzenleme (inline rename/edit) tetikleyicileri tamamen kapatıldı (`NoEditTriggers`); program isimlerine tıklandığında çıkan isim değiştirme hatası kökten çözüldü.
+• Program Kaldırıcı tablosunda klavye ile gezinme ve Space (Boşluk) tuşu ile seçim desteği eklendi.
+• Program Kaldırıcı tablosunda bir programa çift tıklandığında kaldırma işlemini doğrudan başlatma desteği eklendi.
+• Tablo onay kutusu (QTableWidget indicator) stilleri modern NovaCare temasıyla tam uyumlu hale getirildi.

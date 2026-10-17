@@ -4,7 +4,8 @@ Scans, displays, backs up, and safely fixes Windows Registry inconsistencies.
 """
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QProgressBar,
-    QTableWidget, QTableWidgetItem, QHeaderView, QCheckBox, QMessageBox, QFrame
+    QTableWidget, QTableWidgetItem, QHeaderView, QCheckBox, QMessageBox, QFrame,
+    QAbstractItemView
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from core.registry_cleaner import RegistryCleaner, RegistryIssue
@@ -157,6 +158,7 @@ class RegistryView(QWidget):
         self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
         self.table.verticalHeader().setVisible(False)
         self.table.setAlternatingRowColors(True)
+        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         layout.addWidget(self.table)
 
     def _populate_table(self):

@@ -4,7 +4,8 @@ Inspects, toggles, and manages Windows startup entries to optimize boot time.
 """
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QTableWidget, QTableWidgetItem, QHeaderView, QMessageBox, QFrame
+    QTableWidget, QTableWidgetItem, QHeaderView, QMessageBox, QFrame,
+    QAbstractItemView
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QColor
@@ -95,6 +96,7 @@ class StartupView(QWidget):
         self.table.setAlternatingRowColors(True)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setSelectionMode(QTableWidget.SingleSelection)
+        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         layout.addWidget(self.table)
 
     def refresh_items(self):

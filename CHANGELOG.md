@@ -2,6 +2,22 @@
 
 Tüm önemli değişiklikler, yeni özellikler, hata düzeltmeleri ve optimizasyonlar bu belgede kronolojik olarak kayıt altına alınmaktadır.
 
+## 🚀 [v1.1.5] - 2026-10-17
+
+### 🎯 Program Kaldırıcı Seçim & Metin Düzenleme Hatası Onarımı (Uninstaller Fixes)
+* **Onay Kutusu (Checkbox) Çift Tetiklenme (Double-Toggle) Çözümü:**
+  * Program Kaldırıcı tablosunda (`ui/views/uninstaller_view.py`) onay kutusu hücresine tıklandığında hem yerleşik Qt kutucuğunun hem de hücre tıklama olayının (`cellClicked`) aynı anda tetiklenerek seçimi anında geri alması (0 → 2 → 0) sorunu çözüldü.
+  * Özel `CheckBoxCell` bileşeni entegre edilerek hem doğrudan kutucuğa hem de kutunun sağına/hücre boşluğuna tıklandığında pürüzsüz ve kararlı seçim yapılması sağlandı.
+  * Tablo başlığındaki "Tümünü Seç" kutusu, kullanıcı satırları tek tek seçtikçe otomatik senkronize olacak şekilde güncellendi.
+* **İsim Değiştirme (Inline Rename) Hatasının Kökten Engellenmesi:**
+  * Program isimlerine tek veya çift tıklandığında hücrenin metin düzenleme kutusuna (renaming/edit) dönüşmesi hatası giderildi.
+  * Program Kaldırıcı ve NovaCare bünyesindeki tüm tablolara (`QTableWidget`) `setEditTriggers(QAbstractItemView.NoEditTriggers)` zırhı eklendi ve tüm hücre öğelerinden düzenlenebilirlik bayrağı (`ItemIsEditable`) kaldırılarak salt okunur (`ItemIsEnabled | ItemIsSelectable`) hale getirildi.
+* **Klavye & Hızlı Kaldırma Kolaylığı:**
+  * Tablo üzerinde klavye yön tuşlarıyla gezinirken `Space` (Boşluk) tuşuna basarak satırı hızlıca seçme/işaretleme desteği eklendi.
+  * Herhangi bir programa çift tıklandığında metin kutusu açmak yerine kullanıcıya doğrudan kaldırma onayı sunulması sağlandı.
+* **Modern Tablo Onay Kutusu Teması:**
+  * `ui/styles.py` içerisindeki `QTableWidget::indicator` stilleri, modern NovaCare koyu teması ve cam vurgusuyla uyumlu hale getirildi.
+
 ---
 
 ## 🚀 [v1.1.4] - 2026-10-17

@@ -7,7 +7,7 @@ import subprocess
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QProgressBar,
     QTableWidget, QTableWidgetItem, QHeaderView, QComboBox, QMessageBox,
-    QFrame, QFileDialog
+    QFrame, QFileDialog, QAbstractItemView
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from core.disk_analyzer import DiskAnalyzer, PartitionInfo, LargeFileInfo
@@ -137,6 +137,7 @@ class DiskView(QWidget):
         self.table.setAlternatingRowColors(True)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setSelectionMode(QTableWidget.SingleSelection)
+        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         layout.addWidget(self.table)
 
     def refresh_drives(self):

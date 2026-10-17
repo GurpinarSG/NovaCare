@@ -4,7 +4,8 @@ Detailed category selection, scanning, and safe cleaning of temporary and cache 
 """
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QProgressBar,
-    QTableWidget, QTableWidgetItem, QHeaderView, QCheckBox, QMessageBox, QFrame
+    QTableWidget, QTableWidgetItem, QHeaderView, QCheckBox, QMessageBox, QFrame,
+    QAbstractItemView
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from core.junk_cleaner import JunkCleaner, CleanerCategory
@@ -156,6 +157,7 @@ class JunkView(QWidget):
         self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
         self.table.verticalHeader().setVisible(False)
         self.table.setAlternatingRowColors(True)
+        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         layout.addWidget(self.table)
 
         self._populate_table()

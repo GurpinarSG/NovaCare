@@ -5,7 +5,8 @@ and complete network stack (Winsock, TCP/IP, flushdns) repair.
 """
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTableWidget,
-    QTableWidgetItem, QHeaderView, QFrame, QScrollArea, QComboBox, QMessageBox
+    QTableWidgetItem, QHeaderView, QFrame, QScrollArea, QComboBox, QMessageBox,
+    QAbstractItemView
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QColor, QFont
@@ -193,6 +194,7 @@ class NetworkView(QWidget):
         self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)
         self.table.verticalHeader().setVisible(False)
         self.table.setSelectionMode(QTableWidget.NoSelection)
+        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setMinimumHeight(240)
         d_layout.addWidget(self.table)
 

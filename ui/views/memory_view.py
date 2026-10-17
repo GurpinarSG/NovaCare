@@ -5,7 +5,8 @@ Optimized for zero-lag background loading and smooth high-performance UI renderi
 """
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QProgressBar,
-    QTableWidget, QTableWidgetItem, QHeaderView, QLineEdit, QMessageBox, QFrame
+    QTableWidget, QTableWidgetItem, QHeaderView, QLineEdit, QMessageBox, QFrame,
+    QAbstractItemView
 )
 from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal
 from core.memory_booster import MemoryBooster, ProcessInfo
@@ -148,6 +149,7 @@ class MemoryView(QWidget):
         self.table.setAlternatingRowColors(True)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setSelectionMode(QTableWidget.SingleSelection)
+        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         layout.addWidget(self.table)
 
     def _start_timer(self):

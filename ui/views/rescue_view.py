@@ -4,7 +4,8 @@ View and restore registry backups, create Windows restore points, and launch sys
 """
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QTableWidget, QTableWidgetItem, QHeaderView, QMessageBox, QFrame
+    QTableWidget, QTableWidgetItem, QHeaderView, QMessageBox, QFrame,
+    QAbstractItemView
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from core.backup_manager import BackupManager, BackupEntry
@@ -121,6 +122,7 @@ class RescueView(QWidget):
         self.table.setAlternatingRowColors(True)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setSelectionMode(QTableWidget.SingleSelection)
+        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         layout.addWidget(self.table)
 
     def refresh_backups(self):
