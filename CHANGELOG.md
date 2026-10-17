@@ -4,6 +4,22 @@ Tüm önemli değişiklikler, yeni özellikler, hata düzeltmeleri ve optimizasy
 
 ---
 
+## 🚀 [v1.1.4] - 2026-10-17
+
+### 🛡️ Evrensel İş Parçacığı Zırhı ve Sıfır Takılma Optimizasyonu (Universal Thread Safety & Anti-Freeze Architecture)
+* **Tüm Modüllerde Sıfır Kilitlenme Garantisi:**
+  * NovaCare bünyesindeki tüm modüllere (`JunkScanThread`, `JunkCleanThread`, `RegScanThread`, `RegFixThread`, `LargeFileScanThread`, `DNSBenchmarkWorker`, `NetworkRepairWorker`, `BloatwareScanWorker`, `BloatwareRemoveWorker`, `DeepTelemetryWorker`, `CookieScanWorker`, `CookieCleanWorker`, `StartupScanWorker`, `BatteryHardwareWorker`, `ManualAutoCleanWorker`, `BatchUninstallWorker`, `BackgroundAutoCleanWorker`) evrensel `try...except...finally` güvenlik zırhı giydirildi.
+  * Beklenmeyen bir işletim sistemi izin hatası, kilitli dosya veya kesinti olsa dahi `self.finished.emit(...)` sinyali her zaman yayılır; butonların devre dışı ("Taranıyor...", "Temizleniyor...") kalması veya ilerleme çubuklarının donması %100 engellendi.
+* **Kurtarma Merkezi Asenkron Güçlendirmesi (`RestorePointWorker`):**
+  * Kurtarma ve Yedekleme Merkezi'nde "Geri Yükleme Noktası Oluştur" tıklandığında PowerShell'in `Checkpoint-Computer` komutunun arayüzü 5-15 saniye dondurması sorunu, özel asenkron iş parçacığı mimarisi ile çözüldü. Arayüz işlem sırasında %100 akıcı ve yanıt verir durumda kalır.
+* **Smart Cookie Shield Zaman Aşımı Koruması:**
+  * Tarayıcı çerez veritabanı sorgulamalarında (`sqlite3.connect`) 1 saniyelik zaman aşımı koruması eklenerek açık veya kilitli tarayıcılarda programın askıda kalması engellendi.
+* **DNS Gecikme Ölçümü & Hata Günlüğü Optimizasyonu:**
+  * Ağ & DNS İyileştiricisi'ndeki gecikme ölçüm algoritması optimize edilerek ölçüm süresi 2 kat hızlandırıldı.
+  * Hata günlüğü (`log_debug`) merkezi `core/utils.py` modülüne taşınarak hata ayıklama güvenliği sağlandı.
+
+---
+
 ## 🚀 [v1.1.3] - 2026-10-17
 
 ### ⚡ Tek Tıkla Sistem Taraması %16 Takılma Hatası Giderildi (1-Click Scan Freeze Fix)

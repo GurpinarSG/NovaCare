@@ -224,7 +224,7 @@ class CookieShield:
                 # Try reading anyway in case read sharing is open
             con = None
             try:
-                con = sqlite3.connect(db_path)
+                con = sqlite3.connect(db_path, timeout=1.0)
                 cur = con.cursor()
 
                 if b_type == 'chromium':
@@ -296,7 +296,7 @@ class CookieShield:
 
             con = None
             try:
-                con = sqlite3.connect(db_path)
+                con = sqlite3.connect(db_path, timeout=1.0)
                 cur = con.cursor()
 
                 host_col = "host_key" if b_type == "chromium" else "host"

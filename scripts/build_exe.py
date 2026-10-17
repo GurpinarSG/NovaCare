@@ -85,6 +85,15 @@ def build_executable(onefile: bool = True):
             if not copied:
                 print(f"[!] Uyarı: {root_exe} kullanımda olduğu için güncellenemedi, ancak {target_exe} hazır.")
             
+            # Sync to installed location in LocalAppData if exists
+            local_installed = os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Programs', 'NovaCare', 'NovaCare.exe')
+            if os.path.exists(os.path.dirname(local_installed)):
+                try:
+                    shutil.copy2(target_exe, local_installed)
+                    print(f"  [✔] Yüklü uygulama güncellendi: {local_installed}")
+                except Exception as e:
+                    print(f"  [!] Yüklü uygulama güncellenemedi: {e}")
+
             # Sync shortcuts without invalid arguments
             try:
                 import win32com.client # optional or use PowerShell

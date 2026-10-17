@@ -14,7 +14,7 @@ from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from core.config import ConfigManager, CURRENT_VERSION
 from core.updater import GitHubUpdater, UpdateInfo
 from core.auto_cleaner import AutoCleaner
-from core.utils import format_bytes, is_admin, restart_as_admin
+from core.utils import format_bytes, is_admin, restart_as_admin, log_debug
 from core.security import mask_token
 from core.autostart import is_autostart_enabled, set_autostart
 from ui.styles import (
@@ -30,8 +30,14 @@ class ManualAutoCleanWorker(QThread):
         self.cleaner = AutoCleaner()
 
     def run(self):
-        res = self.cleaner.execute_cleanup()
-        self.finished.emit(res)
+        res = {"total_freed": 0, "cleaned_files": 0, "failed_files": 0, "cleaned_categories": 0, "errors": []}
+        try:
+            res = self.cleaner.execute_cleanup()
+        except Exception as e:
+            log_debug(f"ManualAutoCleanWorker error: {e}")
+            res["errors"].append(str(e))
+        finally:
+            self.finished.emit(res)
 
 class CheckUpdateThread(QThread):
     finished = pyqtSignal(object) # UpdateInfo or Exception

@@ -9,6 +9,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QColor
 from core.startup_manager import StartupManager, StartupItem
+from core.utils import log_debug
 from ui.styles import (
     BG_CARD, BORDER_COLOR, COLOR_ACCENT, COLOR_SUCCESS, COLOR_WARNING, COLOR_DANGER,
     TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED
@@ -22,8 +23,13 @@ class StartupScanWorker(QThread):
         self.mgr = mgr
 
     def run(self):
-        items = self.mgr.scan_all()
-        self.finished.emit(items)
+        items = []
+        try:
+            items = self.mgr.scan_all()
+        except Exception as e:
+            log_debug(f"StartupScanWorker error: {e}")
+        finally:
+            self.finished.emit(items)
 
 class StartupView(QWidget):
     def __init__(self, parent=None):

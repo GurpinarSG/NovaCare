@@ -8,7 +8,7 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from core.junk_cleaner import JunkCleaner, CleanerCategory
-from core.utils import format_bytes, is_admin
+from core.utils import format_bytes, is_admin, log_debug
 from ui.styles import (
     BG_CARD, BORDER_COLOR, COLOR_ACCENT, COLOR_SUCCESS, COLOR_WARNING, COLOR_DANGER,
     TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED
@@ -23,10 +23,16 @@ class JunkScanThread(QThread):
         self.cleaner = cleaner
 
     def run(self):
-        cats = self.cleaner.scan_all(
-            progress_callback=lambda name, cur, tot: self.progress.emit(name, cur, tot)
-        )
-        self.finished.emit(cats)
+        cats = []
+        try:
+            cats = self.cleaner.scan_all(
+                progress_callback=lambda name, cur, tot: self.progress.emit(name, cur, tot)
+            )
+        except Exception as e:
+            log_debug(f"JunkScanThread error: {e}")
+            cats = self.cleaner.categories
+        finally:
+            self.finished.emit(cats)
 
 class JunkCleanThread(QThread):
     progress = pyqtSignal(str, int, int)
@@ -38,11 +44,16 @@ class JunkCleanThread(QThread):
         self.selected_ids = selected_ids
 
     def run(self):
-        freed, cleaned, failed = self.cleaner.clean_categories(
-            self.selected_ids,
-            progress_callback=lambda name, cur, tot: self.progress.emit(name, cur, tot)
-        )
-        self.finished.emit(freed, cleaned, failed)
+        freed, cleaned, failed = 0, 0, 0
+        try:
+            freed, cleaned, failed = self.cleaner.clean_categories(
+                self.selected_ids,
+                progress_callback=lambda name, cur, tot: self.progress.emit(name, cur, tot)
+            )
+        except Exception as e:
+            log_debug(f"JunkCleanThread error: {e}")
+        finally:
+            self.finished.emit(freed, cleaned, failed)
 
 class JunkView(QWidget):
     def __init__(self, parent=None):

@@ -51,9 +51,15 @@ class BackgroundAutoCleanWorker(QThread):
     finished = pyqtSignal(dict)
 
     def run(self):
-        cleaner = AutoCleaner()
-        res = cleaner.execute_cleanup()
-        self.finished.emit(res)
+        res = {"total_freed": 0, "cleaned_files": 0, "failed_files": 0, "cleaned_categories": 0, "errors": []}
+        try:
+            cleaner = AutoCleaner()
+            res = cleaner.execute_cleanup()
+        except Exception as e:
+            log_debug(f"BackgroundAutoCleanWorker error: {e}")
+            res["errors"].append(str(e))
+        finally:
+            self.finished.emit(res)
 
 class AutoUpdateCheckThread(QThread):
     finished = pyqtSignal(object)

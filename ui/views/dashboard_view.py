@@ -96,7 +96,7 @@ class DashboardScanWorker(QThread):
             results["score"] = max(15, score)
             self.progress.emit("Tarama tamamlandı!", 100)
         except Exception as e:
-            from main import log_debug
+            from core.utils import log_debug
             log_debug(f"DashboardScanWorker error: {e}")
             self.progress.emit("Tarama tamamlandı!", 100)
         finally:
@@ -132,7 +132,7 @@ class DashboardFixWorker(QThread):
 
             self.progress.emit("Onarım başarıyla tamamlandı!", 100)
         except Exception as e:
-            from main import log_debug
+            from core.utils import log_debug
             log_debug(f"DashboardFixWorker error: {e}")
             self.progress.emit("İşlem tamamlandı!", 100)
         finally:

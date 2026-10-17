@@ -10,6 +10,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal
 from PyQt5.QtGui import QFont, QColor
 from core.battery_reporter import BatteryReporter, BatteryInfo
+from core.utils import log_debug
 from ui.components import StatCard
 from ui.styles import (
     BG_CARD, BORDER_COLOR, COLOR_ACCENT, COLOR_SUCCESS, COLOR_WARNING, COLOR_DANGER,
@@ -24,8 +25,13 @@ class BatteryHardwareWorker(QThread):
         self.reporter = reporter
 
     def run(self):
-        hw = self.reporter.fetch_hardware_details()
-        self.finished.emit(hw)
+        hw = {}
+        try:
+            hw = self.reporter.fetch_hardware_details()
+        except Exception as e:
+            log_debug(f"BatteryHardwareWorker error: {e}")
+        finally:
+            self.finished.emit(hw)
 
 class BatteryView(QWidget):
     def __init__(self, parent=None):

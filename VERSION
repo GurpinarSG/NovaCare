@@ -1,1 +1,7 @@
-1.1.3
+1.1.4
+---
+• Tüm modüllerde (Gereksiz Dosya, Kayıt Defteri, Büyük Dosya, DNS, Gizlilik, Başlangıç, Pil, Kurtarma) UI kilitlenmelerini ve donmalarını %100 önleyen evrensel try-except-finally iş parçacığı mimarisi.
+• Kurtarma Merkezi'nde sistem geri yükleme noktası oluşturma işlemi asenkron arka plan iş parçacığına (RestorePointWorker) taşınarak arayüzün anlık donması tamamen giderildi.
+• Smart Cookie Shield veritabanı bağlantılarına zaman aşımı (timeout) koruması eklenerek kilitli tarayıcı durumlarında takılma önlendi.
+• DNS gecikme ölçümü (benchmark) hızlandırıldı ve optimize edildi.
+• Hata günlüğü (log_debug) merkezi ve güvenli bir yapıya kavuşturuldu.

@@ -10,6 +10,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QColor, QFont
 from core.network_optimizer import NetworkOptimizer, DNSServerInfo, DNS_CATALOG
+from core.utils import log_debug
 from ui.styles import (
     get_active_theme_colors, TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED,
     COLOR_ACCENT, COLOR_SUCCESS, COLOR_WARNING, COLOR_DANGER
@@ -23,8 +24,13 @@ class DNSBenchmarkWorker(QThread):
         self.optimizer = NetworkOptimizer()
 
     def run(self):
-        results = self.optimizer.benchmark_all_dns()
-        self.finished.emit(results)
+        results = []
+        try:
+            results = self.optimizer.benchmark_all_dns()
+        except Exception as e:
+            log_debug(f"DNSBenchmarkWorker error: {e}")
+        finally:
+            self.finished.emit(results)
 
 class NetworkRepairWorker(QThread):
     finished = pyqtSignal(bool, str)
@@ -35,13 +41,20 @@ class NetworkRepairWorker(QThread):
         self.optimizer = NetworkOptimizer()
 
     def run(self):
-        if self.action_type == "flush":
-            ok, msg = self.optimizer.flush_dns()
-        elif self.action_type == "reset_stack":
-            ok, msg = self.optimizer.reset_network_stack()
-        else:
-            ok, msg = False, "Bilinmeyen işlem"
-        self.finished.emit(ok, msg)
+        ok = False
+        msg = "İşlem başlatılamadı"
+        try:
+            if self.action_type == "flush":
+                ok, msg = self.optimizer.flush_dns()
+            elif self.action_type == "reset_stack":
+                ok, msg = self.optimizer.reset_network_stack()
+            else:
+                ok, msg = False, "Bilinmeyen işlem"
+        except Exception as e:
+            log_debug(f"NetworkRepairWorker error: {e}")
+            ok, msg = False, f"Hata: {e}"
+        finally:
+            self.finished.emit(ok, msg)
 
 class NetworkView(QWidget):
     def __init__(self, parent=None):

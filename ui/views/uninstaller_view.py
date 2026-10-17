@@ -13,7 +13,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
 from PyQt5.QtGui import QColor
 from core.uninstaller import AppUninstaller, InstalledApp, LeftoverItem
-from core.utils import format_bytes
+from core.utils import format_bytes, log_debug
 from ui.styles import (
     BG_CARD, BORDER_COLOR, COLOR_ACCENT, COLOR_SUCCESS, COLOR_WARNING, COLOR_DANGER,
     TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED
@@ -113,42 +113,45 @@ class BatchUninstallWorker(QThread):
     def run(self):
         total = len(self.apps)
         uninstalled: list[InstalledApp] = []
+        try:
+            for idx, app in enumerate(self.apps):
+                if self._is_canceled:
+                    break
 
-        for idx, app in enumerate(self.apps):
-            if self._is_canceled:
-                break
+                self.app_started.emit(idx, app)
+                self.progress.emit(idx + 1, total, f"'{app.name}' kaldırıcı aracı çalıştırılıyor...")
 
-            self.app_started.emit(idx, app)
-            self.progress.emit(idx + 1, total, f"'{app.name}' kaldırıcı aracı çalıştırılıyor...")
-
-            success = False
-            msg = ""
-            try:
-                proc = self.uninstaller.launch_uninstaller(app)
-                self._current_process = proc
-                # Wait for uninstaller process to finish
-                while proc.poll() is None:
-                    if self._is_canceled:
-                        break
-                    self.msleep(400)
-
-                if proc.returncode == 0 or proc.returncode is None:
-                    success = True
-                    msg = "Başarıyla tamamlandı"
-                    uninstalled.append(app)
-                else:
-                    success = True
-                    msg = f"Tamamlandı (Kod: {proc.returncode})"
-                    uninstalled.append(app)
-            except Exception as e:
                 success = False
-                msg = str(e)
+                msg = ""
+                try:
+                    proc = self.uninstaller.launch_uninstaller(app)
+                    self._current_process = proc
+                    # Wait for uninstaller process to finish
+                    while proc.poll() is None:
+                        if self._is_canceled:
+                            break
+                        self.msleep(400)
 
-            self._current_process = None
-            self.app_finished.emit(idx, app, success, msg)
-            self.msleep(600)  # Brief pause between sequential uninstallers
+                    if proc.returncode == 0 or proc.returncode is None:
+                        success = True
+                        msg = "Başarıyla tamamlandı"
+                        uninstalled.append(app)
+                    else:
+                        success = True
+                        msg = f"Tamamlandı (Kod: {proc.returncode})"
+                        uninstalled.append(app)
+                except Exception as e:
+                    success = False
+                    msg = str(e)
 
-        self.batch_finished.emit(uninstalled)
+                self._current_process = None
+                self.app_finished.emit(idx, app, success, msg)
+                self.msleep(600)  # Brief pause between sequential uninstallers
+        except Exception as e:
+            log_debug(f"BatchUninstallWorker error: {e}")
+        finally:
+            self.batch_finished.emit(uninstalled)
+
 
 class BatchUninstallDialog(QDialog):
     def __init__(self, apps: list[InstalledApp], uninstaller: AppUninstaller, parent=None):

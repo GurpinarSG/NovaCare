@@ -11,6 +11,7 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from core.disk_analyzer import DiskAnalyzer, PartitionInfo, LargeFileInfo
+from core.utils import log_debug
 from ui.styles import (
     BG_CARD, BORDER_COLOR, COLOR_ACCENT, COLOR_SUCCESS, COLOR_DANGER,
     TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED
@@ -28,14 +29,19 @@ class LargeFileScanThread(QThread):
         self.limit = limit
 
     def run(self):
-        files = self.analyzer.scan_largest_files(
-            self.target_dir,
-            limit=self.limit,
-            min_size_mb=self.min_size_mb,
-            progress_callback=lambda path, count: self.progress.emit(path, count),
-            cancel_check=self.isInterruptionRequested
-        )
-        self.finished.emit(files)
+        files = []
+        try:
+            files = self.analyzer.scan_largest_files(
+                self.target_dir,
+                limit=self.limit,
+                min_size_mb=self.min_size_mb,
+                progress_callback=lambda path, count: self.progress.emit(path, count),
+                cancel_check=self.isInterruptionRequested
+            )
+        except Exception as e:
+            log_debug(f"LargeFileScanThread error: {e}")
+        finally:
+            self.finished.emit(files)
 
 class DiskView(QWidget):
     def __init__(self, parent=None):

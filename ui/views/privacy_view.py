@@ -14,7 +14,7 @@ from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from core.privacy_tweaker import PrivacyTweaker, PrivacyTraceItem, SystemTweak
 from core.bloatware_cleaner import BloatwareCleaner, BloatwareItem
 from core.cookie_shield import CookieShield, CookieDomainItem, DEFAULT_WHITELIST
-from core.utils import is_admin
+from core.utils import is_admin, log_debug
 from ui.styles import (
     BORDER_COLOR, COLOR_ACCENT, COLOR_SUCCESS, COLOR_DANGER, COLOR_WARNING,
     TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED
@@ -28,8 +28,13 @@ class BloatwareScanWorker(QThread):
         self.cleaner = BloatwareCleaner()
 
     def run(self):
-        items = self.cleaner.scan_installed_bloatware()
-        self.finished.emit(items)
+        items = []
+        try:
+            items = self.cleaner.scan_installed_bloatware()
+        except Exception as e:
+            log_debug(f"BloatwareScanWorker error: {e}")
+        finally:
+            self.finished.emit(items)
 
 class BloatwareRemoveWorker(QThread):
     finished = pyqtSignal(int, list)  # count, errors
@@ -42,13 +47,18 @@ class BloatwareRemoveWorker(QThread):
     def run(self):
         removed = 0
         errs = []
-        for pkg in self.packages:
-            ok, msg = self.cleaner.remove_bloatware_package(pkg)
-            if ok:
-                removed += 1
-            else:
-                errs.append(f"{pkg}: {msg}")
-        self.finished.emit(removed, errs)
+        try:
+            for pkg in self.packages:
+                ok, msg = self.cleaner.remove_bloatware_package(pkg)
+                if ok:
+                    removed += 1
+                else:
+                    errs.append(f"{pkg}: {msg}")
+        except Exception as e:
+            log_debug(f"BloatwareRemoveWorker error: {e}")
+            errs.append(str(e))
+        finally:
+            self.finished.emit(removed, errs)
 
 class DeepTelemetryWorker(QThread):
     finished = pyqtSignal(dict)
@@ -58,8 +68,14 @@ class DeepTelemetryWorker(QThread):
         self.cleaner = BloatwareCleaner()
 
     def run(self):
-        res = self.cleaner.disable_deep_telemetry()
-        self.finished.emit(res)
+        res = {"success": False, "details": []}
+        try:
+            res = self.cleaner.disable_deep_telemetry()
+        except Exception as e:
+            log_debug(f"DeepTelemetryWorker error: {e}")
+            res = {"success": False, "details": [f"Hata: {e}"]}
+        finally:
+            self.finished.emit(res)
 
 class CookieScanWorker(QThread):
     finished = pyqtSignal(dict)
@@ -69,8 +85,13 @@ class CookieScanWorker(QThread):
         self.shield = CookieShield()
 
     def run(self):
-        res = self.shield.scan_cookies()
-        self.finished.emit(res)
+        res = {}
+        try:
+            res = self.shield.scan_cookies()
+        except Exception as e:
+            log_debug(f"CookieScanWorker error: {e}")
+        finally:
+            self.finished.emit(res)
 
 class CookieCleanWorker(QThread):
     finished = pyqtSignal(int, int, list)  # deleted, preserved, locked_browsers
@@ -80,8 +101,13 @@ class CookieCleanWorker(QThread):
         self.shield = CookieShield()
 
     def run(self):
-        deleted, preserved, locked = self.shield.clean_tracking_cookies()
-        self.finished.emit(deleted, preserved, locked)
+        deleted, preserved, locked = 0, 0, []
+        try:
+            deleted, preserved, locked = self.shield.clean_tracking_cookies()
+        except Exception as e:
+            log_debug(f"CookieCleanWorker error: {e}")
+        finally:
+            self.finished.emit(deleted, preserved, locked)
 
 class CookieWhitelistDialog(QDialog):
     def __init__(self, shield: CookieShield, parent=None):

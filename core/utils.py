@@ -192,3 +192,15 @@ def ensure_ssl_ca_bundle() -> Optional[str]:
         return chosen
     return None
 
+def log_debug(msg: str):
+    """Appends a debug message to %LOCALAPPDATA%/NovaCare/startup.log safely."""
+    try:
+        import time
+        log_dir = os.path.join(os.environ.get('LOCALAPPDATA', os.path.expanduser('~')), 'NovaCare')
+        os.makedirs(log_dir, exist_ok=True)
+        with open(os.path.join(log_dir, 'startup.log'), "a", encoding="utf-8") as f:
+            f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {msg}\n")
+    except Exception:
+        pass
+
+

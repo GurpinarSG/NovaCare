@@ -8,7 +8,7 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from core.registry_cleaner import RegistryCleaner, RegistryIssue
-from core.utils import is_admin
+from core.utils import is_admin, log_debug
 from ui.styles import (
     BG_CARD, BORDER_COLOR, COLOR_ACCENT, COLOR_SUCCESS, COLOR_WARNING, COLOR_DANGER,
     TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED
@@ -23,10 +23,15 @@ class RegScanThread(QThread):
         self.cleaner = cleaner
 
     def run(self):
-        issues = self.cleaner.scan_all(
-            progress_callback=lambda name, cur, tot: self.progress.emit(name, cur, tot)
-        )
-        self.finished.emit(issues)
+        issues = []
+        try:
+            issues = self.cleaner.scan_all(
+                progress_callback=lambda name, cur, tot: self.progress.emit(name, cur, tot)
+            )
+        except Exception as e:
+            log_debug(f"RegScanThread error: {e}")
+        finally:
+            self.finished.emit(issues)
 
 class RegFixThread(QThread):
     progress = pyqtSignal(str, int, int)
@@ -38,11 +43,16 @@ class RegFixThread(QThread):
         self.issues = issues
 
     def run(self):
-        fixed, failed, bkp = self.cleaner.fix_issues(
-            self.issues,
-            progress_callback=lambda name, cur, tot: self.progress.emit(name, cur, tot)
-        )
-        self.finished.emit(fixed, failed, bkp)
+        fixed, failed, bkp = 0, len(self.issues), ""
+        try:
+            fixed, failed, bkp = self.cleaner.fix_issues(
+                self.issues,
+                progress_callback=lambda name, cur, tot: self.progress.emit(name, cur, tot)
+            )
+        except Exception as e:
+            log_debug(f"RegFixThread error: {e}")
+        finally:
+            self.finished.emit(fixed, failed, bkp)
 
 class RegistryView(QWidget):
     def __init__(self, parent=None):

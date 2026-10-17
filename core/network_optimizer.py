@@ -177,7 +177,7 @@ class NetworkOptimizer:
             pass
         return result
 
-    def test_dns_latency(self, server_ip: str, timeout: float = 1.5, repeats: int = 3) -> Optional[float]:
+    def test_dns_latency(self, server_ip: str, timeout: float = 1.0, repeats: int = 2) -> Optional[float]:
         """
         Measures round-trip DNS resolution latency (ms) for a given IP using raw DNS query.
         """

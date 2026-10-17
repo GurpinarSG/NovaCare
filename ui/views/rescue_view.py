@@ -6,18 +6,37 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QTableWidget, QTableWidgetItem, QHeaderView, QMessageBox, QFrame
 )
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from core.backup_manager import BackupManager, BackupEntry
+from core.utils import log_debug
 from ui.styles import (
     BG_CARD, BORDER_COLOR, COLOR_ACCENT, COLOR_SUCCESS, COLOR_DANGER,
     TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED
 )
+
+class RestorePointWorker(QThread):
+    finished = pyqtSignal(bool)
+
+    def __init__(self, mgr: BackupManager, desc: str):
+        super().__init__()
+        self.mgr = mgr
+        self.desc = desc
+
+    def run(self):
+        success = False
+        try:
+            success = self.mgr.create_system_restore_point(self.desc)
+        except Exception as e:
+            log_debug(f"RestorePointWorker error: {e}")
+        finally:
+            self.finished.emit(success)
 
 class RescueView(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.mgr = BackupManager()
         self.backups: list[BackupEntry] = []
+        self.rp_worker = None
         self._init_ui()
         self.refresh_backups()
 
@@ -131,10 +150,13 @@ class RescueView(QWidget):
     def _create_restore_point(self):
         self.btn_create_point.setEnabled(False)
         self.btn_create_point.setText("⏳  Oluşturuluyor...")
-        success = self.mgr.create_system_restore_point("NovaCare Sistem Bakım Noktası")
-        self.btn_create_point.setText("➕  Geri Yükleme Noktası Oluştur")
-        self.btn_create_point.setEnabled(True)
+        self.rp_worker = RestorePointWorker(self.mgr, "NovaCare Sistem Bakım Noktası")
+        self.rp_worker.finished.connect(self._on_restore_point_finished)
+        self.rp_worker.start()
 
+    def _on_restore_point_finished(self, success: bool):
+        self.btn_create_point.setText("➕  Geri Yükleme Noktası")
+        self.btn_create_point.setEnabled(True)
         if success:
             QMessageBox.information(self, "Başarılı", "Windows Sistem Geri Yükleme Noktası başarıyla oluşturuldu!")
         else:
