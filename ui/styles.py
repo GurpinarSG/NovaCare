@@ -49,7 +49,9 @@ DARK_PALETTE = {
     "INPUT_BG": "#1E293B",
     "BTN_PRIMARY_TEXT": "#FFFFFF",
     "BTN_SUCCESS_TEXT": "#FFFFFF",
-    "GAUGE_TRACK": "#334155"
+    "GAUGE_TRACK": "#334155",
+    "NAV_SEL_BG": "rgba(56, 189, 248, 0.28)",
+    "NAV_SEL_TEXT": "#FFFFFF"
 }
 
 # 2. Light Mode Palette (Crisp Windows 11 Fluent Light)
@@ -72,7 +74,7 @@ LIGHT_PALETTE = {
     "TEXT_SECONDARY": "#1E293B",       # Slate 800 (13:1 contrast)
     "TEXT_MUTED": "#475569",           # Slate 600 (5.8:1 contrast)
     "TABLE_ALT_BG": "#F8FAFC",
-    "TABLE_SEL_BG": "rgba(2, 132, 199, 0.20)",
+    "TABLE_SEL_BG": "rgba(2, 132, 199, 0.18)",
     "MENU_BG": "#FFFFFF",
     "MENU_TEXT": "#0F172A",
     "MENU_HOVER_BG": "#0284C7",
@@ -81,8 +83,44 @@ LIGHT_PALETTE = {
     "INPUT_BG": "#FFFFFF",
     "BTN_PRIMARY_TEXT": "#FFFFFF",
     "BTN_SUCCESS_TEXT": "#FFFFFF",
-    "GAUGE_TRACK": "#E2E8F0"
+    "GAUGE_TRACK": "#E2E8F0",
+    "NAV_SEL_BG": "#E0F2FE",
+    "NAV_SEL_TEXT": "#0284C7"
 }
+
+def apply_native_titlebar_theme(hwnd: int, is_dark: bool):
+    """
+    Applies Windows 10/11 native immersive dark or light theme to the window caption bar,
+    ensuring the window title bar perfectly matches the app theme and OS design.
+    """
+    if sys.platform != 'win32' or not hwnd:
+        return
+    try:
+        import ctypes
+        from ctypes import c_int, byref, sizeof
+        val = c_int(1 if is_dark else 0)
+        # 1. Immersive dark mode attribute (Windows 11 / Windows 10 20H1+ build 18985+)
+        DWMWA_USE_IMMERSIVE_DARK_MODE = 20
+        res = ctypes.windll.dwmapi.DwmSetWindowAttribute(
+            hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, byref(val), sizeof(val)
+        )
+        if res != 0:
+            # Fallback for earlier Windows 10 builds (attribute 19)
+            ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                hwnd, 19, byref(val), sizeof(val)
+            )
+        # 2. Window Caption & Text Color (Windows 11 build 22000+)
+        # DWMWA_CAPTION_COLOR = 35, DWMWA_TEXT_COLOR = 36 (COLORREF is 0x00BBGGRR)
+        if is_dark:
+            cap_col = c_int(0x00190F0B) # #0B0F19 in COLORREF
+            txt_col = c_int(0x00FFFFFF)
+        else:
+            cap_col = c_int(0x00F9F5F1) # #F1F5F9 in COLORREF
+            txt_col = c_int(0x002A170F) # #0F172A in COLORREF
+        ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 35, byref(cap_col), sizeof(cap_col))
+        ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 36, byref(txt_col), sizeof(txt_col))
+    except Exception:
+        pass
 
 def get_active_theme_colors(theme_mode: Optional[str] = None) -> dict:
     """Resolves and returns the active color palette dict based on mode ('system', 'dark', 'light')."""
@@ -102,8 +140,17 @@ def get_active_theme_colors(theme_mode: Optional[str] = None) -> dict:
         return LIGHT_PALETTE.copy()
     return DARK_PALETTE.copy()
 
-# Default constants (Dark mode as baseline for direct imports)
-_def = DARK_PALETTE
+def sync_theme_globals(theme_mode: Optional[str] = None):
+    """Synchronizes module-level color constants with active theme."""
+    p = get_active_theme_colors(theme_mode)
+    mod = sys.modules.get(__name__)
+    if mod:
+        for k, v in p.items():
+            if k in mod.__dict__:
+                mod.__dict__[k] = v
+
+# Default constants initialized dynamically based on active preference
+_def = get_active_theme_colors()
 BG_DARK = _def["BG_DARK"]
 BG_SIDEBAR = _def["BG_SIDEBAR"]
 BG_CARD = _def["BG_CARD"]
@@ -124,6 +171,7 @@ TEXT_MUTED = _def["TEXT_MUTED"]
 def get_stylesheet(theme_mode: Optional[str] = None) -> str:
     """Generates the full Qt stylesheet for the requested or current system theme."""
     import os
+    sync_theme_globals(theme_mode)
     p = get_active_theme_colors(theme_mode)
     base_assets = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets")
     if getattr(sys, 'frozen', False):
@@ -212,8 +260,8 @@ QPushButton.nav-btn:hover {{
 }}
 
 QPushButton.nav-btn:checked {{
-    background-color: {p['TABLE_SEL_BG']};
-    color: #FFFFFF;
+    background-color: {p['NAV_SEL_BG']};
+    color: {p['NAV_SEL_TEXT']};
     font-weight: 700;
     border-left: 3px solid {p['COLOR_ACCENT']};
 }}
@@ -675,6 +723,41 @@ QPlainTextEdit {{
     padding: 8px 14px;
     color: {p['TEXT_PRIMARY']};
     font-size: 13px;
+}}
+
+/* Sub-navigation Tabs (QTabWidget & QTabBar) */
+QTabWidget::pane {{
+    border: 1px solid {p['BORDER_COLOR']};
+    border-radius: 10px;
+    background-color: {p['BG_CARD']};
+    padding: 12px;
+    top: -1px;
+}}
+
+QTabBar::tab {{
+    background-color: transparent;
+    color: {p['TEXT_SECONDARY']};
+    font-size: 13px;
+    font-weight: 600;
+    padding: 8px 18px;
+    margin-right: 4px;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    border: 1px solid transparent;
+    border-bottom: none;
+}}
+
+QTabBar::tab:hover {{
+    background-color: {p['BG_CARD_HOVER']};
+    color: {p['TEXT_PRIMARY']};
+}}
+
+QTabBar::tab:selected {{
+    background-color: {p['BG_CARD']};
+    color: {p['COLOR_ACCENT']};
+    border: 1px solid {p['BORDER_COLOR']};
+    border-bottom: 2px solid {p['COLOR_ACCENT']};
+    font-weight: 700;
 }}
 """
 

@@ -26,17 +26,28 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QIcon, QPixmap, QFont, QColor, QPainter
 
-# Version & Product Info
-APP_NAME = "NovaCare"
-APP_DISPLAY_NAME = "NovaCare System Care Suite 2026"
-APP_VERSION = "1.0.1"
-APP_PUBLISHER = "Gurpinar Software Group"
-APP_DESCRIPTION = "Gelişmiş Windows Sistem Bakım, Hızlandırma ve Optimizasyon Paketi"
-
 def get_base_dir():
     if getattr(sys, 'frozen', False):
         return getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+def _load_app_version():
+    try:
+        base = get_base_dir()
+        v_file = os.path.join(base, "VERSION")
+        if os.path.exists(v_file):
+            with open(v_file, "r", encoding="utf-8") as f:
+                return f.readline().strip()
+    except Exception:
+        pass
+    return "0.2.0"
+
+# Version & Product Info
+APP_NAME = "NovaCare"
+APP_DISPLAY_NAME = "NovaCare System Care Suite 2026"
+APP_VERSION = _load_app_version()
+APP_PUBLISHER = "Gurpinar Software Group"
+APP_DESCRIPTION = "Gelişmiş Windows Sistem Bakım, Hızlandırma ve Optimizasyon Paketi"
 
 def get_default_install_dir():
     local_app = os.environ.get('LOCALAPPDATA', os.path.expanduser('~'))
@@ -231,8 +242,18 @@ exit
 
     def _register_uninstaller(self, dest_exe: str):
         key_path = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\NovaCare"
+
+        # 1. Clean up any existing duplicate entry in HKCU to prevent shadowing
         try:
-            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, key_path) as key:
+            winreg.DeleteKey(winreg.HKEY_CURRENT_USER, key_path)
+        except Exception:
+            pass
+
+        # 2. Register into HKLM so Windows Control Panel natively prompts UAC elevation (RunAs).
+        # When an application requiring Administrator rights is registered in HKLM,
+        # Control Panel (appwiz.cpl) displays the UAC shield icon and elevates execution.
+        try:
+            with winreg.CreateKey(winreg.HKEY_LOCAL_MACHINE, key_path) as key:
                 winreg.SetValueEx(key, "DisplayName", 0, winreg.REG_SZ, APP_DISPLAY_NAME)
                 winreg.SetValueEx(key, "DisplayVersion", 0, winreg.REG_SZ, APP_VERSION)
                 winreg.SetValueEx(key, "Publisher", 0, winreg.REG_SZ, APP_PUBLISHER)
@@ -244,7 +265,24 @@ exit
                 winreg.SetValueEx(key, "NoModify", 0, winreg.REG_DWORD, 1)
                 winreg.SetValueEx(key, "NoRepair", 0, winreg.REG_DWORD, 1)
         except Exception:
-            pass
+            # Fallback to HKCU if HKLM write fails (e.g. non-admin environment),
+            # using an elevated wrapper in UninstallString to prevent Error 740
+            try:
+                elevated_uninstall = f'powershell.exe -NoProfile -WindowStyle Hidden -Command "Start-Process -FilePath \'{dest_exe}\' -ArgumentList \'--uninstall\' -Verb RunAs"'
+                elevated_quiet = f'powershell.exe -NoProfile -WindowStyle Hidden -Command "Start-Process -FilePath \'{dest_exe}\' -ArgumentList \'--uninstall --silent\' -Verb RunAs"'
+                with winreg.CreateKey(winreg.HKEY_CURRENT_USER, key_path) as key:
+                    winreg.SetValueEx(key, "DisplayName", 0, winreg.REG_SZ, APP_DISPLAY_NAME)
+                    winreg.SetValueEx(key, "DisplayVersion", 0, winreg.REG_SZ, APP_VERSION)
+                    winreg.SetValueEx(key, "Publisher", 0, winreg.REG_SZ, APP_PUBLISHER)
+                    winreg.SetValueEx(key, "DisplayIcon", 0, winreg.REG_SZ, f"{dest_exe},0")
+                    winreg.SetValueEx(key, "InstallLocation", 0, winreg.REG_SZ, self.target_dir)
+                    winreg.SetValueEx(key, "UninstallString", 0, winreg.REG_SZ, elevated_uninstall)
+                    winreg.SetValueEx(key, "QuietUninstallString", 0, winreg.REG_SZ, elevated_quiet)
+                    winreg.SetValueEx(key, "EstimatedSize", 0, winreg.REG_DWORD, 42000)
+                    winreg.SetValueEx(key, "NoModify", 0, winreg.REG_DWORD, 1)
+                    winreg.SetValueEx(key, "NoRepair", 0, winreg.REG_DWORD, 1)
+            except Exception:
+                pass
 
     def _register_autostart(self, dest_exe: str):
         flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)

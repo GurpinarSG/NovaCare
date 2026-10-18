@@ -9,7 +9,7 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal
 from PyQt5.QtGui import QFont, QColor
-from core.battery_reporter import BatteryReporter, BatteryInfo
+from core.battery_reporter import BatteryReporter, BatteryInfo, is_battery_present
 from core.utils import log_debug
 from ui.components import StatCard
 from ui.styles import (
@@ -37,16 +37,20 @@ class BatteryView(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.reporter = BatteryReporter()
+        self.has_battery = is_battery_present()
         self.last_info: BatteryInfo | None = None
         self.hw_worker = None
         self._init_ui()
-        self.refresh_metrics(query_hardware=False)
-        self._fetch_hardware_async()
+        if self.has_battery:
+            self.refresh_metrics(query_hardware=False)
+            self._fetch_hardware_async()
 
-        # Auto-refresh timer every 10 seconds (ultra-fast, non-blocking psutil query)
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(self._on_timer)
-        self.timer.start(10000)
+            # Auto-refresh timer every 10 seconds (ultra-fast, non-blocking psutil query)
+            self.timer = QTimer(self)
+            self.timer.timeout.connect(self._on_timer)
+            self.timer.start(10000)
+        else:
+            self.timer = QTimer(self)
 
     def _fetch_hardware_async(self):
         if BatteryReporter._cached_hardware is not None:
@@ -202,7 +206,7 @@ class BatteryView(QWidget):
         t_layout.setSpacing(10)
 
         lbl_tips_head = QLabel("💡  Lityum-İyon Pil Sağlığını ve Ömrünü Uzatma Kılavuzu")
-        lbl_tips_head.setStyleSheet("font-size: 15px; font-weight: 700; color: #38BDF8;")
+        lbl_tips_head.setStyleSheet(f"font-size: 15px; font-weight: 700; color: {COLOR_ACCENT};")
         t_layout.addWidget(lbl_tips_head)
 
         tips_text = (

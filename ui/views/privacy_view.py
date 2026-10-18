@@ -8,15 +8,16 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QCheckBox,
     QMessageBox, QFrame, QScrollArea, QProgressBar, QDialog,
     QTableWidget, QTableWidgetItem, QHeaderView, QLineEdit, QListWidget,
-    QAbstractItemView
+    QAbstractItemView, QTabWidget, QSizePolicy
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
+from PyQt5.QtGui import QColor
 from core.privacy_tweaker import PrivacyTweaker, PrivacyTraceItem, SystemTweak
 from core.bloatware_cleaner import BloatwareCleaner, BloatwareItem
 from core.cookie_shield import CookieShield, CookieDomainItem, DEFAULT_WHITELIST
 from core.utils import is_admin, log_debug
 from ui.styles import (
-    BORDER_COLOR, COLOR_ACCENT, COLOR_SUCCESS, COLOR_DANGER, COLOR_WARNING,
+    get_active_theme_colors, BORDER_COLOR, COLOR_ACCENT, COLOR_SUCCESS, COLOR_DANGER, COLOR_WARNING,
     TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED
 )
 
@@ -115,16 +116,17 @@ class CookieWhitelistDialog(QDialog):
         self.shield = shield
         self.setWindowTitle("🛡️  Korunan Siteleri Yönet (Oturum Kalkanı)")
         self.resize(560, 520)
+        theme = get_active_theme_colors()
         self.setStyleSheet(f"""
             QDialog {{
-                background-color: #0b1320;
-                color: {TEXT_PRIMARY};
+                background-color: {theme['BG_CARD']};
+                color: {theme['TEXT_PRIMARY']};
             }}
             QListWidget {{
-                background-color: #0d1829;
-                border: 1px solid {BORDER_COLOR};
+                background-color: {theme['BG_INPUT']};
+                border: 1px solid {theme['BORDER_COLOR']};
                 border-radius: 6px;
-                color: {TEXT_PRIMARY};
+                color: {theme['TEXT_PRIMARY']};
                 padding: 6px;
                 font-family: 'Consolas', 'Segoe UI', monospace;
                 font-size: 13px;
@@ -132,43 +134,45 @@ class CookieWhitelistDialog(QDialog):
             QListWidget::item {{
                 padding: 6px 10px;
                 border-radius: 4px;
+                color: {theme['TEXT_PRIMARY']};
             }}
             QListWidget::item:hover {{
-                background-color: #1e293b;
+                background-color: {theme['BG_CARD_HOVER']};
             }}
             QListWidget::item:selected {{
-                background-color: #0284C7;
+                background-color: {theme['COLOR_ACCENT']};
                 color: #FFFFFF;
             }}
             QLineEdit {{
-                background-color: #0d1829;
-                border: 1px solid {BORDER_COLOR};
+                background-color: {theme['BG_INPUT']};
+                border: 1px solid {theme['BORDER_COLOR']};
                 border-radius: 6px;
-                color: {TEXT_PRIMARY};
+                color: {theme['TEXT_PRIMARY']};
                 padding: 8px 12px;
                 font-size: 13px;
             }}
             QLineEdit:focus {{
-                border-color: {COLOR_ACCENT};
+                border-color: {theme['COLOR_ACCENT']};
             }}
         """)
         self._init_ui()
         self._load_domains()
 
     def _init_ui(self):
+        theme = get_active_theme_colors()
         lay = QVBoxLayout(self)
         lay.setContentsMargins(22, 22, 22, 22)
         lay.setSpacing(14)
 
         lbl_title = QLabel("🛡️ Korunan Oturum Siteleri (Beyaz Liste)")
-        lbl_title.setStyleSheet("font-size: 16px; font-weight: 700; color: #38BDF8;")
+        lbl_title.setStyleSheet(f"font-size: 16px; font-weight: 700; color: {theme['COLOR_ACCENT']};")
         lay.addWidget(lbl_title)
 
         lbl_desc = QLabel(
             "Bu listedeki alan adlarına ait çerezler (oturum belirteçleri ve hesap giriş anahtarları) "
             "asla silinmez. Böylece Google, YouTube, Bankalar ve e-Devlet oturumlarınız sürekli açık kalır."
         )
-        lbl_desc.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 12px; line-height: 1.4;")
+        lbl_desc.setStyleSheet(f"color: {theme['TEXT_SECONDARY']}; font-size: 12px; line-height: 1.4;")
         lbl_desc.setWordWrap(True)
         lay.addWidget(lbl_desc)
 
@@ -279,9 +283,10 @@ class PrivacyView(QWidget):
         self.refresh_all()
 
     def _init_ui(self):
+        theme = get_active_theme_colors()
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(28, 24, 28, 24)
-        main_layout.setSpacing(18)
+        main_layout.setContentsMargins(28, 20, 28, 20)
+        main_layout.setSpacing(14)
 
         # Header
         lbl_title = QLabel("Gizlilik Kalkanı, Bloatware & Akıllı Çerez Kalkanı")
@@ -292,52 +297,40 @@ class PrivacyView(QWidget):
         main_layout.addWidget(lbl_title)
         main_layout.addWidget(lbl_sub)
 
-        # Scroll Area for spacious layout (fully transparent background)
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.NoFrame)
-        scroll.setStyleSheet("background-color: transparent; background: transparent; border: none;")
-        scroll.viewport().setStyleSheet("background-color: transparent; background: transparent; border: none;")
-        scroll_content = QWidget()
-        scroll_content.setStyleSheet("background-color: transparent; background: transparent;")
-        content_layout = QVBoxLayout(scroll_content)
-        content_layout.setSpacing(20)
+        # Main Sub-navigation Tab Widget
+        self.tabs = QTabWidget()
+        self.tabs.setDocumentMode(True)
 
         # =========================================================================
-        # 1. SMART COOKIE SHIELD CARD (NEW FEATURE)
+        # TAB 1: SMART COOKIE SHIELD (Akıllı Çerez Kalkanı)
         # =========================================================================
-        card_cookies = QFrame()
-        card_cookies.setObjectName("CardFrame")
-        c_layout = QVBoxLayout(card_cookies)
-        c_layout.setContentsMargins(22, 18, 22, 18)
-        c_layout.setSpacing(14)
-
-        lbl_c_title = QLabel("🍪  Akıllı Çerez Kalkanı (Smart Cookie Shield)")
-        lbl_c_title.setStyleSheet("font-size: 16px; font-weight: 700; color: #38BDF8;")
-        c_layout.addWidget(lbl_c_title)
+        tab_cookies = QWidget()
+        c_layout = QVBoxLayout(tab_cookies)
+        c_layout.setContentsMargins(14, 14, 14, 14)
+        c_layout.setSpacing(12)
 
         lbl_c_desc = QLabel(
             "Oturum açtığınız popüler hesapları (Google, YouTube, GitHub, Bankalar, e-Devlet vb.) korurken; "
-            "web sitelerindeki üçüncü taraf reklam takipçilerini, analiz izleyicilerini ve gizlilik açıklarını tek tıkla temizler."
+            "web sitelerindeki üçüncü taraf reklam takipçilerini, analiz izleyicilerini ve gizlilik açıklarını temizler."
         )
-        lbl_c_desc.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 12px; line-height: 1.4;")
+        lbl_c_desc.setStyleSheet(f"color: {theme['TEXT_SECONDARY']}; font-size: 12px; line-height: 1.4;")
         lbl_c_desc.setWordWrap(True)
         c_layout.addWidget(lbl_c_desc)
 
         # Stats Bar
         c_stats_frame = QFrame()
-        c_stats_frame.setStyleSheet(f"background-color: rgba(255, 255, 255, 0.03); border: 1px solid {BORDER_COLOR}; border-radius: 8px; padding: 10px 14px;")
+        c_stats_frame.setObjectName("ToolbarFrame")
         cs_lay = QHBoxLayout(c_stats_frame)
-        cs_lay.setContentsMargins(4, 2, 4, 2)
+        cs_lay.setContentsMargins(14, 8, 14, 8)
 
         self.lbl_cookie_total = QLabel("📦 Toplam: 0 Çerez")
-        self.lbl_cookie_total.setStyleSheet(f"font-weight: 700; color: {TEXT_PRIMARY}; font-size: 13px;")
+        self.lbl_cookie_total.setStyleSheet(f"font-weight: 700; color: {theme['TEXT_PRIMARY']}; font-size: 13px;")
 
         self.lbl_cookie_protected = QLabel("🛡️ Korunan Oturum: 0")
-        self.lbl_cookie_protected.setStyleSheet(f"font-weight: 700; color: {COLOR_SUCCESS}; font-size: 13px;")
+        self.lbl_cookie_protected.setStyleSheet(f"font-weight: 700; color: {theme['COLOR_SUCCESS']}; font-size: 13px;")
 
         self.lbl_cookie_tracking = QLabel("🗑️ Takip/Reklam: 0")
-        self.lbl_cookie_tracking.setStyleSheet(f"font-weight: 700; color: {COLOR_DANGER}; font-size: 13px;")
+        self.lbl_cookie_tracking.setStyleSheet(f"font-weight: 700; color: {theme['COLOR_DANGER']}; font-size: 13px;")
 
         cs_lay.addWidget(self.lbl_cookie_total)
         cs_lay.addSpacing(20)
@@ -383,26 +376,27 @@ class PrivacyView(QWidget):
         fbl_lay = QHBoxLayout(self.frame_browser_locked)
         fbl_lay.setContentsMargins(4, 2, 4, 2)
         self.lbl_locked_msg = QLabel("⚠️ Tarayıcı açık olduğu için çerez veritabanı kilitli.")
-        self.lbl_locked_msg.setStyleSheet(f"color: {COLOR_WARNING}; font-weight: 600; font-size: 12px;")
+        self.lbl_locked_msg.setStyleSheet(f"color: {theme['COLOR_WARNING']}; font-weight: 600; font-size: 12px;")
         fbl_lay.addWidget(self.lbl_locked_msg)
         fbl_lay.addStretch()
 
         self.btn_close_browsers = QPushButton("🚪 Tarayıcıyı Kapat ve Yeniden Tara")
         self.btn_close_browsers.setCursor(Qt.PointingHandCursor)
         self.btn_close_browsers.setStyleSheet(f"""
-            background-color: {COLOR_WARNING};
-            color: #0F172A;
+            background-color: {theme['COLOR_WARNING']};
+            color: #FFFFFF;
             font-weight: 700;
             border-radius: 6px;
             padding: 5px 12px;
             font-size: 11px;
+            border: none;
         """)
         self.btn_close_browsers.clicked.connect(self._close_locked_browsers)
         fbl_lay.addWidget(self.btn_close_browsers)
         self.frame_browser_locked.hide()
         c_layout.addWidget(self.frame_browser_locked)
 
-        # Cookie Table Preview
+        # Cookie Table Preview (Takes full expanding tab height)
         self.table_cookies = QTableWidget()
         self.table_cookies.setColumnCount(4)
         self.table_cookies.setHorizontalHeaderLabels(["Tarayıcı", "Alan Adı (Host)", "Çerez Sayısı", "Koruma Durumu"])
@@ -413,44 +407,21 @@ class PrivacyView(QWidget):
         self.table_cookies.verticalHeader().setVisible(False)
         self.table_cookies.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table_cookies.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.table_cookies.setFixedHeight(210)
-        self.table_cookies.setStyleSheet(f"""
-            QTableWidget {{
-                background-color: rgba(13, 24, 41, 0.7);
-                border: 1px solid {BORDER_COLOR};
-                border-radius: 8px;
-                color: {TEXT_PRIMARY};
-                gridline-color: rgba(255, 255, 255, 0.05);
-                font-size: 12px;
-            }}
-            QHeaderView::section {{
-                background-color: #0b1524;
-                color: {TEXT_SECONDARY};
-                font-weight: 700;
-                padding: 6px;
-                border: none;
-                border-bottom: 1px solid {BORDER_COLOR};
-            }}
-        """)
+        self.table_cookies.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         c_layout.addWidget(self.table_cookies)
 
-        content_layout.addWidget(card_cookies)
+        self.tabs.addTab(tab_cookies, "🍪  Akıllı Çerez Kalkanı")
 
         # =========================================================================
-        # 2. BLOATWARE & TELEMETRY SHIELD CARD
+        # TAB 2: BLOATWARE & TELEMETRY SHIELD
         # =========================================================================
-        card_bloatware = QFrame()
-        card_bloatware.setObjectName("CardFrame")
-        b_layout = QVBoxLayout(card_bloatware)
-        b_layout.setContentsMargins(22, 18, 22, 18)
+        tab_bloatware = QWidget()
+        b_layout = QVBoxLayout(tab_bloatware)
+        b_layout.setContentsMargins(14, 14, 14, 14)
         b_layout.setSpacing(12)
 
-        lbl_b_title = QLabel("📦  Windows Bloatware & Telemetri Temizleyici")
-        lbl_b_title.setStyleSheet("font-size: 16px; font-weight: 700; color: #38BDF8;")
-        b_layout.addWidget(lbl_b_title)
-
         lbl_b_desc = QLabel("Windows ile yüklü gelen Cortana, Bing Hava Durumu, Bing Haberler, Xbox Game Bar gibi arka planda veri ve bellek harcayan uygulamaları kaldırın.")
-        lbl_b_desc.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 12px;")
+        lbl_b_desc.setStyleSheet(f"color: {theme['TEXT_SECONDARY']}; font-size: 12px;")
         lbl_b_desc.setWordWrap(True)
         b_layout.addWidget(lbl_b_desc)
 
@@ -480,32 +451,36 @@ class PrivacyView(QWidget):
         b_bar.addStretch()
         b_layout.addLayout(b_bar)
 
-        self.bloatware_container = QVBoxLayout()
-        self.bloatware_container.setSpacing(6)
-        b_layout.addLayout(self.bloatware_container)
-
         self.lbl_bloatware_status = QLabel("Bloatware taraması bekleniyor...")
-        self.lbl_bloatware_status.setStyleSheet(f"font-size: 12px; color: {TEXT_SECONDARY};")
+        self.lbl_bloatware_status.setStyleSheet(f"font-size: 12px; color: {theme['TEXT_SECONDARY']};")
         b_layout.addWidget(self.lbl_bloatware_status)
 
-        content_layout.addWidget(card_bloatware)
+        # Scroll area for bloatware items
+        scroll_b = QScrollArea()
+        scroll_b.setWidgetResizable(True)
+        scroll_b.setFrameShape(QFrame.NoFrame)
+        scroll_b.setStyleSheet("background: transparent; border: none;")
+        scroll_b.viewport().setStyleSheet("background: transparent; border: none;")
+        scroll_b_widget = QWidget()
+        scroll_b_widget.setStyleSheet("background: transparent;")
+        self.bloatware_container = QVBoxLayout(scroll_b_widget)
+        self.bloatware_container.setSpacing(6)
+        scroll_b.setWidget(scroll_b_widget)
+        b_layout.addWidget(scroll_b)
+
+        self.tabs.addTab(tab_bloatware, "📦  Bloatware & Telemetri")
 
         # =========================================================================
-        # 3. PRIVACY TRACES CARD
+        # TAB 3: PRIVACY TRACES
         # =========================================================================
-        card_traces = QFrame()
-        card_traces.setObjectName("CardFrame")
-        traces_layout = QVBoxLayout(card_traces)
-        traces_layout.setContentsMargins(22, 18, 22, 18)
+        tab_traces = QWidget()
+        traces_layout = QVBoxLayout(tab_traces)
+        traces_layout.setContentsMargins(14, 14, 14, 14)
         traces_layout.setSpacing(12)
 
-        lbl_traces_title = QLabel("🛡️  Kullanıcı Etkinlik ve Gizlilik İzleri")
-        lbl_traces_title.setStyleSheet("font-size: 16px; font-weight: 700;")
-        traces_layout.addWidget(lbl_traces_title)
-
-        self.traces_container = QVBoxLayout()
-        self.traces_container.setSpacing(8)
-        traces_layout.addLayout(self.traces_container)
+        lbl_traces_desc = QLabel("Windows Gezgini arama geçmişi, son açılan belgeler, Çalıştır kutusu ve sistem etkinlik izlerini tek tıkla silin.")
+        lbl_traces_desc.setStyleSheet(f"color: {theme['TEXT_SECONDARY']}; font-size: 12px;")
+        traces_layout.addWidget(lbl_traces_desc)
 
         # Traces Action Bar
         t_bar = QHBoxLayout()
@@ -515,7 +490,7 @@ class PrivacyView(QWidget):
         self.btn_clean_traces.clicked.connect(self._clean_traces)
 
         self.lbl_traces_count = QLabel("0 iz bulundu")
-        self.lbl_traces_count.setStyleSheet(f"color: {COLOR_ACCENT}; font-weight: 600;")
+        self.lbl_traces_count.setStyleSheet(f"color: {theme['COLOR_ACCENT']}; font-weight: 600;")
 
         t_bar.addWidget(self.btn_clean_traces)
         t_bar.addSpacing(16)
@@ -523,30 +498,47 @@ class PrivacyView(QWidget):
         t_bar.addStretch()
         traces_layout.addLayout(t_bar)
 
-        content_layout.addWidget(card_traces)
+        scroll_t = QScrollArea()
+        scroll_t.setWidgetResizable(True)
+        scroll_t.setFrameShape(QFrame.NoFrame)
+        scroll_t.setStyleSheet("background: transparent; border: none;")
+        scroll_t.viewport().setStyleSheet("background: transparent; border: none;")
+        scroll_t_widget = QWidget()
+        scroll_t_widget.setStyleSheet("background: transparent;")
+        self.traces_container = QVBoxLayout(scroll_t_widget)
+        self.traces_container.setSpacing(8)
+        scroll_t.setWidget(scroll_t_widget)
+        traces_layout.addWidget(scroll_t)
+
+        self.tabs.addTab(tab_traces, "🛡️  Etkinlik İzleri")
 
         # =========================================================================
-        # 4. WINDOWS PRIVACY & TELEMETRY TWEAKS CARD
+        # TAB 4: WINDOWS PRIVACY & TELEMETRY TWEAKS
         # =========================================================================
-        card_tweaks = QFrame()
-        card_tweaks.setObjectName("CardFrame")
-        tweaks_layout = QVBoxLayout(card_tweaks)
-        tweaks_layout.setContentsMargins(22, 18, 22, 18)
-        tweaks_layout.setSpacing(14)
+        tab_tweaks = QWidget()
+        tweaks_layout = QVBoxLayout(tab_tweaks)
+        tweaks_layout.setContentsMargins(14, 14, 14, 14)
+        tweaks_layout.setSpacing(12)
 
-        lbl_tweaks_title = QLabel("⚙️  Windows 10/11 Gizlilik ve Hızlandırma Ayarları")
-        lbl_tweaks_title.setStyleSheet("font-size: 16px; font-weight: 700;")
-        tweaks_layout.addWidget(lbl_tweaks_title)
+        lbl_tweaks_desc = QLabel("Windows 10/11 telemetri politikalarını, kişiselleştirilmiş reklam kimliğini ve tanılama veri gönderimlerini kontrol edin.")
+        lbl_tweaks_desc.setStyleSheet(f"color: {theme['TEXT_SECONDARY']}; font-size: 12px;")
+        tweaks_layout.addWidget(lbl_tweaks_desc)
 
-        self.tweaks_container = QVBoxLayout()
+        scroll_tw = QScrollArea()
+        scroll_tw.setWidgetResizable(True)
+        scroll_tw.setFrameShape(QFrame.NoFrame)
+        scroll_tw.setStyleSheet("background: transparent; border: none;")
+        scroll_tw.viewport().setStyleSheet("background: transparent; border: none;")
+        scroll_tw_widget = QWidget()
+        scroll_tw_widget.setStyleSheet("background: transparent;")
+        self.tweaks_container = QVBoxLayout(scroll_tw_widget)
         self.tweaks_container.setSpacing(10)
-        tweaks_layout.addLayout(self.tweaks_container)
+        scroll_tw.setWidget(scroll_tw_widget)
+        tweaks_layout.addWidget(scroll_tw)
 
-        content_layout.addWidget(card_tweaks)
-        content_layout.addStretch()
+        self.tabs.addTab(tab_tweaks, "⚙️  Windows Ayarları")
 
-        scroll.setWidget(scroll_content)
-        main_layout.addWidget(scroll)
+        main_layout.addWidget(self.tabs)
 
     def refresh_all(self):
         self._refresh_traces()
@@ -598,22 +590,19 @@ class PrivacyView(QWidget):
             item_count = QTableWidgetItem(f"{it.count} adet")
             item_count.setTextAlignment(Qt.AlignCenter)
 
+            theme = get_active_theme_colors()
             if it.is_protected:
                 status_txt = "🛡️ Korunuyor (Oturum Açık)"
-                color = COLOR_SUCCESS
+                col_hex = theme["COLOR_SUCCESS"]
             elif it.is_known_tracker:
                 status_txt = "🚫 Bilinen Takip / Reklam"
-                color = COLOR_DANGER
+                col_hex = theme["COLOR_DANGER"]
             else:
-                status_txt = "⚪ Normal Çerez (Temizlenebilir)"
-                color = TEXT_SECONDARY
+                status_txt = "⚪ Normal Çerez"
+                col_hex = theme["TEXT_MUTED"]
 
             item_status = QTableWidgetItem(status_txt)
-            item_status.setForeground(Qt.white)
-            if it.is_protected:
-                item_status.setBackground(Qt.darkGreen)
-            elif it.is_known_tracker:
-                item_status.setBackground(Qt.darkRed)
+            item_status.setForeground(QColor(col_hex))
 
             self.table_cookies.setItem(row, 0, item_browser)
             self.table_cookies.setItem(row, 1, item_host)
@@ -710,6 +699,7 @@ class PrivacyView(QWidget):
                 it.widget().deleteLater()
 
         installed_count = 0
+        theme = get_active_theme_colors()
         for b_item in items:
             if not b_item.installed:
                 continue
@@ -717,18 +707,18 @@ class PrivacyView(QWidget):
             self.selected_bloatware.add(b_item.package_name)
 
             row = QFrame()
-            row.setStyleSheet(f"background-color: transparent; border: none; border-bottom: 1px solid {BORDER_COLOR}; padding-bottom: 4px;")
+            row.setStyleSheet(f"background-color: transparent; border: none; border-bottom: 1px solid {theme['BORDER_COLOR']}; padding-bottom: 4px;")
             r_lay = QHBoxLayout(row)
             r_lay.setContentsMargins(0, 2, 0, 2)
 
-            chk = QCheckBox(f"<b>{b_item.display_name}</b>  <span style='color:{TEXT_MUTED};'>({b_item.category})</span>")
+            chk = QCheckBox(f"<b>{b_item.display_name}</b>  <span style='color:{theme['TEXT_MUTED']};'>({b_item.category})</span>")
             chk.setStyleSheet("background-color: transparent;")
             chk.setChecked(True)
             chk.stateChanged.connect(lambda state, name=b_item.package_name: self._on_bloatware_chk(name, state))
             r_lay.addWidget(chk)
 
             lbl_d = QLabel(b_item.description)
-            lbl_d.setStyleSheet(f"color:{TEXT_SECONDARY}; font-size: 11px;")
+            lbl_d.setStyleSheet(f"color:{theme['TEXT_SECONDARY']}; font-size: 11px;")
             lbl_d.setWordWrap(True)
             r_lay.addWidget(lbl_d)
             r_lay.addStretch()
@@ -824,12 +814,13 @@ class PrivacyView(QWidget):
             if item.widget():
                 item.widget().deleteLater()
 
+        theme = get_active_theme_colors()
         self.traces = self.tweaker.scan_privacy_traces()
         total_items = sum(t.count for t in self.traces)
         self.lbl_traces_count.setText(f"Toplam {total_items} adet gizlilik izi tespit edildi")
 
         for trace in self.traces:
-            chk = QCheckBox(f"<b>{trace.name}</b>  <span style='color:{TEXT_SECONDARY};'>({trace.description})</span>")
+            chk = QCheckBox(f"<b>{trace.name}</b>  <span style='color:{theme['TEXT_SECONDARY']};'>({trace.description})</span>")
             chk.setStyleSheet("background-color: transparent; background: transparent;")
             chk.setChecked(trace.selected)
             chk.stateChanged.connect(lambda state, t=trace: self._on_trace_toggle(t, state))
@@ -858,11 +849,12 @@ class PrivacyView(QWidget):
             if item.widget():
                 item.widget().deleteLater()
 
+        theme = get_active_theme_colors()
         self.tweaks = self.tweaker.check_tweak_statuses()
 
         for tweak in self.tweaks:
             row_frame = QFrame()
-            row_frame.setStyleSheet(f"background-color: transparent; background: transparent; border: none; border-bottom: 1px solid {BORDER_COLOR}; padding-bottom: 8px;")
+            row_frame.setStyleSheet(f"background-color: transparent; background: transparent; border: none; border-bottom: 1px solid {theme['BORDER_COLOR']}; padding-bottom: 8px;")
             r_lay = QHBoxLayout(row_frame)
             r_lay.setContentsMargins(0, 4, 0, 4)
 
@@ -870,7 +862,7 @@ class PrivacyView(QWidget):
             lbl_name = QLabel(f"<b>{tweak.name}</b>")
             lbl_name.setWordWrap(True)
             lbl_desc = QLabel(tweak.description)
-            lbl_desc.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 11px;")
+            lbl_desc.setStyleSheet(f"color: {theme['TEXT_SECONDARY']}; font-size: 11px;")
             lbl_desc.setWordWrap(True)
             v_info.addWidget(lbl_name)
             v_info.addWidget(lbl_desc)

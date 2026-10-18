@@ -79,12 +79,12 @@ def push_files_to_github(commit_msg: Optional[str] = None):
 
     files_to_push = []
     for root, dirs, files in os.walk(ROOT_DIR):
-        # Exclude ignored directories or any github_release_* folders
-        dirs[:] = [d for d in dirs if d not in ignore_dirs and not d.startswith('github_release_')]
+        # Exclude ignored directories, hidden directories, or any github_release_* folders
+        dirs[:] = [d for d in dirs if d not in ignore_dirs and not d.startswith('github_release_') and not d.startswith('.')]
         for f in files:
             if f.endswith(('.pyc', '.pyo', '.tmp', '.zip', '.tar.gz', '.exe', '.lnk', '.log', '.spec')):
                 continue
-            if f in ('err.txt', 'out.txt', 'config.json'):
+            if f in ('err.txt', 'out.txt', 'config.json', 'startup.log'):
                 continue
             full_p = os.path.join(root, f)
             rel_p = os.path.relpath(full_p, ROOT_DIR).replace('\\', '/')

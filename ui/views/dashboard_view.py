@@ -11,7 +11,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
 from ui.components import CircularHealthGauge, StatCard, HardwareOverlayWidget
 from ui.styles import (
-    BG_CARD, BORDER_COLOR, COLOR_ACCENT, COLOR_SUCCESS, COLOR_WARNING, COLOR_DANGER,
+    get_active_theme_colors, BG_CARD, BORDER_COLOR, COLOR_ACCENT, COLOR_SUCCESS, COLOR_WARNING, COLOR_DANGER,
     TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED
 )
 from core.utils import format_bytes, is_admin
@@ -201,6 +201,27 @@ class DashboardFixWorker(QThread):
         self.progress.emit("Onarım başarıyla tamamlandı!", 100)
         self.finished.emit(freed_bytes, reg_fixed, traces_cleaned)
 
+class GameModeWorker(QThread):
+    finished = pyqtSignal(dict, bool)  # state, was_activating
+
+    def __init__(self, booster: GameBooster, activating: bool):
+        super().__init__()
+        self.booster = booster
+        self.activating = activating
+
+    def run(self):
+        try:
+            if self.activating:
+                state = self.booster.activate()
+                self.finished.emit(state, True)
+            else:
+                state = self.booster.deactivate()
+                self.finished.emit(state, False)
+        except Exception as e:
+            from core.utils import log_debug
+            log_debug(f"GameModeWorker error: {e}")
+            self.finished.emit({}, self.activating)
+
 class DashboardView(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -213,6 +234,7 @@ class DashboardView(QWidget):
         
         self.scan_worker = None
         self.fix_worker = None
+        self.game_mode_worker = None
         self.last_results = None
         self._init_ui()
         self._start_live_timer()
@@ -397,8 +419,20 @@ class DashboardView(QWidget):
             self.lbl_g_sub.setText("Arka plan gereksiz servislerini durdurur ve güç planını 'Nihai Performans' moduna alır.")
 
     def _toggle_game_mode(self):
-        if not self.game_booster.is_active():
-            state = self.game_booster.activate()
+        if self.game_mode_worker and self.game_mode_worker.isRunning():
+            return
+        activating = not self.game_booster.is_active()
+        self.btn_game_mode.setEnabled(False)
+        self.btn_game_mode.setText("⏳ Geçiş yapılıyor...")
+
+        self.game_mode_worker = GameModeWorker(self.game_booster, activating)
+        self.game_mode_worker.finished.connect(self._on_game_mode_finished)
+        self.game_mode_worker.start()
+
+    def _on_game_mode_finished(self, state: dict, was_activating: bool):
+        self.btn_game_mode.setEnabled(True)
+        self._sync_game_mode_ui()
+        if was_activating:
             freed_str = format_bytes(state.get("freed_ram_bytes", 0))
             stopped_cnt = len(state.get("stopped_services", []))
             QMessageBox.information(
@@ -410,7 +444,6 @@ class DashboardView(QWidget):
                 "Oyununuz bittiğinde aynı butona basarak servisleri ve önceki güç planınızı tek tıkla geri yükleyebilirsiniz."
             )
         else:
-            state = self.game_booster.deactivate()
             restarted_cnt = state.get("restored_services", 0)
             prev_name = state.get("previous_power_name", "Standart")
             QMessageBox.information(
@@ -420,7 +453,6 @@ class DashboardView(QWidget):
                 f"• Güç Planı: {prev_name}\n"
                 f"• {restarted_cnt} adet servis yeniden başlatıldı."
             )
-        self._sync_game_mode_ui()
 
     def _open_game_profiles(self):
         try:
@@ -528,10 +560,11 @@ class DashboardView(QWidget):
 
         self.card_junk.set_value(junk_str, f"{results['junk_count']} dosya")
 
-        self.lbl_item_junk.setText(f"🗑️  Gereksiz Dosyalar & Önbellek: <b style='color:{COLOR_WARNING};'>{junk_str} ({results['junk_count']} öğe)</b>")
-        self.lbl_item_reg.setText(f"🛠️  Kayıt Defteri Sorunları: <b style='color:{COLOR_DANGER};'>{results['reg_issues']} sorun bulundu</b>")
-        self.lbl_item_privacy.setText(f"🛡️  Gizlilik & İz Kayıtları: <b style='color:{COLOR_WARNING};'>{results['privacy_count']} iz bulundu</b>")
-        self.lbl_item_startup.setText(f"🚀  Yüksek Başlangıç Yükü: <b style='color:{COLOR_ACCENT};'>{results['startup_count']} program</b>")
+        theme = get_active_theme_colors()
+        self.lbl_item_junk.setText(f"🗑️  Gereksiz Dosyalar & Önbellek: <b style='color:{theme['COLOR_WARNING']};'>{junk_str} ({results['junk_count']} öğe)</b>")
+        self.lbl_item_reg.setText(f"🛠️  Kayıt Defteri Sorunları: <b style='color:{theme['COLOR_DANGER']};'>{results['reg_issues']} sorun bulundu</b>")
+        self.lbl_item_privacy.setText(f"🛡️  Gizlilik & İz Kayıtları: <b style='color:{theme['COLOR_WARNING']};'>{results['privacy_count']} iz bulundu</b>")
+        self.lbl_item_startup.setText(f"🚀  Yüksek Başlangıç Yükü: <b style='color:{theme['COLOR_ACCENT']};'>{results['startup_count']} program</b>")
 
         self.lbl_status.setText(f"Tarama bitti! Toplam <b>{junk_str}</b> gereksiz dosya ve <b>{results['reg_issues']}</b> kayıt defteri sorunu tespit edildi.")
 
@@ -570,10 +603,11 @@ class DashboardView(QWidget):
         freed_str = format_bytes(freed_bytes)
         self.card_junk.set_value("0 B", "Temizlendi")
 
-        self.lbl_item_junk.setText(f"🗑️  Gereksiz Dosyalar & Önbellek: <b style='color:{COLOR_SUCCESS};'>Temizlendi ✔</b>")
-        self.lbl_item_reg.setText(f"🛠️  Kayıt Defteri Sorunları: <b style='color:{COLOR_SUCCESS};'>{reg_fixed} Sorun Onarıldı ✔</b>")
-        self.lbl_item_privacy.setText(f"🛡️  Gizlilik & İz Kayıtları: <b style='color:{COLOR_SUCCESS};'>{traces_cleaned} İz Silindi ✔</b>")
-        self.lbl_item_startup.setText(f"🚀  Sistem Belleği & Performans: <b style='color:{COLOR_SUCCESS};'>Optimize Edildi ✔</b>")
+        theme = get_active_theme_colors()
+        self.lbl_item_junk.setText(f"🗑️  Gereksiz Dosyalar & Önbellek: <b style='color:{theme['COLOR_SUCCESS']};'>Temizlendi ✔</b>")
+        self.lbl_item_reg.setText(f"🛠️  Kayıt Defteri Sorunları: <b style='color:{theme['COLOR_SUCCESS']};'>{reg_fixed} Sorun Onarıldı ✔</b>")
+        self.lbl_item_privacy.setText(f"🛡️  Gizlilik & İz Kayıtları: <b style='color:{theme['COLOR_SUCCESS']};'>{traces_cleaned} İz Silindi ✔</b>")
+        self.lbl_item_startup.setText(f"🚀  Sistem Belleği & Performans: <b style='color:{theme['COLOR_SUCCESS']};'>Optimize Edildi ✔</b>")
 
         has_admin = is_admin()
         admin_note = (

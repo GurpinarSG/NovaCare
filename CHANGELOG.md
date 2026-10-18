@@ -2,6 +2,77 @@
 
 Tüm önemli değişiklikler, yeni özellikler, hata düzeltmeleri ve optimizasyonlar bu belgede kronolojik olarak kayıt altına alınmaktadır.
 
+## 🚀 [v1.2.0] - 2026-10-19
+
+### 🩺 "Genel Sağlık" Birleşik Teşhis Paneli (Disk & Pil Sağlığı)
+* **Kategori Birleştirme ve Fluent Alt Sekmeler:**
+  * Kullanıcı talebi doğrultusunda ayrık duran **"Disk Sağlığı"** ve **"Pil Sağlığı"** modülleri sol menüde tek bir **"🩺 Genel Sağlık"** kategorisi altında birleştirildi.
+  * Kullanıcılar tek bir tıklamayla hem SSD/HDD S.M.A.R.T. sağlık ve sıcaklık verilerine hem de Pil döngüsü ve aşınma analizlerine erişebilmektedir.
+* **Masaüstü & Dizüstü Akıllı Adaptasyon:**
+  * Masaüstü bilgisayarlarda pil bulunmadığı için batarya sekmesi tamamen gizlenerek arayüz karmaşası önlenir ve doğrudan Disk & Donanım Sağlığı tam ekran görüntülenir.
+  * Dizüstü bilgisayarlarda ise `💾 Disk Sağlığı & S.M.A.R.T.` ve `🔋 Pil & Güç Sağlığı` sekmeleri arasında anında geçiş sağlanır.
+
+### 💾 Fiziksel Disk S.M.A.R.T. Kart Çizim Onarımı
+* **`operational_status` Özellik Hatası Giderildi:**
+  * Disk S.M.A.R.T. taraması arka planda diskleri doğru tespit etmesine rağmen, arayüz kartları çizilirken `DiskHealthInfo` nesnesi üzerinde eksik olan `operational_status` alanına erişim nedeniyle oluşan `AttributeError` hatası giderildi.
+  * Hata nedeniyle kart listesinin boş kalması engellendi; her bir disk kartı bağımsız koruma bloğuna alınarak NVMe SSD, SATA SSD ve HDD disklerin çalışma sıcaklıkları, çalışma saatleri, kalan ömür yüzdesi ve S.M.A.R.T. güvenilirlik sayaçları anında ekrana yansıtıldı.
+  * Önbellek desteğiyle Genel Sağlık sekmesi açıldığı anda daha önce taranmış diskler 0 milisaniye gecikmeyle anında gösterilir.
+
+### 🛡️ Denetim Masası Kaldırma İzni & UAC Standardizasyonu
+* **HKEY_LOCAL_MACHINE Mimarisi:**
+  * Windows Denetim Masasında (`appwiz.cpl`) program kaldırılırken karşılaşılan *"Bu programı kaldırmak için yeterli erişim izniniz yok"* uyarısı (Hata 740), kaldırma kaydının `HKCU` yerine doğrudan `HKLM` anahtarına kaydedilmesi ve UAC kalkanının (🛡️) eklenmesiyle kalıcı olarak çözüldü.
+
+---
+
+## 🚀 [v0.2.0] - 2026-10-18
+
+### ⚡ Performans, Donma & Takılma Optimizasyonu (Sıfır Bloklama)
+* **Senkron GUI Bloklamaları Ortadan Kaldırıldı:**
+  * **Oyun Modu Geçişleri (`GameModeWorker`):** Dashboard üzerindeki "Oyun Modunu Başlat" butonu tıklandığında Windows güç planı değiştirme ve arka plan servislerini durdurma/başlatma işlemleri asenkron `QThread` arka plan iş parçacığına taşındı. Buton durum bildirimi (`⏳ Geçiş yapılıyor...`) eklenerek arayüz donması tamamen önlendi.
+  * **Oyun Profilleri & Dizin Tarama Hızlandırması (`GameScanWorker`):** Steam ve Epic Games klasörlerinde gigabaytlarca alt asset ve ses klasörüne inen kontrolsüz `os.walk` derin klasör taraması budanarak oyun arama süresi 10 saniyeden **5 milisaniyeye** düşürüldü. Dialog açılırken yaşanan kilitlenme giderildi; sistemde yüklü olmayan sahte ön tanımlı oyunlar tablodan filtrelendi.
+  * **Disk S.M.A.R.T. & Windows 11 Modern Fallback:** Windows 11 24H2 güncellemesiyle sistemden tamamen kaldırılan `wmic` komutu yerine modern `Get-CimInstance Win32_DiskDrive` ve `psutil` haritalamasına geçildi. PowerShell disk sorgu zaman aşımı 12 saniyeden 6 saniyeye indirildi. Fiziksel disk raporunun boş gelmesi sorunu kökten çözüldü.
+  * **Canlı Sensörlerin Anında Yüklenmesi:** Donanım Sağlığı sekmesi ilk açıldığında sensörlerin 'Yükleniyor...' durumunda takılı kalması engellendi; CPU, GPU, RAM ve Güç kartları anında canlı sensör verileriyle doldurulur.
+
+### 🗑️ Gereksiz Dosya Boyut Hesaplama & Temizlik Onarımı
+* **Dosya Silme Öncesi Boyut Yakalama (`JunkCleaner`):**
+  * Silinen dosyaların boyutunun dosya diskten silindikten sonra `os.path.getsize()` ile okunması sonucu meydana gelen `FileNotFoundError` hatası ve buna bağlı olarak temizlenen boyutun hatalı şekilde "0 B" raporlanması sorunu düzeltildi. Dosya boyutları silinme işleminden hemen önce hafızaya alınarak doğru temizlik istatistiği sağlandı.
+
+### ⚙️ Yeni Kurulum Varsayılanları
+* **Otomatik Temizleme & Arka Plan Bakımı:**
+  * Yeni kurulum yapan kullanıcılarda otomatik temizleme ve arka plan bakım ayarı (`auto_clean_enabled`) kullanıcı talebine uygun olarak varsayılan olarak **KAPALI** (`False`) olarak ayarlandı. Kullanıcı dilediğinde Ayarlar sekmesinden bu özelliği etkinleştirebilir.
+
+### 🎨 Windows Doğal Başlık Çubuğu & Tasarım Optimizasyonu
+* **Pencere Üst Başlığı (Caption Bar) Entegrasyonu:**
+  * Windows 10 ve Windows 11'de Qt pencerelerinde beyaz kalan doğal başlık çubuğu, `DwmSetWindowAttribute` API'si (`DWMWA_USE_IMMERSIVE_DARK_MODE` ve `DWMWA_CAPTION_COLOR`) ile işletim sistemi ve seçili tema (Koyu/Açık) ile birebir senkronize edildi.
+
+### 👁️ Açık Tema Renk & Kontrast Düzeltmeleri
+* **Sol Gezinme Menüsü Seçili Sekme Kontrastı:**
+  * Açık temada seçili navigasyon butonunun metin renginin beyaz kalarak açık mavi arka planda görünmez olması giderildi; seçili sekme için yüksek kontrastlı (`#0284C7`) metin ve (`#E0F2FE`) arka plan rengi tanımlandı.
+* **Dinamik Kontrast Renk Paleti:**
+  * Doğrudan kod içerisine gömülü olan açık mavi (`#38BDF8`) ve sarı (`#FCD34D`) metinler, Açık Temada derin lacivert (`#0284C7`) ve yüksek kontrastlı kehribar (`#B45309`) tonlarına dinamik olarak uyarlandı.
+
+### 🛡️ Gizlilik Kalkanı Sekmesi Yeniden Tasarımı
+* **Modern Alt Sekme (QTabWidget) Mimarisi:**
+  * Dikeyde 2500 piksel uzayan ve pencereye sığmayan 4 ayrı gizlilik modülü (Akıllı Çerez Kalkanı, Windows Bloatware & Telemetri, Kullanıcı Etkinlik İzleri, Windows Gizlilik Ayarları), modern Fluent alt sekmelere dönüştürüldü.
+  * Akıllı Çerez Kalkanı tablosu pencere yüksekliğine göre serbestçe genişleyebilecek şekilde optimize edildi.
+
+---
+
+## 🚀 [v0.1.9] - 2026-10-18
+
+### 🔋 Pil & Güç Sağlığı Sekmesi Cihaza Göre Akıllı Adaptasyon
+* **Masaüstü Bilgisayarlarda Pil Sekmesi Gizlendi:**
+  * NovaCare artık sistem başlatılırken ultra hızlı ve bloklamayan (<0.1ms) donanım algılayıcı (`is_battery_present()`) ile cihazın fiziksel bir bataryaya sahip olup olmadığını otomatik tespit eder.
+  * Şebeke elektriğine bağlı çalışan masaüstü bilgisayarlarda (PC / Workstation) sol kenar çubuğundaki `"🔋 Pil & Güç Sağlığı"` gezinme sekmesi tamamen gizlenir (`setVisible(False)`). Kullanıcı arayüzünde hiçbir boşluk veya kayma oluşmaz.
+  * Dizüstü bilgisayarlarda (Laptop / Notebook) ise sekme standart olarak görünmeye ve batarya sağlığı raporlarını sunmaya devam eder.
+* **Donanım & Disk S.M.A.R.T. Sekmesinde Akıllı Kart Düzeni:**
+  * `HardwareHealthView` genel bakış alanında yer alan `"🔋 Güç / Batarya"` gösterge kartı, masaüstü bilgisayarlarda otomatik olarak gizlenir.
+  * Kalan İşlemci (CPU), Grafik (GPU) ve Bellek (RAM) sensör kartları satırı eşit ve dengeli şekilde (%33.3) kaplayarak masaüstü kullanıcılarına tertemiz bir donanım paneli sunar.
+* **Sıfır Arka Plan Kaynak Tüketimi (Desktop Optimization):**
+  * Masaüstü bilgisayarlarda arka planda çalışan batarya sorgulama sayaçları (`QTimer`), donanım getirme iş parçacıkları (`BatteryHardwareWorker`) ve Windows `powercfg /batteryreport` çağrıları tamamen pasif konuma getirilerek gereksiz CPU ve disk I/O kullanımı önlendi.
+
+---
+
 ## 🚀 [v0.0.3] - 2026-10-18
 
 ### 🛡️ Donanım Sağlığı & Disk S.M.A.R.T. Takibi

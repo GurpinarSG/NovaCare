@@ -12,7 +12,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QSize, QTimer, QThread, pyqtSignal
 from PyQt5.QtGui import QIcon, QPixmap, QPainter, QColor, QFont
 from ui.styles import (
-    get_stylesheet, get_active_theme_colors, MAIN_STYLESHEET,
+    get_stylesheet, get_active_theme_colors, apply_native_titlebar_theme, MAIN_STYLESHEET,
     BG_SIDEBAR, BORDER_COLOR, COLOR_ACCENT, COLOR_SUCCESS,
     COLOR_WARNING, COLOR_DANGER,
     TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED
@@ -29,6 +29,7 @@ from ui.views import (
     NetworkView,
     BatteryView,
     HardwareHealthView,
+    GeneralHealthView,
     RescueView,
     SettingsView
 )
@@ -222,6 +223,9 @@ class MainWindow(QMainWindow):
         self.btn_group = QButtonGroup(self)
         self.btn_group.setExclusive(True)
 
+        from core.battery_reporter import is_battery_present
+        self.has_battery = is_battery_present()
+
         nav_items = [
             ("🚀  Tek Tıkla Bakım", 0),
             ("🧹  Gereksiz Dosya Temizliği", 1),
@@ -232,10 +236,9 @@ class MainWindow(QMainWindow):
             ("📊  Disk Alanı Analizi", 6),
             ("🛡️  Gizlilik & Bloatware", 7),
             ("🌐  Ağ & DNS Optimize Edici", 8),
-            ("🔋  Pil & Güç Sağlığı", 9),
-            ("🛡️  Donanım & Disk S.M.A.R.T.", 10),
-            ("💾  Kurtarma Merkezi", 11),
-            ("⚙️  Ayarlar & Güncelleme", 12)
+            ("🩺  Genel Sağlık", 9),
+            ("💾  Kurtarma Merkezi", 10),
+            ("⚙️  Ayarlar & Güncelleme", 11)
         ]
 
         self.nav_buttons: list[QPushButton] = []
@@ -261,7 +264,8 @@ class MainWindow(QMainWindow):
         admin_card.setToolTip("Yönetici izinlerini görüntülemek ve yapılandırmak için tıklayın")
         bg_col = "rgba(16, 185, 129, 0.12)" if has_admin else "rgba(251, 191, 36, 0.15)"
         border_col = "rgba(16, 185, 129, 0.35)" if has_admin else "rgba(251, 191, 36, 0.40)"
-        text_col = COLOR_SUCCESS if has_admin else COLOR_WARNING
+        theme_cols = get_active_theme_colors(self.current_theme)
+        text_col = theme_cols["COLOR_SUCCESS"] if has_admin else theme_cols["COLOR_WARNING"]
         admin_card.setStyleSheet(f"""
             background-color: {bg_col};
             border: 1px solid {border_col};
@@ -301,10 +305,10 @@ class MainWindow(QMainWindow):
         self.view_privacy = PrivacyView(self)
         log_debug("Init view: NetworkView")
         self.view_network = NetworkView(self)
-        log_debug("Init view: BatteryView")
-        self.view_battery = BatteryView(self)
-        log_debug("Init view: HardwareHealthView")
-        self.view_hardware_health = HardwareHealthView(self)
+        log_debug("Init view: GeneralHealthView")
+        self.view_general_health = GeneralHealthView(self)
+        self.view_hardware_health = self.view_general_health.view_hardware
+        self.view_battery = self.view_general_health.view_battery
         log_debug("Init view: RescueView")
         self.view_rescue = RescueView(self)
         log_debug("Init view: SettingsView")
@@ -320,10 +324,9 @@ class MainWindow(QMainWindow):
         self.stack.addWidget(self.view_disk)             # 6
         self.stack.addWidget(self.view_privacy)          # 7
         self.stack.addWidget(self.view_network)          # 8
-        self.stack.addWidget(self.view_battery)          # 9
-        self.stack.addWidget(self.view_hardware_health)  # 10
-        self.stack.addWidget(self.view_rescue)           # 11
-        self.stack.addWidget(self.view_settings)         # 12
+        self.stack.addWidget(self.view_general_health)   # 9
+        self.stack.addWidget(self.view_rescue)           # 10
+        self.stack.addWidget(self.view_settings)         # 11
 
         root_layout.addWidget(self.stack)
 
@@ -348,18 +351,25 @@ class MainWindow(QMainWindow):
             self.view_privacy.lazy_init_scan()
         elif index == 8 and is_first_visit and hasattr(self.view_network, '_load_network_info'):
             self.view_network._load_network_info()
-        elif index == 9 and hasattr(self.view_battery, 'refresh_metrics'):
-            self.view_battery.refresh_metrics(query_hardware=False)
-        elif index == 10 and is_first_visit and hasattr(self.view_hardware_health, '_start_scan'):
-            self.view_hardware_health._start_scan()
-        elif index == 12 and len(self.nav_buttons) > 12:
-            self.nav_buttons[12].setText("⚙️  Ayarlar & Güncelleme")
+        elif index == 9 and hasattr(self.view_general_health, 'on_tab_activated'):
+            self.view_general_health.on_tab_activated()
+        elif index == len(self.nav_buttons) - 1:
+            self.nav_buttons[-1].setText("⚙️  Ayarlar & Güncelleme")
 
     def _navigate_to_settings_admin(self):
         settings_idx = len(self.nav_buttons) - 1
         if len(self.nav_buttons) > settings_idx:
             self.nav_buttons[settings_idx].setChecked(True)
             self.stack.setCurrentIndex(settings_idx)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        try:
+            colors = get_active_theme_colors(self.current_theme)
+            is_dark = (colors.get("NAME") == "dark")
+            apply_native_titlebar_theme(int(self.winId()), is_dark)
+        except Exception:
+            pass
 
     def apply_theme(self, theme_mode: str):
         """Applies theme dynamically across the entire application and all views."""
@@ -374,6 +384,14 @@ class MainWindow(QMainWindow):
             self.tray_menu.setStyleSheet(qss)
         if hasattr(self, 'view_dashboard') and hasattr(self.view_dashboard, 'gauge'):
             self.view_dashboard.gauge.update()
+
+        # Update native Windows caption / title bar
+        try:
+            colors = get_active_theme_colors(theme_mode)
+            is_dark = (colors.get("NAME") == "dark")
+            apply_native_titlebar_theme(int(self.winId()), is_dark)
+        except Exception:
+            pass
 
     def _setup_auto_update(self):
         """Schedules a silent background update check 3 seconds after application launch."""

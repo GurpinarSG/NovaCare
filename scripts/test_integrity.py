@@ -138,5 +138,8 @@ if hasattr(mw.view_dashboard, 'overlay_widget') and mw.view_dashboard.overlay_wi
 if hasattr(mw.view_hardware_health, 'timer'):
     mw.view_hardware_health.timer.stop()
 
+mw.close()
+app.processEvents()
+
 print("\n>>> ALL INTEGRITY & WORKER THREAD CHECKS PASSED PERFECTLY! <<<")
-sys.exit(0)
+os._exit(0)

@@ -336,7 +336,7 @@ class SettingsView(QWidget):
         ac_layout.setSpacing(14)
 
         lbl_ac_title = QLabel("🧹  Otomatik Temizleme ve Akıllı Bakım (Auto-Clean)")
-        lbl_ac_title.setStyleSheet("font-size: 16px; font-weight: 700; color: #38BDF8;")
+        lbl_ac_title.setStyleSheet(f"font-size: 16px; font-weight: 700; color: {COLOR_ACCENT};")
         ac_layout.addWidget(lbl_ac_title)
 
         lbl_ac_sub = QLabel("Bilgisayarınızın her zaman ilk günkü hızında kalması için gereksiz dosyaları ve RAM'i arka planda otomatik olarak temizleyin.")
@@ -346,7 +346,7 @@ class SettingsView(QWidget):
         # Master toggle
         self.chk_auto_clean = QCheckBox("⚡  Otomatik sistem temizliğini ve arka plan bakımını etkinleştir")
         self.chk_auto_clean.setStyleSheet("font-weight: 700; font-size: 13px;")
-        is_ac_enabled = self.config.get("auto_clean_enabled", True)
+        is_ac_enabled = self.config.get("auto_clean_enabled", False)
         self.chk_auto_clean.setChecked(is_ac_enabled)
         self.chk_auto_clean.stateChanged.connect(self._on_auto_clean_toggle)
         ac_layout.addWidget(self.chk_auto_clean)

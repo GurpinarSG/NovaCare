@@ -36,10 +36,39 @@ class BatteryInfo:
     def is_charging(self) -> bool:
         return self.power_plugged and self.percent < 98
 
+def is_battery_present() -> bool:
+    """
+    Checks whether the system has a physical battery (laptop, notebook, tablet, portable PC)
+    or is a desktop workstation running solely on AC / wall power.
+    Non-blocking, fast and reliable (<0.1ms).
+    """
+    try:
+        from core.config import ConfigManager
+        forced = ConfigManager().get("force_battery_view", None)
+        if forced is not None:
+            return bool(forced)
+    except Exception:
+        pass
+
+    try:
+        b = psutil.sensors_battery()
+        if b is None:
+            return False
+        if getattr(b, 'percent', None) is not None:
+            if b.percent < 0 or b.percent > 100:
+                return False
+        return True
+    except Exception:
+        return False
+
 class BatteryReporter:
     _cached_hardware: Optional[dict] = None
     _cached_plan: str = "Dengeli (Varsayılan)"
     _last_plan_time: float = 0.0
+
+    @staticmethod
+    def is_battery_present() -> bool:
+        return is_battery_present()
 
     def __init__(self):
         pass
@@ -74,6 +103,19 @@ class BatteryReporter:
         """
         if BatteryReporter._cached_hardware is not None:
             return BatteryReporter._cached_hardware
+
+        if not is_battery_present():
+            hw_data = {
+                "design_cap": 0,
+                "full_cap": 0,
+                "cycle_count": 0,
+                "chemistry": "AC Şebeke",
+                "manufacturer": "Masaüstü Güç Kaynağı (PSU)",
+                "model_name": "Standart Güç Kaynağı",
+                "computer_model": "Masaüstü Bilgisayar"
+            }
+            BatteryReporter._cached_hardware = hw_data
+            return hw_data
 
         design_cap = 0
         full_cap = 0
@@ -149,10 +191,9 @@ class BatteryReporter:
         Parses live sensors in < 0.1ms without blocking the UI thread.
         Uses cached hardware parameters.
         """
-        ps_batt = psutil.sensors_battery()
         active_plan = self.get_active_power_plan()
 
-        if ps_batt is None:
+        if not is_battery_present():
             # Desktop computer or no battery detected
             return BatteryInfo(
                 has_battery=False,
@@ -173,9 +214,10 @@ class BatteryReporter:
                 active_power_plan=active_plan
             )
 
-        percent = int(ps_batt.percent)
-        plugged = bool(ps_batt.power_plugged)
-        secs_left = ps_batt.secsleft if ps_batt.secsleft > 0 else None
+        ps_batt = psutil.sensors_battery()
+        percent = int(ps_batt.percent) if ps_batt else 100
+        plugged = bool(ps_batt.power_plugged) if ps_batt else True
+        secs_left = ps_batt.secsleft if (ps_batt and ps_batt.secsleft > 0) else None
 
         if plugged:
             status_text = "Fişe Takılı (Dolu)" if percent >= 98 else "Fişe Takılı (Şarj Ediliyor)"

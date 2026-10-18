@@ -211,10 +211,14 @@ def perform_self_uninstall(silent: bool = False):
 
     # 3. Remove Control Panel Add/Remove Programs registry entry
     for root_hkey in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
-        try:
-            winreg.DeleteKey(root_hkey, r"Software\Microsoft\Windows\CurrentVersion\Uninstall\NovaCare")
-        except Exception:
-            pass
+        for access in (0, getattr(winreg, 'KEY_WOW64_64KEY', 0), getattr(winreg, 'KEY_WOW64_32KEY', 0)):
+            try:
+                if hasattr(winreg, 'DeleteKeyEx') and access:
+                    winreg.DeleteKeyEx(root_hkey, r"Software\Microsoft\Windows\CurrentVersion\Uninstall\NovaCare", access)
+                else:
+                    winreg.DeleteKey(root_hkey, r"Software\Microsoft\Windows\CurrentVersion\Uninstall\NovaCare")
+            except Exception:
+                pass
 
     # 4. Remove shortcuts from Desktop and Start Menu
     ps_remove_shortcuts = """

@@ -18,6 +18,21 @@ from ui.styles import (
     BG_CARD, BORDER_COLOR, COLOR_ACCENT, COLOR_SUCCESS,
     COLOR_WARNING, COLOR_DANGER, TEXT_PRIMARY, TEXT_SECONDARY
 )
+from PyQt5.QtCore import QThread, pyqtSignal
+
+class GameScanWorker(QThread):
+    finished = pyqtSignal(list)
+
+    def __init__(self, profile_mgr: GameProfileManager):
+        super().__init__()
+        self.profile_mgr = profile_mgr
+
+    def run(self):
+        try:
+            games = self.profile_mgr.scan_installed_games()
+            self.finished.emit(games)
+        except Exception:
+            self.finished.emit([])
 
 class GameProfilesDialog(QDialog):
     def __init__(self, parent=None):
@@ -29,6 +44,7 @@ class GameProfilesDialog(QDialog):
         self.config = ConfigManager()
         self.game_booster = GameBooster()
         self.profile_mgr = GameProfileManager()
+        self.scan_worker = None
 
         self._init_ui()
         self._load_profiles()
@@ -95,11 +111,11 @@ class GameProfilesDialog(QDialog):
         btn_add.clicked.connect(self._on_add_game_clicked)
         toolbar.addWidget(btn_add)
 
-        btn_scan = QPushButton("🔍  Yüklü Oyunları Otomatik Tara")
-        btn_scan.setProperty("class", "secondary-btn")
-        btn_scan.setCursor(Qt.PointingHandCursor)
-        btn_scan.clicked.connect(self._on_scan_games_clicked)
-        toolbar.addWidget(btn_scan)
+        self.btn_scan = QPushButton("🔍  Yüklü Oyunları Otomatik Tara")
+        self.btn_scan.setProperty("class", "secondary-btn")
+        self.btn_scan.setCursor(Qt.PointingHandCursor)
+        self.btn_scan.clicked.connect(self._on_scan_games_clicked)
+        toolbar.addWidget(self.btn_scan)
 
         toolbar.addStretch()
         layout.addLayout(toolbar)
@@ -156,6 +172,17 @@ class GameProfilesDialog(QDialog):
 
     def _load_profiles(self):
         profiles = self.profile_mgr.get_profiles()
+        if not profiles:
+            self.table.clearSpans()
+            self.table.setRowCount(1)
+            item = QTableWidgetItem("Listenizde henüz kayıtlı oyun bulunmuyor. '➕ Özel Oyun Ekle' veya '🔍 Yüklü Oyunları Otomatik Tara' ile ekleyebilirsiniz.")
+            item.setTextAlignment(Qt.AlignCenter)
+            item.setFlags(Qt.ItemIsEnabled)
+            self.table.setItem(0, 0, item)
+            self.table.setSpan(0, 0, 1, 4)
+            return
+
+        self.table.clearSpans()
         self.table.setRowCount(len(profiles))
 
         for row, p in enumerate(profiles):
@@ -228,7 +255,19 @@ class GameProfilesDialog(QDialog):
             )
 
     def _on_scan_games_clicked(self):
-        found = self.profile_mgr.scan_installed_games()
+        if self.scan_worker and self.scan_worker.isRunning():
+            return
+
+        self.btn_scan.setEnabled(False)
+        self.btn_scan.setText("⏳  Taranıyor...")
+        self.scan_worker = GameScanWorker(self.profile_mgr)
+        self.scan_worker.finished.connect(self._on_scan_finished)
+        self.scan_worker.start()
+
+    def _on_scan_finished(self, found: list):
+        self.btn_scan.setEnabled(True)
+        self.btn_scan.setText("🔍  Yüklü Oyunları Otomatik Tara")
+
         if not found:
             QMessageBox.information(
                 self,
@@ -253,6 +292,14 @@ class GameProfilesDialog(QDialog):
             f"Sisteminiz taranarak {len(found)} adet oyun tespit edildi.\n"
             f"{added_cnt} yeni oyun profili listenize otomatik olarak dahil edildi!"
         )
+
+    def closeEvent(self, event):
+        if hasattr(self, 'status_timer') and self.status_timer.isActive():
+            self.status_timer.stop()
+        if hasattr(self, 'scan_worker') and self.scan_worker and self.scan_worker.isRunning():
+            self.scan_worker.quit()
+            self.scan_worker.wait(200)
+        super().closeEvent(event)
 
     def _delete_profile(self, profile_id: str):
         if self.profile_mgr.remove_profile(profile_id):

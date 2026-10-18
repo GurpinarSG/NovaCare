@@ -12,7 +12,7 @@ from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal
 from PyQt5.QtGui import QFont, QColor
 from core.smart_reporter import SmartReporter, DiskHealthInfo
 from core.hardware_monitor import HardwareMonitor
-from core.battery_reporter import BatteryReporter, BatteryInfo
+from core.battery_reporter import BatteryReporter, BatteryInfo, is_battery_present
 from core.utils import log_debug
 from ui.components import StatCard
 from ui.styles import (
@@ -37,7 +37,7 @@ class SmartScanWorker(QThread):
         try:
             disks = self.smart_reporter.get_disks_health(force_refresh=True)
             hw_stats = self.hw_monitor.get_hardware_stats()
-            bat_info = self.battery_reporter.get_battery_info()
+            bat_info = self.battery_reporter.get_battery_info(load_hardware_if_missing=True)
         except Exception as e:
             log_debug(f"SmartScanWorker error: {e}")
         finally:
@@ -55,7 +55,11 @@ class HardwareHealthView(QWidget):
         self._init_ui()
         # Immediately populate live hardware sensors (CPU, RAM, GPU, Power) with zero lag
         self._refresh_live_sensors()
-        self._start_scan()
+
+        # If cached disks already exist, render them instantly
+        if self.smart_reporter._cached_results:
+            self.disks = self.smart_reporter._cached_results
+            self._render_disk_cards(self.disks)
 
         # Live hardware refresh timer (every 3 seconds)
         self.timer = QTimer(self)
@@ -100,12 +104,15 @@ class HardwareHealthView(QWidget):
         self.layout.addLayout(header)
 
         # 2. Hardware Sensors Overview Row
+        self.has_battery = is_battery_present()
         stats_layout = QHBoxLayout()
         stats_layout.setSpacing(14)
         self.card_cpu = StatCard("⚡", "İşlemci (CPU)", "Yükleniyor...", "- °C")
         self.card_gpu = StatCard("🎮", "Grafik (GPU)", "Yükleniyor...", "- °C")
         self.card_ram = StatCard("🧠", "Bellek (RAM)", "Yükleniyor...", "- / - GB")
         self.card_power = StatCard("🔋", "Güç / Batarya", "Yükleniyor...", "Kontrol ediliyor")
+        if not self.has_battery:
+            self.card_power.setVisible(False)
 
         stats_layout.addWidget(self.card_cpu, 1)
         stats_layout.addWidget(self.card_gpu, 1)
@@ -133,7 +140,15 @@ class HardwareHealthView(QWidget):
         scroll.setWidget(container)
         outer.addWidget(scroll)
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._refresh_live_sensors()
+        if not self.disks and (self.scan_worker is None or not self.scan_worker.isRunning()):
+            self._start_scan()
+
     def _start_scan(self):
+        if self.scan_worker and self.scan_worker.isRunning():
+            return
         self.btn_refresh.setEnabled(False)
         self.btn_refresh.setText("⏳  Taranıyor...")
         self.scan_worker = SmartScanWorker()
@@ -188,7 +203,7 @@ class HardwareHealthView(QWidget):
             ram_t = hw_stats.get("ram_total_gb", 0)
             self.card_ram.set_value(f"%{ram_p:.0f}", f"{ram_u} / {ram_t} GB Kullanımda")
 
-        if bat_info and bat_info.has_battery:
+        if getattr(self, 'has_battery', True) and bat_info and bat_info.has_battery:
             health_color = theme["COLOR_SUCCESS"] if bat_info.health_percent >= 80 else theme["COLOR_WARNING"]
             is_chg = getattr(bat_info, 'is_charging', getattr(bat_info, 'power_plugged', False))
             status_text = "Şarj Oluyor" if is_chg else "Pilde"
@@ -196,8 +211,16 @@ class HardwareHealthView(QWidget):
                 f"%{bat_info.percent} ({status_text})",
                 f"Pil Sağlığı: %{bat_info.health_percent:.0f} | {bat_info.cycle_count} Döngü"
             )
-        else:
+        elif getattr(self, 'has_battery', True):
             self.card_power.set_value("Şebeke Gücü", "Masaüstü / Kesintisiz Güç")
+        else:
+            self.card_power.setVisible(False)
+
+    def on_activated(self):
+        """Called when this view or tab is activated."""
+        self._refresh_live_sensors()
+        if not self.disks and (self.scan_worker is None or not self.scan_worker.isRunning()):
+            self._start_scan()
 
     def _render_disk_cards(self, disks: list[DiskHealthInfo]):
         # Clear existing disk widgets
@@ -207,99 +230,122 @@ class HardwareHealthView(QWidget):
                 item.widget().deleteLater()
 
         if not disks:
-            lbl_empty = QLabel("Sistemde fiziksel disk bilgisi alınamadı.")
-            lbl_empty.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 13px; padding: 20px;")
-            self.disks_container.addWidget(lbl_empty)
+            empty_frame = QFrame()
+            empty_frame.setStyleSheet("background: transparent;")
+            e_lay = QVBoxLayout(empty_frame)
+            e_lay.setContentsMargins(10, 10, 10, 10)
+            e_lay.setSpacing(10)
+            lbl_empty = QLabel("Sistemde fiziksel disk bilgisi alınamadı veya sayaçlar henüz yüklenmedi.")
+            lbl_empty.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 13px;")
+            e_lay.addWidget(lbl_empty)
+            btn_retry = QPushButton("🔄  Diskleri Yeniden Tara")
+            btn_retry.setCursor(Qt.PointingHandCursor)
+            btn_retry.setProperty("class", "primary-btn")
+            btn_retry.clicked.connect(self._start_scan)
+            e_lay.addWidget(btn_retry, 0, Qt.AlignLeft)
+            self.disks_container.addWidget(empty_frame)
             return
 
         theme = get_active_theme_colors()
 
         for d in disks:
-            card = QFrame()
-            card.setObjectName("CardFrame")
-            c_lay = QVBoxLayout(card)
-            c_lay.setContentsMargins(20, 16, 20, 16)
-            c_lay.setSpacing(12)
+            try:
+                card = QFrame()
+                card.setObjectName("CardFrame")
+                c_lay = QVBoxLayout(card)
+                c_lay.setContentsMargins(20, 16, 20, 16)
+                c_lay.setSpacing(12)
 
-            # 1. Disk Header (Icon + Name + Type Badge + Size)
-            hdr = QHBoxLayout()
-            hdr.setSpacing(12)
+                # 1. Disk Header (Icon + Name + Type Badge + Size)
+                hdr = QHBoxLayout()
+                hdr.setSpacing(12)
 
-            icon_str = "⚡" if "NVME" in d.media_type.upper() else ("💾" if "SSD" in d.media_type.upper() else "💽")
-            lbl_icon = QLabel(icon_str)
-            lbl_icon.setStyleSheet("font-size: 24px;")
-            hdr.addWidget(lbl_icon)
+                m_type_str = str(getattr(d, 'media_type', '')).upper()
+                icon_str = "⚡" if "NVME" in m_type_str else ("💾" if "SSD" in m_type_str else "💽")
+                lbl_icon = QLabel(icon_str)
+                lbl_icon.setStyleSheet("font-size: 24px;")
+                hdr.addWidget(lbl_icon)
 
-            v_title = QVBoxLayout()
-            v_title.setSpacing(2)
-            lbl_name = QLabel(f"<b>{d.name}</b>  <span style='color:{COLOR_ACCENT}; font-size:12px;'>[{d.drive_letters}]</span>")
-            lbl_name.setStyleSheet("font-size: 15px;")
-            v_title.addWidget(lbl_name)
+                v_title = QVBoxLayout()
+                v_title.setSpacing(2)
+                drive_let = getattr(d, 'drive_letters', '') or 'Sürücü Harfi Yok'
+                lbl_name = QLabel(f"<b>{d.name}</b>  <span style='color:{COLOR_ACCENT}; font-size:12px;'>[{drive_let}]</span>")
+                lbl_name.setStyleSheet("font-size: 15px;")
+                v_title.addWidget(lbl_name)
 
-            lbl_sub = QLabel(f"Sürücü Tipi: {d.media_type}  |  Kapasite: {d.size_str}  |  Veri Yolu: {d.bus_type}")
-            lbl_sub.setStyleSheet(f"font-size: 12px; color: {TEXT_MUTED};")
-            v_title.addWidget(lbl_sub)
-            hdr.addLayout(v_title, 1)
+                lbl_sub = QLabel(f"Sürücü Tipi: {d.media_type}  |  Kapasite: {d.size_str}  |  Veri Yolu: {getattr(d, 'bus_type', '-')}")
+                lbl_sub.setStyleSheet(f"font-size: 12px; color: {TEXT_MUTED};")
+                v_title.addWidget(lbl_sub)
+                hdr.addLayout(v_title, 1)
 
-            # Health Badge
-            h_col = theme["COLOR_SUCCESS"] if d.health_percent >= 85 else (theme["COLOR_WARNING"] if d.health_percent >= 60 else theme["COLOR_DANGER"])
-            lbl_health_badge = QLabel(f"  {d.health_status_tr}  ")
-            lbl_health_badge.setStyleSheet(f"""
-                background-color: rgba(16, 185, 129, 0.12);
-                color: {h_col};
-                border: 1px solid {h_col};
-                border-radius: 6px;
-                font-weight: 700;
-                font-size: 13px;
-                padding: 6px 12px;
-            """)
-            hdr.addWidget(lbl_health_badge)
-            c_lay.addLayout(hdr)
+                # Health Badge
+                pct = getattr(d, 'health_percent', 100)
+                h_col = theme["COLOR_SUCCESS"] if pct >= 85 else (theme["COLOR_WARNING"] if pct >= 60 else theme["COLOR_DANGER"])
+                status_tr = getattr(d, 'health_status_tr', 'Mükemmel')
+                lbl_health_badge = QLabel(f"  {status_tr}  ")
+                lbl_health_badge.setStyleSheet(f"""
+                    background-color: rgba(16, 185, 129, 0.12);
+                    color: {h_col};
+                    border: 1px solid {h_col};
+                    border-radius: 6px;
+                    font-weight: 700;
+                    font-size: 13px;
+                    padding: 6px 12px;
+                """)
+                hdr.addWidget(lbl_health_badge)
+                c_lay.addLayout(hdr)
 
-            # 2. Health Progress Bar
-            p_bar = QProgressBar()
-            p_bar.setRange(0, 100)
-            p_bar.setValue(d.health_percent)
-            p_bar.setTextVisible(False)
-            p_bar.setFixedHeight(8)
-            p_bar.setStyleSheet(f"""
-                QProgressBar {{
-                    background-color: rgba(148, 163, 184, 0.20);
-                    border: none;
-                    border-radius: 4px;
-                }}
-                QProgressBar::chunk {{
-                    background-color: {h_col};
-                    border-radius: 4px;
-                }}
-            """)
-            c_lay.addWidget(p_bar)
+                # 2. Health Progress Bar
+                p_bar = QProgressBar()
+                p_bar.setRange(0, 100)
+                p_bar.setValue(pct)
+                p_bar.setTextVisible(False)
+                p_bar.setFixedHeight(8)
+                p_bar.setStyleSheet(f"""
+                    QProgressBar {{
+                        background-color: rgba(148, 163, 184, 0.20);
+                        border: none;
+                        border-radius: 4px;
+                    }}
+                    QProgressBar::chunk {{
+                        background-color: {h_col};
+                        border-radius: 4px;
+                    }}
+                """)
+                c_lay.addWidget(p_bar)
 
-            # 3. Metrics Grid (Temperature, Power-on Hours, Bad Sectors, Reliability)
-            grid = QGridLayout()
-            grid.setHorizontalSpacing(24)
-            grid.setVerticalSpacing(8)
+                # 3. Metrics Grid (Temperature, Power-on Hours, Bad Sectors, Reliability)
+                grid = QGridLayout()
+                grid.setHorizontalSpacing(24)
+                grid.setVerticalSpacing(8)
 
-            # Temp
-            t_str = f"{d.temperature_c} °C" if d.temperature_c is not None else "Sensör Yok"
-            t_col = theme["COLOR_SUCCESS"] if (d.temperature_c and d.temperature_c < 50) else (theme["COLOR_WARNING"] if (d.temperature_c and d.temperature_c < 65) else (theme["COLOR_DANGER"] if d.temperature_c else TEXT_MUTED))
-            grid.addWidget(QLabel("🌡️  Çalışma Sıcaklığı:"), 0, 0)
-            lbl_t = QLabel(f"<b style='color:{t_col};'>{t_str}</b>")
-            grid.addWidget(lbl_t, 0, 1)
+                # Temp
+                temp_c = getattr(d, 'temperature_c', None)
+                t_str = f"{temp_c} °C" if temp_c is not None else "Sensör Yok"
+                t_col = theme["COLOR_SUCCESS"] if (temp_c and temp_c < 50) else (theme["COLOR_WARNING"] if (temp_c and temp_c < 65) else (theme["COLOR_DANGER"] if temp_c else TEXT_MUTED))
+                grid.addWidget(QLabel("🌡️  Çalışma Sıcaklığı:"), 0, 0)
+                lbl_t = QLabel(f"<b style='color:{t_col};'>{t_str}</b>")
+                grid.addWidget(lbl_t, 0, 1)
 
-            # Power-on hours
-            poh_str = f"{d.power_on_hours:,} saat (~{d.power_on_days} gün)" if d.power_on_hours is not None else "Sayaç Yok / Desteklenmiyor"
-            grid.addWidget(QLabel("⏱️  Toplam Çalışma Süresi:"), 0, 2)
-            grid.addWidget(QLabel(f"<b>{poh_str}</b>"), 0, 3)
+                # Power-on hours
+                poh = getattr(d, 'power_on_hours', None)
+                pod = getattr(d, 'power_on_days', None)
+                poh_str = f"{poh:,} saat (~{pod} gün)" if poh is not None else "Sayaç Yok / Desteklenmiyor"
+                grid.addWidget(QLabel("⏱️  Toplam Çalışma Süresi:"), 0, 2)
+                grid.addWidget(QLabel(f"<b>{poh_str}</b>"), 0, 3)
 
-            # Bad sectors & Read Errors
-            err_col = theme["COLOR_SUCCESS"] if "0 Hata" in d.bad_sectors_status else theme["COLOR_WARNING"]
-            grid.addWidget(QLabel("🔍  Bozuk Sektör / Hata Kaydı:"), 1, 0)
-            grid.addWidget(QLabel(f"<b style='color:{err_col};'>{d.bad_sectors_status}</b>"), 1, 1)
+                # Bad sectors & Read Errors
+                sec_stat = getattr(d, 'bad_sectors_status', '0 Hata / Sıfır Bozuk Sektör')
+                err_col = theme["COLOR_SUCCESS"] if "0 Hata" in sec_stat else theme["COLOR_WARNING"]
+                grid.addWidget(QLabel("🔍  Bozuk Sektör / Hata Kaydı:"), 1, 0)
+                grid.addWidget(QLabel(f"<b style='color:{err_col};'>{sec_stat}</b>"), 1, 1)
 
-            # SMART Operational Status
-            grid.addWidget(QLabel("🛡️  S.M.A.R.T. Durumu:"), 1, 2)
-            grid.addWidget(QLabel(f"<b style='color:{theme['COLOR_SUCCESS']};'>{d.operational_status} (Arıza Riski Yok)</b>"), 1, 3)
+                # SMART Operational Status
+                op_text = str(getattr(d, 'operational_status', 'OK') or 'OK')
+                grid.addWidget(QLabel("🛡️  S.M.A.R.T. Durumu:"), 1, 2)
+                grid.addWidget(QLabel(f"<b style='color:{theme['COLOR_SUCCESS']};'>{op_text} (Arıza Riski Yok)</b>"), 1, 3)
 
-            c_lay.addLayout(grid)
-            self.disks_container.addWidget(card)
+                c_lay.addLayout(grid)
+                self.disks_container.addWidget(card)
+            except Exception as card_err:
+                log_debug(f"Render single disk card error: {card_err}")

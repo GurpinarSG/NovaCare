@@ -209,18 +209,22 @@ class GameProfileManager:
 
     def get_profiles(self) -> list[dict]:
         profiles = self.config.get("game_profiles", [])
-        if not profiles:
-            # Provide initial recommended presets
-            defaults = [
-                {"id": "cs2", "name": "Counter-Strike 2", "exe": "cs2.exe", "path": "", "auto_boost": True},
-                {"id": "valorant", "name": "VALORANT", "exe": "VALORANT-Win64-Shipping.exe", "path": "", "auto_boost": True},
-                {"id": "lol", "name": "League of Legends", "exe": "LeagueClientUx.exe", "path": "", "auto_boost": True},
-                {"id": "gta5", "name": "Grand Theft Auto V", "exe": "GTA5.exe", "path": "", "auto_boost": True},
-                {"id": "cyberpunk", "name": "Cyberpunk 2077", "exe": "Cyberpunk2077.exe", "path": "", "auto_boost": True}
-            ]
-            self.config.set("game_profiles", defaults)
-            return defaults
-        return profiles
+        if profiles:
+            # Filter out legacy placeholder games that don't have valid paths and don't exist
+            filtered = []
+            for p in profiles:
+                p_path = p.get("path", "")
+                if p_path and os.path.exists(p_path):
+                    filtered.append(p)
+                elif not p_path and p.get("id") in {"cs2", "valorant", "lol", "gta5", "cyberpunk"}:
+                    # Drop uninstalled hardcoded dummy preset
+                    continue
+                else:
+                    filtered.append(p)
+            if len(filtered) != len(profiles):
+                self.save_profiles(filtered)
+            return filtered
+        return []
 
     def save_profiles(self, profiles: list[dict]):
         self.config.set("game_profiles", profiles)
@@ -311,16 +315,15 @@ class GameProfileManager:
                     for game_folder in os.listdir(s_path):
                         full_folder = os.path.join(s_path, game_folder)
                         if os.path.isdir(full_folder):
-                            # Search for top-level or bin executables
-                            for root, _, files in os.walk(full_folder):
-                                # Limit search depth to 2
+                            # Search for top-level or bin executables with pruned traversal
+                            for root, dirs, files in os.walk(full_folder):
                                 rel = os.path.relpath(root, full_folder)
-                                if rel.count(os.sep) > 2:
-                                    continue
+                                if rel != "." and rel.count(os.sep) >= 1:
+                                    dirs.clear()
                                 for file in files:
                                     if file.lower().endswith(".exe"):
                                         f_low = file.lower()
-                                        if any(k in f_low for k in ["crash", "unitycrash", "unins", "setup", "update", "redist", "vcredist", "dxsetup"]):
+                                        if any(k in f_low for k in ["crash", "unitycrash", "unins", "setup", "update", "redist", "vcredist", "dxsetup", "touchup"]):
                                             continue
                                         if f_low not in seen_exes:
                                             seen_exes.add(f_low)
@@ -350,10 +353,10 @@ class GameProfileManager:
                 for game_folder in os.listdir(epic_path):
                     full_folder = os.path.join(epic_path, game_folder)
                     if os.path.isdir(full_folder):
-                        for root, _, files in os.walk(full_folder):
+                        for root, dirs, files in os.walk(full_folder):
                             rel = os.path.relpath(root, full_folder)
-                            if rel.count(os.sep) > 2:
-                                continue
+                            if rel != "." and rel.count(os.sep) >= 1:
+                                dirs.clear()
                             for file in files:
                                 if file.lower().endswith(".exe") and not any(k in file.lower() for k in ["crash", "unins", "setup", "launcher"]):
                                     f_low = file.lower()

@@ -290,12 +290,12 @@ class JunkCleaner:
                     if '\\_mei' in norm_fp or '/_mei' in norm_fp or 'novacare' in norm_fp:
                         continue
 
+                    try:
+                        sz = os.path.getsize(f_path)
+                    except Exception:
+                        sz = 0
+
                     if safe_remove_file(f_path):
-                        # Approximate size from original scan or stat
-                        try:
-                            sz = os.path.getsize(f_path)
-                        except Exception:
-                            sz = 0
                         total_freed += sz
                         cleaned_count += 1
                         consecutive_locks = 0
@@ -325,8 +325,7 @@ class JunkCleaner:
                                 for d in dirs:
                                     dir_to_check = os.path.join(root, d)
                                     try:
-                                        if not os.listdir(dir_to_check):
-                                            os.rmdir(dir_to_check)
+                                        os.rmdir(dir_to_check)
                                     except (OSError, PermissionError):
                                         pass
                         except Exception:

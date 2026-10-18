@@ -24,7 +24,7 @@ class AutoCleaner:
         Evaluates whether an auto-clean cycle should run based on configured rules.
         Returns (should_run, reason_string).
         """
-        if not self.config.get("auto_clean_enabled", True):
+        if not self.config.get("auto_clean_enabled", False):
             return False, "Otomatik temizleme devre dışı."
 
         schedule = self.config.get("auto_clean_schedule", "daily")

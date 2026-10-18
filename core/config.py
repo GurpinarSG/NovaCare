@@ -118,7 +118,7 @@ class ConfigManager:
             "close_to_tray": True,
             "always_run_as_admin": True,
             "auto_backup_registry": True,
-            "auto_clean_enabled": True,
+            "auto_clean_enabled": False,
             "auto_clean_schedule": "daily",
             "auto_clean_threshold_mb": 1024,
             "auto_clean_junk": True,

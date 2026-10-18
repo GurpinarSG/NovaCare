@@ -1,6 +1,6 @@
-0.1.8
+1.2.0
 ---
-• Donanım Sağlığı & Disk S.M.A.R.T. Takibi: Fiziksel SSD/HDD sağlık yüzdesi, aşınma/TBW, sıcaklık, çalışma saati ve donanım sensörleri sekmesi eklendi.
-• Şeffaf Mini Masaüstü Widget'ı: Ekran köşesine yerleşen yarı saydam şık gösterge (CPU, RAM, Ağ İndirme/Yükleme Hızı ve tek tıkla ⚡ Hızlı RAM Temizleme butonu).
-• Oyun Başlatıcı & Otomatik Profil Yönetimi: Oyun açıldığında NovaCare otomatik olarak Oyun & Nihai Performans Moduna geçer; oyun kapandığında sistemi standart güç ve servis durumuna geri döndürür.
-• Steam, Epic Games, Riot Games ve özel oyun (.exe) algılama kütüphanesi entegre edildi.
+• Genel Sağlık (General Health) Kategorisi: Kullanıcı talebi doğrultusunda Pil Sağlığı ve Disk Sağlığı tek bir gelişmiş "Genel Sağlık" kategorisi altında Fluent alt sekmelerle birleştirildi.
+• Masaüstü & Dizüstü Akıllı Uyarlanabilirlik: Pil sekmesi masaüstü bilgisayarlarda otomatik gizlenerek arayüz karmaşası önlendi; dizüstü bilgisayarlarda hem Disk S.M.A.R.T. hem de Pil & Güç Teşhisi sekmeleri sunuldu.
+• Fiziksel Disk S.M.A.R.T. Kart Onarımı: Disk kartlarının çizilmesini engelleyen nesne özelliği hatası (operational_status) giderildi; NVMe SSD, SATA SSD ve mekanik HDD disklerin sıcaklık, aşınma ve sağlık raporları anında listeleniyor.
+• Denetim Masası Kaldırma İzni (UAC 740) Çözümü: Windows Kaldırma kaydı HKEY_LOCAL_MACHINE mimarisine geçirilerek yetki uyarısı tamamen çözüldü.
