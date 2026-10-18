@@ -285,6 +285,13 @@ class DashboardView(QWidget):
         self.btn_overlay.clicked.connect(self._toggle_overlay)
         actions_layout.addWidget(self.btn_overlay)
 
+        # Game Profiles & Launcher Button
+        self.btn_game_profiles = QPushButton("🎯  Oyun Profilleri")
+        self.btn_game_profiles.setCursor(Qt.PointingHandCursor)
+        self.btn_game_profiles.setProperty("class", "secondary-btn")
+        self.btn_game_profiles.clicked.connect(self._open_game_profiles)
+        actions_layout.addWidget(self.btn_game_profiles)
+
         # Game Mode Toggle Button
         self.btn_game_mode = QPushButton("🎮  Oyun Modunu Başlat")
         self.btn_game_mode.setCursor(Qt.PointingHandCursor)
@@ -413,6 +420,12 @@ class DashboardView(QWidget):
                 f"• Güç Planı: {prev_name}\n"
                 f"• {restarted_cnt} adet servis yeniden başlatıldı."
             )
+        self._sync_game_mode_ui()
+
+    def _open_game_profiles(self):
+        from ui.game_profiles_dialog import GameProfilesDialog
+        dlg = GameProfilesDialog(self)
+        dlg.exec_()
         self._sync_game_mode_ui()
 
     def _on_overlay_visibility_changed(self, visible: bool):

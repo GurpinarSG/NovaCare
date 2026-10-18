@@ -28,6 +28,7 @@ from ui.views import (
     PrivacyView,
     NetworkView,
     BatteryView,
+    HardwareHealthView,
     RescueView,
     SettingsView
 )
@@ -145,6 +146,8 @@ class MainWindow(QMainWindow):
         self._setup_auto_update()
         log_debug("MainWindow: setting up auto clean...")
         self._setup_auto_clean()
+        log_debug("MainWindow: setting up auto game watcher...")
+        self._setup_auto_game_watcher()
         if self.config.get("autostart_widget_on_boot", False):
             QTimer.singleShot(800, self.show_desktop_widget)
         log_debug("MainWindow.__init__ finished successfully")
@@ -230,8 +233,9 @@ class MainWindow(QMainWindow):
             ("🛡️  Gizlilik & Bloatware", 7),
             ("🌐  Ağ & DNS Optimize Edici", 8),
             ("🔋  Pil & Güç Sağlığı", 9),
-            ("💾  Kurtarma Merkezi", 10),
-            ("⚙️  Ayarlar & Güncelleme", 11)
+            ("🛡️  Donanım & Disk S.M.A.R.T.", 10),
+            ("💾  Kurtarma Merkezi", 11),
+            ("⚙️  Ayarlar & Güncelleme", 12)
         ]
 
         self.nav_buttons: list[QPushButton] = []
@@ -279,6 +283,8 @@ class MainWindow(QMainWindow):
         
         log_debug("Init view: DashboardView")
         self.view_dashboard = DashboardView(self)
+        if hasattr(self.view_dashboard, 'overlay_widget') and hasattr(self.view_dashboard.overlay_widget, 'request_restore_main'):
+            self.view_dashboard.overlay_widget.request_restore_main.connect(self._restore_from_widget)
         log_debug("Init view: JunkView")
         self.view_junk = JunkView(self)
         log_debug("Init view: RegistryView")
@@ -297,26 +303,35 @@ class MainWindow(QMainWindow):
         self.view_network = NetworkView(self)
         log_debug("Init view: BatteryView")
         self.view_battery = BatteryView(self)
+        log_debug("Init view: HardwareHealthView")
+        self.view_hardware_health = HardwareHealthView(self)
         log_debug("Init view: RescueView")
         self.view_rescue = RescueView(self)
         log_debug("Init view: SettingsView")
         self.view_settings = SettingsView(self)
         log_debug("All views created successfully.")
 
-        self.stack.addWidget(self.view_dashboard)    # 0
-        self.stack.addWidget(self.view_junk)         # 1
-        self.stack.addWidget(self.view_registry)     # 2
-        self.stack.addWidget(self.view_startup)      # 3
-        self.stack.addWidget(self.view_uninstaller)  # 4
-        self.stack.addWidget(self.view_memory)       # 5
-        self.stack.addWidget(self.view_disk)         # 6
-        self.stack.addWidget(self.view_privacy)      # 7
-        self.stack.addWidget(self.view_network)      # 8
-        self.stack.addWidget(self.view_battery)      # 9
-        self.stack.addWidget(self.view_rescue)       # 10
-        self.stack.addWidget(self.view_settings)     # 11
+        self.stack.addWidget(self.view_dashboard)        # 0
+        self.stack.addWidget(self.view_junk)             # 1
+        self.stack.addWidget(self.view_registry)         # 2
+        self.stack.addWidget(self.view_startup)          # 3
+        self.stack.addWidget(self.view_uninstaller)      # 4
+        self.stack.addWidget(self.view_memory)           # 5
+        self.stack.addWidget(self.view_disk)             # 6
+        self.stack.addWidget(self.view_privacy)          # 7
+        self.stack.addWidget(self.view_network)          # 8
+        self.stack.addWidget(self.view_battery)          # 9
+        self.stack.addWidget(self.view_hardware_health)  # 10
+        self.stack.addWidget(self.view_rescue)           # 11
+        self.stack.addWidget(self.view_settings)         # 12
 
         root_layout.addWidget(self.stack)
+
+    def _restore_from_widget(self):
+        """Restores and brings NovaCare main window to front when double clicked from widget."""
+        self.showNormal()
+        self.activateWindow()
+        self.raise_()
 
     def _on_nav_clicked(self, index: int):
         self.stack.setCurrentIndex(index)
@@ -335,13 +350,16 @@ class MainWindow(QMainWindow):
             self.view_network._load_network_info()
         elif index == 9 and hasattr(self.view_battery, 'refresh_metrics'):
             self.view_battery.refresh_metrics(query_hardware=False)
-        elif index == 11 and len(self.nav_buttons) > 11:
-            self.nav_buttons[11].setText("⚙️  Ayarlar & Güncelleme")
+        elif index == 10 and is_first_visit and hasattr(self.view_hardware_health, '_start_scan'):
+            self.view_hardware_health._start_scan()
+        elif index == 12 and len(self.nav_buttons) > 12:
+            self.nav_buttons[12].setText("⚙️  Ayarlar & Güncelleme")
 
     def _navigate_to_settings_admin(self):
-        if len(self.nav_buttons) > 11:
-            self.nav_buttons[11].setChecked(True)
-            self.stack.setCurrentIndex(11)
+        settings_idx = len(self.nav_buttons) - 1
+        if len(self.nav_buttons) > settings_idx:
+            self.nav_buttons[settings_idx].setChecked(True)
+            self.stack.setCurrentIndex(settings_idx)
 
     def apply_theme(self, theme_mode: str):
         """Applies theme dynamically across the entire application and all views."""
@@ -370,9 +388,10 @@ class MainWindow(QMainWindow):
 
     def _on_auto_update_result(self, result):
         if isinstance(result, UpdateInfo) and result.available:
+            settings_idx = len(self.nav_buttons) - 1
             # Highlight Settings nav button
-            if len(self.nav_buttons) > 11:
-                self.nav_buttons[11].setText("⚙️  Ayarlar & Güncelleme 🔴")
+            if len(self.nav_buttons) > settings_idx:
+                self.nav_buttons[settings_idx].setText("⚙️  Ayarlar & Güncelleme 🔴")
 
             # If auto install is enabled, download and prepare in background automatically!
             if self.config.get("auto_install_updates", True) and result.download_url:
@@ -403,9 +422,9 @@ class MainWindow(QMainWindow):
                         f"Güncelleme ayrıntılarını görmek ve yüklemek için Ayarlar & Güncelleme sekmesine gitmek ister misiniz?",
                         QMessageBox.Yes | QMessageBox.No
                     )
-                    if ans == QMessageBox.Yes:
-                        self.nav_buttons[11].setChecked(True)
-                        self.stack.setCurrentIndex(11)
+                    if ans == QMessageBox.Yes and len(self.nav_buttons) > settings_idx:
+                        self.nav_buttons[settings_idx].setChecked(True)
+                        self.stack.setCurrentIndex(settings_idx)
                         self.view_settings.check_for_updates_manual()
 
     def _on_auto_install_finished(self, batch_path: str, info: UpdateInfo):
@@ -459,6 +478,36 @@ class MainWindow(QMainWindow):
             self.tray_icon.showMessage(
                 "NovaCare Otomatik Bakım Tamamlandı",
                 f"Sisteminiz optimize edildi: {total} alan boşaltıldı ({files} dosya temizlendi).",
+                QSystemTrayIcon.Information,
+                4000
+            )
+
+    def _setup_auto_game_watcher(self):
+        """Initializes the background watcher that auto-switches to Game Mode when games launch."""
+        from core.game_booster import AutoGameWatcher
+        self.auto_game_watcher = AutoGameWatcher(self)
+        self.auto_game_watcher.game_started.connect(self._on_game_started)
+        self.auto_game_watcher.game_stopped.connect(self._on_game_stopped)
+        self.auto_game_watcher.start()
+
+    def _on_game_started(self, game_name: str):
+        if hasattr(self, 'view_dashboard'):
+            self.view_dashboard._sync_game_mode_ui()
+        if hasattr(self, 'tray_icon') and self.tray_icon.isVisible():
+            self.tray_icon.showMessage(
+                "🎮 Oyun Algılandı!",
+                f"'{game_name}' açıldı. NovaCare otomatik olarak Oyun & Nihai Performans Moduna geçti!",
+                QSystemTrayIcon.Information,
+                4000
+            )
+
+    def _on_game_stopped(self, game_name: str):
+        if hasattr(self, 'view_dashboard'):
+            self.view_dashboard._sync_game_mode_ui()
+        if hasattr(self, 'tray_icon') and self.tray_icon.isVisible():
+            self.tray_icon.showMessage(
+                "🎮 Oyun Kapatıldı",
+                f"'{game_name}' oturumu sonlandı. NovaCare sistemi standart moda ve önceki güç planına geri döndürdü.",
                 QSystemTrayIcon.Information,
                 4000
             )
@@ -563,6 +612,13 @@ class MainWindow(QMainWindow):
             if hasattr(self, 'auto_clean_worker') and self.auto_clean_worker and self.auto_clean_worker.isRunning():
                 self.auto_clean_worker.quit()
                 self.auto_clean_worker.wait(300)
+            if hasattr(self, 'view_hardware_health') and hasattr(self.view_hardware_health, 'scan_worker') and self.view_hardware_health.scan_worker and self.view_hardware_health.scan_worker.isRunning():
+                self.view_hardware_health.scan_worker.quit()
+                self.view_hardware_health.scan_worker.wait(300)
+            if hasattr(self, 'auto_game_watcher') and self.auto_game_watcher and self.auto_game_watcher.isRunning():
+                self.auto_game_watcher.stop()
+                self.auto_game_watcher.quit()
+                self.auto_game_watcher.wait(300)
             if hasattr(self.view_dashboard, 'overlay_widget') and self.view_dashboard.overlay_widget:
                 self.view_dashboard.overlay_widget.close()
         except Exception:

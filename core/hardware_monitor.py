@@ -117,6 +117,25 @@ class HardwareMonitor:
             except Exception:
                 pass
 
+        # 4. Real-time network speed
+        now = time.time()
+        net = psutil.net_io_counters()
+        down_bps = 0.0
+        up_bps = 0.0
+        if hasattr(self, '_last_net_bytes') and hasattr(self, '_last_net_time'):
+            dt = max(0.1, now - self._last_net_time)
+            down_bps = max(0.0, (net.bytes_recv - self._last_net_bytes[0]) / dt)
+            up_bps = max(0.0, (net.bytes_sent - self._last_net_bytes[1]) / dt)
+        self._last_net_bytes = (net.bytes_recv, net.bytes_sent)
+        self._last_net_time = now
+
+        def _fmt_spd(bps: float) -> str:
+            if bps >= 1024 * 1024:
+                return f"{bps / (1024 * 1024):.1f} MB/s"
+            elif bps >= 1024:
+                return f"{bps / 1024:.0f} KB/s"
+            return f"{int(bps)} B/s"
+
         return {
             "cpu_percent": cpu_percent,
             "cpu_freq_ghz": cpu_freq_ghz,
@@ -129,5 +148,9 @@ class HardwareMonitor:
             "gpu_load": gpu_load,
             "gpu_mem_used_mb": gpu_mem_used_mb,
             "gpu_mem_total_mb": gpu_mem_total_mb,
-            "has_gpu": self.has_nvml
+            "has_gpu": self.has_nvml,
+            "net_down_bps": down_bps,
+            "net_up_bps": up_bps,
+            "net_down_str": _fmt_spd(down_bps),
+            "net_up_str": _fmt_spd(up_bps)
         }

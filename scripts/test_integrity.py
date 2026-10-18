@@ -104,4 +104,39 @@ bw = ui.views.battery_view.BatteryHardwareWorker(br)
 bw.run()
 print("✓ BatteryHardwareWorker completed run without error.")
 
+# Test SmartReporter & Hardware Health
+import core.smart_reporter
+import ui.views.hardware_health_view
+import ui.desktop_widget
+import ui.game_profiles_dialog
+
+sr = core.smart_reporter.SmartReporter()
+disks = sr.get_disks_health()
+print(f"✓ SmartReporter scanned {len(disks)} physical disks successfully.")
+
+# Test GameProfileManager
+gpm = core.game_booster.GameProfileManager()
+profs = gpm.get_profiles()
+print(f"✓ GameProfileManager loaded {len(profs)} profiles successfully.")
+
+# Test DesktopPerformanceWidget instantiation
+dw = ui.desktop_widget.DesktopPerformanceWidget()
+dw.update_stats(stats)
+print("✓ DesktopPerformanceWidget instantiated and updated successfully.")
+
+# Test MainWindow instantiation and teardown
+mw = ui.main_window.MainWindow()
+print(f"✓ MainWindow instantiated with {len(mw.nav_buttons)} nav buttons and {mw.stack.count()} views.")
+# Teardown workers cleanly for test exit
+if hasattr(mw, 'auto_clean_timer'):
+    mw.auto_clean_timer.stop()
+if hasattr(mw, 'auto_game_watcher') and mw.auto_game_watcher:
+    mw.auto_game_watcher.stop()
+    mw.auto_game_watcher.wait(200)
+if hasattr(mw.view_dashboard, 'overlay_widget') and mw.view_dashboard.overlay_widget:
+    mw.view_dashboard.overlay_widget.timer.stop()
+if hasattr(mw.view_hardware_health, 'timer'):
+    mw.view_hardware_health.timer.stop()
+
 print("\n>>> ALL INTEGRITY & WORKER THREAD CHECKS PASSED PERFECTLY! <<<")
+sys.exit(0)

@@ -177,3 +177,301 @@ class GameBooster:
             "previous_power_name": state.get("previous_power_name", "Standart"),
             "restored_services": restarted_count
         }
+
+# Pre-defined registry of popular games for instant detection
+POPULAR_GAMES_DATABASE = [
+    {"name": "Counter-Strike 2", "exe": "cs2.exe"},
+    {"name": "VALORANT", "exe": "VALORANT-Win64-Shipping.exe"},
+    {"name": "League of Legends", "exe": "LeagueClientUx.exe"},
+    {"name": "Grand Theft Auto V", "exe": "GTA5.exe"},
+    {"name": "Cyberpunk 2077", "exe": "Cyberpunk2077.exe"},
+    {"name": "Apex Legends", "exe": "r5apex.exe"},
+    {"name": "Fortnite", "exe": "FortniteClient-Win64-Shipping.exe"},
+    {"name": "EA SPORTS FC 24", "exe": "FC24.exe"},
+    {"name": "EA SPORTS FC 25", "exe": "FC25.exe"},
+    {"name": "Dota 2", "exe": "dota2.exe"},
+    {"name": "PUBG: BATTLEGROUNDS", "exe": "TslGame.exe"},
+    {"name": "Red Dead Redemption 2", "exe": "RDR2.exe"},
+    {"name": "Rainbow Six Siege", "exe": "RainbowSix.exe"},
+    {"name": "The Witcher 3: Wild Hunt", "exe": "witcher3.exe"},
+    {"name": "Minecraft", "exe": "javaw.exe"},
+    {"name": "Call of Duty: Warzone", "exe": "cod.exe"},
+    {"name": "Roblox", "exe": "RobloxPlayerBeta.exe"},
+    {"name": "Overwatch 2", "exe": "Overwatch.exe"},
+    {"name": "Genshin Impact", "exe": "GenshinImpact.exe"},
+    {"name": "Rocket League", "exe": "RocketLeague.exe"}
+]
+
+class GameProfileManager:
+    """Manages game profiles, auto-boost configuration, and local library scanning."""
+    def __init__(self):
+        self.config = ConfigManager()
+
+    def get_profiles(self) -> list[dict]:
+        profiles = self.config.get("game_profiles", [])
+        if not profiles:
+            # Provide initial recommended presets
+            defaults = [
+                {"id": "cs2", "name": "Counter-Strike 2", "exe": "cs2.exe", "path": "", "auto_boost": True},
+                {"id": "valorant", "name": "VALORANT", "exe": "VALORANT-Win64-Shipping.exe", "path": "", "auto_boost": True},
+                {"id": "lol", "name": "League of Legends", "exe": "LeagueClientUx.exe", "path": "", "auto_boost": True},
+                {"id": "gta5", "name": "Grand Theft Auto V", "exe": "GTA5.exe", "path": "", "auto_boost": True},
+                {"id": "cyberpunk", "name": "Cyberpunk 2077", "exe": "Cyberpunk2077.exe", "path": "", "auto_boost": True}
+            ]
+            self.config.set("game_profiles", defaults)
+            return defaults
+        return profiles
+
+    def save_profiles(self, profiles: list[dict]):
+        self.config.set("game_profiles", profiles)
+
+    def add_profile(self, name: str, exe: str, path: str = "", auto_boost: bool = True) -> dict:
+        clean_name = name.strip()
+        clean_exe = os.path.basename(exe.strip())
+        if not clean_exe.lower().endswith(".exe"):
+            clean_exe += ".exe"
+
+        import uuid
+        profile_id = str(uuid.uuid4())[:8]
+
+        profiles = self.get_profiles()
+        # Avoid exact duplicate exe
+        for p in profiles:
+            if p.get("exe", "").lower() == clean_exe.lower():
+                p["name"] = clean_name
+                if path:
+                    p["path"] = path
+                p["auto_boost"] = auto_boost
+                self.save_profiles(profiles)
+                return p
+
+        new_prof = {
+            "id": profile_id,
+            "name": clean_name or clean_exe,
+            "exe": clean_exe,
+            "path": path,
+            "auto_boost": auto_boost
+        }
+        profiles.append(new_prof)
+        self.save_profiles(profiles)
+        return new_prof
+
+    def remove_profile(self, profile_id: str) -> bool:
+        profiles = self.get_profiles()
+        initial_len = len(profiles)
+        profiles = [p for p in profiles if p.get("id") != profile_id]
+        if len(profiles) != initial_len:
+            self.save_profiles(profiles)
+            return True
+        return False
+
+    def toggle_profile_boost(self, profile_id: str, enabled: bool) -> bool:
+        profiles = self.get_profiles()
+        for p in profiles:
+            if p.get("id") == profile_id:
+                p["auto_boost"] = enabled
+                self.save_profiles(profiles)
+                return True
+        return False
+
+    def scan_installed_games(self) -> list[dict]:
+        """
+        Discovers games installed via Steam, Epic Games, Riot, and active processes.
+        """
+        found_games: list[dict] = []
+        seen_exes = set()
+
+        # 1. Check Steam standard library folders
+        steam_paths = [
+            r"C:\Program Files (x86)\Steam\steamapps\common",
+            r"C:\Program Files\Steam\steamapps\common",
+            r"D:\SteamLibrary\steamapps\common",
+            r"E:\SteamLibrary\steamapps\common",
+            r"D:\Games\SteamLibrary\steamapps\common"
+        ]
+
+        # Also inspect Steam libraryfolders.vdf
+        vdf_path = r"C:\Program Files (x86)\Steam\steamapps\libraryfolders.vdf"
+        if os.path.exists(vdf_path):
+            try:
+                with open(vdf_path, "r", encoding="utf-8", errors="ignore") as f:
+                    for line in f:
+                        if '"path"' in line.lower():
+                            parts = line.split('"')
+                            if len(parts) >= 4:
+                                custom_steam = os.path.join(parts[3], "steamapps", "common")
+                                if custom_steam not in steam_paths and os.path.exists(custom_steam):
+                                    steam_paths.append(custom_steam)
+            except Exception:
+                pass
+
+        for s_path in steam_paths:
+            if os.path.exists(s_path):
+                try:
+                    for game_folder in os.listdir(s_path):
+                        full_folder = os.path.join(s_path, game_folder)
+                        if os.path.isdir(full_folder):
+                            # Search for top-level or bin executables
+                            for root, _, files in os.walk(full_folder):
+                                # Limit search depth to 2
+                                rel = os.path.relpath(root, full_folder)
+                                if rel.count(os.sep) > 2:
+                                    continue
+                                for file in files:
+                                    if file.lower().endswith(".exe"):
+                                        f_low = file.lower()
+                                        if any(k in f_low for k in ["crash", "unitycrash", "unins", "setup", "update", "redist", "vcredist", "dxsetup"]):
+                                            continue
+                                        if f_low not in seen_exes:
+                                            seen_exes.add(f_low)
+                                            found_games.append({
+                                                "name": game_folder,
+                                                "exe": file,
+                                                "path": os.path.join(root, file)
+                                            })
+                                        break
+                except Exception:
+                    pass
+
+        # 2. Check Riot Games
+        riot_candidates = [
+            (r"C:\Riot Games\VALORANT\live\VALORANT.exe", "VALORANT", "VALORANT-Win64-Shipping.exe"),
+            (r"C:\Riot Games\League of Legends\LeagueClientUx.exe", "League of Legends", "LeagueClientUx.exe")
+        ]
+        for p, name, exe in riot_candidates:
+            if os.path.exists(p) and exe.lower() not in seen_exes:
+                seen_exes.add(exe.lower())
+                found_games.append({"name": name, "exe": exe, "path": p})
+
+        # 3. Check Epic Games
+        epic_path = r"C:\Program Files\Epic Games"
+        if os.path.exists(epic_path):
+            try:
+                for game_folder in os.listdir(epic_path):
+                    full_folder = os.path.join(epic_path, game_folder)
+                    if os.path.isdir(full_folder):
+                        for root, _, files in os.walk(full_folder):
+                            rel = os.path.relpath(root, full_folder)
+                            if rel.count(os.sep) > 2:
+                                continue
+                            for file in files:
+                                if file.lower().endswith(".exe") and not any(k in file.lower() for k in ["crash", "unins", "setup", "launcher"]):
+                                    f_low = file.lower()
+                                    if f_low not in seen_exes:
+                                        seen_exes.add(f_low)
+                                        found_games.append({
+                                            "name": game_folder,
+                                            "exe": file,
+                                            "path": os.path.join(root, file)
+                                        })
+                                    break
+            except Exception:
+                pass
+
+        # 4. Check against POPULAR_GAMES_DATABASE for currently running processes
+        try:
+            for p in psutil.process_iter(['name', 'exe']):
+                try:
+                    p_name = p.info.get('name')
+                    p_exe = p.info.get('exe')
+                    if p_name:
+                        for db_game in POPULAR_GAMES_DATABASE:
+                            if p_name.lower() == db_game["exe"].lower() and p_name.lower() not in seen_exes:
+                                seen_exes.add(p_name.lower())
+                                found_games.append({
+                                    "name": db_game["name"],
+                                    "exe": p_name,
+                                    "path": p_exe or ""
+                                })
+                except Exception:
+                    continue
+        except Exception:
+            pass
+
+        return found_games
+
+
+from PyQt5.QtCore import QThread, pyqtSignal
+
+class AutoGameWatcher(QThread):
+    """
+    Background daemon thread that monitors active game processes.
+    Automatically enters Game Mode when a registered game starts,
+    and restores standard power plan when the game exits.
+    """
+    game_started = pyqtSignal(str)   # game name
+    game_stopped = pyqtSignal(str)   # game name
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.config = ConfigManager()
+        self.game_booster = GameBooster()
+        self.profile_mgr = GameProfileManager()
+        self._running = True
+        self._active_game_id = None
+        self._auto_activated = False
+
+    def stop(self):
+        self._running = False
+
+    def run(self):
+        while self._running:
+            try:
+                # Check user preference
+                if not self.config.get("auto_game_mode_enabled", True):
+                    self.msleep(3000)
+                    continue
+
+                profiles = self.profile_mgr.get_profiles()
+                active_profile_map = {
+                    p.get("exe", "").lower(): p
+                    for p in profiles
+                    if p.get("auto_boost", True) and p.get("exe")
+                }
+
+                if not active_profile_map:
+                    self.msleep(3000)
+                    continue
+
+                # Query running processes
+                running_exes = set()
+                for p in psutil.process_iter(['name']):
+                    try:
+                        n = p.info.get('name')
+                        if n:
+                            running_exes.add(n.lower())
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        continue
+
+                # 1. If a game is currently tracked as running, check if it closed
+                if self._active_game_id is not None:
+                    curr_prof = next((p for p in profiles if p.get("id") == self._active_game_id), None)
+                    if curr_prof and curr_prof.get("exe", "").lower() in running_exes:
+                        # Game is still active
+                        self.msleep(3000)
+                        continue
+                    else:
+                        # Game was closed!
+                        closed_name = curr_prof.get("name", "Oyun") if curr_prof else "Oyun"
+                        self._active_game_id = None
+                        if self._auto_activated and self.game_booster.is_active():
+                            self.game_booster.deactivate()
+                            self._auto_activated = False
+                        self.game_stopped.emit(closed_name)
+                        self.msleep(2000)
+                        continue
+
+                # 2. If no game is currently tracked, check if any registered game started
+                for exe, prof in active_profile_map.items():
+                    if exe in running_exes:
+                        self._active_game_id = prof.get("id")
+                        if not self.game_booster.is_active():
+                            self.game_booster.activate()
+                            self._auto_activated = True
+                        self.game_started.emit(prof.get("name", exe))
+                        break
+
+            except Exception:
+                pass
+
+            self.msleep(3000)

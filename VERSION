@@ -1,6 +1,6 @@
-0.0.2
+0.0.3
 ---
-• Ağ ve DNS Optimize Edici arayüzü pencere boyutuna göre dinamik ve tam duyarlı (responsive) hale getirildi.
-• Yatay taşmalar ve istenmeyen kaydırma çubukları tamamen engellendi; 940x580'den 4K'ya kadar tüm çözünürlüklerde pürüzsüz görünüm sağlandı.
-• Ağ bağdaştırıcı durumu, mevcut DNS rozeti ve işlem araç çubuğu ergonomik şekilde yeniden konumlandırıldı.
-• DNS kataloğu tablosu tüm sağlayıcıları iç kaydırma gerektirmeden tek bakışta sunacak şekilde optimize edildi.
+• Donanım Sağlığı & Disk S.M.A.R.T. Takibi: Fiziksel SSD/HDD sağlık yüzdesi, aşınma/TBW, sıcaklık, çalışma saati ve donanım sensörleri sekmesi eklendi.
+• Şeffaf Mini Masaüstü Widget'ı: Ekran köşesine yerleşen yarı saydam şık gösterge (CPU, RAM, Ağ İndirme/Yükleme Hızı ve tek tıkla ⚡ Hızlı RAM Temizleme butonu).
+• Oyun Başlatıcı & Otomatik Profil Yönetimi: Oyun açıldığında NovaCare otomatik olarak Oyun & Nihai Performans Moduna geçer; oyun kapandığında sistemi standart güç ve servis durumuna geri döndürür.
+• Steam, Epic Games, Riot Games ve özel oyun (.exe) algılama kütüphanesi entegre edildi.

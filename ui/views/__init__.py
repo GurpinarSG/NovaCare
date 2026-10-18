@@ -12,6 +12,7 @@ from ui.views.privacy_view import PrivacyView
 from ui.views.rescue_view import RescueView
 from ui.views.network_view import NetworkView
 from ui.views.battery_view import BatteryView
+from ui.views.hardware_health_view import HardwareHealthView
 from ui.views.settings_view import SettingsView
 
 __all__ = [
@@ -26,6 +27,7 @@ __all__ = [
     "RescueView",
     "NetworkView",
     "BatteryView",
+    "HardwareHealthView",
     "SettingsView"
 ]
 

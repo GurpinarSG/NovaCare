@@ -2,6 +2,40 @@
 
 Tüm önemli değişiklikler, yeni özellikler, hata düzeltmeleri ve optimizasyonlar bu belgede kronolojik olarak kayıt altına alınmaktadır.
 
+## 🚀 [v0.0.3] - 2026-10-18
+
+### 🛡️ Donanım Sağlığı & Disk S.M.A.R.T. Takibi
+* **Fiziksel SSD ve HDD Donanım Sağlığı Sekmesi (`HardwareHealthView`):**
+  * Windows Storage Management (`Get-PhysicalDisk` ve `Get-StorageReliabilityCounter`) API'leri üzerinden çalışan gelişmiş fiziksel disk teşhis motoru (`SmartReporter`) entegre edildi.
+  * NVMe SSD, SATA SSD ve mekanik HDD disklerin gerçek çalışma saatleri, kalan ömür yüzdesi (%100 - Aşınma / TBW düzeyi), çalışma sıcaklıkları ve disk okuma/yazma hata sayaçları detaylı kartlarla sunulmaktadır.
+  * Fiziksel disklerin Windows sürücü harfleriyle (`C:`, `D:` vb.) tam eşleştirmesi dinamik olarak yapılır.
+* **Canlı Donanım Sensörleri & Telemetri:**
+  * CPU kullanım yüzdesi, anlık saat frekansı (GHz) ve çekirdek sıcaklığı (°C).
+  * Harici GPU yükü, sıcaklığı ve ayrılmış VRAM durumu.
+  * Gerçek zamanlı RAM kullanım yüzdesi ve toplam bellek dağılımı.
+  * Batarya sağlık yüzdesi, şarj durumu ve döngü sayısı (veya masaüstü sistemlerde kesintisiz şebeke gücü durumu).
+
+### 🖥️ Şeffaf Mini Masaüstü Widget'ı (`DesktopPerformanceWidget`)
+* **Yarı Saydam Modern Masaüstü Göstergesi:**
+  * Ekranın sağ alt köşesine (Windows görev çubuğu üzerine) zarifçe yerleşen, yarı saydam cam efektli (frosted glassmorphism) ve çerçevesiz mini sistem dock'u eklendi.
+  * Gerçek zamanlı CPU kullanımını ve frekansını, RAM doluluk oranını ve anlık **Ağ İndirme / Yükleme Hızını** (`↓ MB/s  ↑ KB/s`) canlı olarak raporlar.
+* **Tek Tıkla "⚡ Hızlı RAM Temizle" Butonu:**
+  * Widget içerisine entegre edilen hızlı temizlik butonuyla tek tıkla arka plan RAM çalışma kümeleri temizlenir ve boşaltılan bellek miktarı buton üzerinde anında görsel geri bildirimle gösterilir.
+* **Akıllı Etkileşim:**
+  * Masaüstünde dilediğiniz konuma sürüklenebilir ve son konumunu otomatik hatırlar.
+  * Çift tıklandığında NovaCare ana penceresini öne getirir; sağ tık menüsüyle köşeye sıfırlama veya gizleme imkanı sunar.
+
+### 🎮 Oyun Başlatıcı & Otomatik Profil Yönetimi
+* **Oyun Açıldığında Otomatik Oyun Modu Devreye Alma (`AutoGameWatcher`):**
+  * Arka planda çalışan hafif izleme motoru sayesinde, kayıtlı veya tespit edilen bir oyun açıldığında NovaCare otomatik olarak **Oyun Modu ve Nihai Performans Güç Planına** geçer.
+  * Oyun kapandığında sistem ayarlarını ve durdurulan arka plan servislerini anında eski haline ve standart güç moduna geri döndürür.
+* **Kapsamlı Oyun Kütüphanesi & Profil Yönetimi (`GameProfilesDialog`):**
+  * Steam, Epic Games ve Riot Games kurulu dizinlerini otomatik tarayarak oyunları tek tıkla profillere ekleme.
+  * Dilediğiniz oyun veya simülasyon yürütülebilir dosyasını (`.exe`) manuel olarak ekleme imkanı.
+  * Her oyun için otomatik hızlandırmayı tek tek açıp kapatabilme veya oyunu doğrudan NovaCare içerisinden optimize başlatabilme.
+
+---
+
 ## 🚀 [v0.0.2] - 2026-10-18
 
 ### 🌐 Ağ ve DNS Optimize Edici Pencere Uyumu & Duyarlı Tasarım (Responsive UI)
