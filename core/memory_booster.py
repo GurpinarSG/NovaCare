@@ -87,35 +87,59 @@ class MemoryBooster:
         except Exception:
             return False
 
-    def optimize_ram(self) -> tuple[int, int]:
+    def optimize_ram(self, max_seconds: float = 3.5) -> tuple[int, int]:
         """
         Trims working sets of running processes using Windows EmptyWorkingSet API.
+        Protected with a time-budget guard and critical system process exclusion to prevent stutters.
         Returns: (freed_bytes, processed_count)
         """
+        import time
+
         before_mem = psutil.virtual_memory().available
         processed = 0
-
         current_pid = os.getpid()
+        start_time = time.time()
 
-        for proc in psutil.process_iter(['pid']):
-            pid = proc.info['pid']
-            if pid <= 4 or pid == current_pid:
-                continue
+        # Trim NovaCare's own memory first
+        self.trim_own_memory()
 
-            try:
-                handle = ctypes.windll.kernel32.OpenProcess(
-                    self.PROCESS_QUERY_INFORMATION | self.PROCESS_SET_QUOTA,
-                    False,
-                    pid
-                )
-                if handle:
-                    try:
-                        ctypes.windll.psapi.EmptyWorkingSet(handle)
-                        processed += 1
-                    finally:
-                        ctypes.windll.kernel32.CloseHandle(handle)
-            except Exception:
-                continue
+        # Known protected Windows system processes to skip
+        system_names = {
+            "system", "system idle process", "registry", "smss.exe", "csrss.exe",
+            "wininit.exe", "services.exe", "lsass.exe", "winlogon.exe"
+        }
+
+        try:
+            for proc in psutil.process_iter(['pid', 'name']):
+                # Strict timeout protection: never spend more than max_seconds trimming RAM
+                if time.time() - start_time > max_seconds:
+                    break
+
+                try:
+                    info = proc.info
+                    pid = info.get('pid', 0)
+                    if pid <= 4 or pid == current_pid:
+                        continue
+
+                    p_name = (info.get('name') or '').lower()
+                    if p_name in system_names:
+                        continue
+
+                    handle = ctypes.windll.kernel32.OpenProcess(
+                        self.PROCESS_QUERY_INFORMATION | self.PROCESS_SET_QUOTA,
+                        False,
+                        pid
+                    )
+                    if handle:
+                        try:
+                            ctypes.windll.psapi.EmptyWorkingSet(handle)
+                            processed += 1
+                        finally:
+                            ctypes.windll.kernel32.CloseHandle(handle)
+                except Exception:
+                    continue
+        except Exception:
+            pass
 
         after_mem = psutil.virtual_memory().available
         freed = max(0, after_mem - before_mem)

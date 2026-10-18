@@ -86,27 +86,53 @@ def get_folder_size(path: str) -> tuple[int, int]:
 
     return total_size, total_files
 
+def to_long_path(path: str) -> str:
+    """Prepends \\?\ prefix to Windows absolute paths exceeding MAX_PATH (240+ chars)."""
+    if os.name == 'nt' and path and not path.startswith('\\\\?\\') and len(path) >= 240 and os.path.isabs(path):
+        return '\\\\?\\' + os.path.normpath(path)
+    return path
+
 def safe_remove_file(file_path: str) -> bool:
-    """Safely remove a file, attempting to clear read-only flag if needed."""
+    """
+    Safely and rapidly remove a file.
+    Directly attempts removal first for maximum I/O performance.
+    Clears read-only attributes only when PermissionError is encountered.
+    """
     try:
-        if not os.path.exists(file_path):
-            return True
+        target = to_long_path(file_path)
         try:
-            os.chmod(file_path, 0o777)
-        except Exception:
-            pass
-        os.remove(file_path)
-        return True
+            os.remove(target)
+            return True
+        except FileNotFoundError:
+            return True
+        except PermissionError:
+            try:
+                os.chmod(target, 0o777)
+                os.remove(target)
+                return True
+            except Exception:
+                return False
+        except OSError:
+            return False
     except Exception:
         return False
 
-def safe_remove_directory(dir_path: str) -> bool:
-    """Safely remove an empty or non-empty directory."""
+def _remove_readonly_cb(func, path, exc_info):
+    """Callback for shutil.rmtree to clear read-only flag on stubborn files."""
     try:
-        if not os.path.exists(dir_path):
+        os.chmod(path, 0o777)
+        func(path)
+    except Exception:
+        pass
+
+def safe_remove_directory(dir_path: str) -> bool:
+    """Safely remove a directory, clearing read-only flags inside if needed."""
+    try:
+        target = to_long_path(dir_path)
+        if not os.path.exists(target):
             return True
-        shutil.rmtree(dir_path, ignore_errors=True)
-        return not os.path.exists(dir_path)
+        shutil.rmtree(target, onerror=_remove_readonly_cb)
+        return not os.path.exists(target)
     except Exception:
         return False
 
@@ -128,15 +154,28 @@ def query_recycle_bin() -> tuple[int, int]:
         pass
     return 0, 0
 
-def empty_recycle_bin() -> bool:
-    """Empty Windows Recycle Bin silently."""
+def empty_recycle_bin(timeout_sec: float = 5.0) -> bool:
+    """
+    Empty Windows Recycle Bin silently with a safety timeout.
+    Prevents hangs on unresponsive drives or corrupt recycle bins.
+    """
+    import concurrent.futures
+
+    def _do_empty():
+        try:
+            SHERB_NOCONFIRMATION = 0x00000001
+            SHERB_NOPROGRESSUI   = 0x00000002
+            SHERB_NOSOUND        = 0x00000004
+            flags = SHERB_NOCONFIRMATION | SHERB_NOPROGRESSUI | SHERB_NOSOUND
+            res = ctypes.windll.shell32.SHEmptyRecycleBinW(None, None, flags)
+            return res == 0
+        except Exception:
+            return False
+
     try:
-        SHERB_NOCONFIRMATION = 0x00000001
-        SHERB_NOPROGRESSUI   = 0x00000002
-        SHERB_NOSOUND        = 0x00000004
-        flags = SHERB_NOCONFIRMATION | SHERB_NOPROGRESSUI | SHERB_NOSOUND
-        res = ctypes.windll.shell32.SHEmptyRecycleBinW(None, None, flags)
-        return res == 0
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(_do_empty)
+            return future.result(timeout=timeout_sec)
     except Exception:
         return False
 

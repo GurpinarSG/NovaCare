@@ -1,7 +1,8 @@
-1.1.5
+1.1.6
 ---
-• Program Kaldırıcı (Uninstaller) seçim kutularındaki çift tetiklenme (double-toggle) hatası giderildi; kutucuklar doğrudan veya hücreye tıklanarak anında işaretlenebilir hale getirildi.
-• Program Kaldırıcı ve tüm veri tablolarında metin düzenleme (inline rename/edit) tetikleyicileri tamamen kapatıldı (`NoEditTriggers`); program isimlerine tıklandığında çıkan isim değiştirme hatası kökten çözüldü.
-• Program Kaldırıcı tablosunda klavye ile gezinme ve Space (Boşluk) tuşu ile seçim desteği eklendi.
-• Program Kaldırıcı tablosunda bir programa çift tıklandığında kaldırma işlemini doğrudan başlatma desteği eklendi.
-• Tablo onay kutusu (QTableWidget indicator) stilleri modern NovaCare temasıyla tam uyumlu hale getirildi.
+• Tek Tıkla Onarma motorundaki takılma ve yarım kalma sorunu kökten çözüldü; tarama verileri doğrudan onarıma aktarılarak diskin mükerrer taranması engellendi.
+• Arka planda açık olan tarayıcıların (Chrome, Edge, Brave) kilitli önbellek dosyalarında temizliğin dakikalarca askıda kalmasını engelleyen akıllı hızlı atlama koruması eklendi.
+• Onarım ilerleme çubuğuna gerçek zamanlı mikro dosya ve kayıt sayacı eklendi (%20 ve %60 seviyelerinde donma tamamen ortadan kaldırıldı).
+• Geri Dönüşüm Kutusu boşaltma ve RAM optimizasyonu çağrılarına asenkron zaman aşımı (timeout) koruması eklendi.
+• Dosya silme (`safe_remove_file`) I/O algoritması optimize edildi ve Windows 260+ karakter uzun dosya yolları (`\\?\`) tam uyumlu hale getirildi.
+• Tüm onarım modülleri izole edilerek bir aşamada işletim sistemi izin uyarısı olsa dahi diğer aşamaların pürüzsüz tamamlanması garanti altına alındı.

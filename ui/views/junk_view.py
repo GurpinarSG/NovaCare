@@ -49,7 +49,8 @@ class JunkCleanThread(QThread):
         try:
             freed, cleaned, failed = self.cleaner.clean_categories(
                 self.selected_ids,
-                progress_callback=lambda name, cur, tot: self.progress.emit(name, cur, tot)
+                progress_callback=lambda name, cur, tot: self.progress.emit(name, cur, tot),
+                file_progress_callback=lambda name, cur_f, tot_f: self.progress.emit(f"{name} ({cur_f}/{tot_f})", 0, -1)
             )
         except Exception as e:
             log_debug(f"JunkCleanThread error: {e}")
@@ -269,9 +270,12 @@ class JunkView(QWidget):
         self.clean_thread.start()
 
     def _on_clean_progress(self, name: str, cur: int, total: int):
-        pct = int((cur / max(1, total)) * 100)
-        self.progress_bar.setValue(pct)
-        self.lbl_status.setText(f"Temizleniyor ({cur}/{total}): {name}...")
+        if total > 0:
+            pct = int((cur / max(1, total)) * 100)
+            self.progress_bar.setValue(pct)
+            self.lbl_status.setText(f"Temizleniyor ({cur}/{total}): {name}...")
+        else:
+            self.lbl_status.setText(f"Temizleniyor: {name}...")
 
     def _on_clean_finished(self, freed: int, cleaned_count: int, failed_count: int):
         self.progress_bar.setVisible(False)

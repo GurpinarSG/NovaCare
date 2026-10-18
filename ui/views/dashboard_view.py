@@ -3,6 +3,7 @@ NovaCare System Suite - Dashboard View (1-Click Care & Performance)
 Signature 1-Click Scan & Repair, Game & Ultimate Performance Booster,
 Real-Time CPU/GPU Hardware & Temperature Telemetry, and Desktop Overlay.
 """
+from typing import Optional
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QProgressBar,
     QGridLayout, QFrame, QScrollArea, QMessageBox
@@ -103,40 +104,102 @@ class DashboardScanWorker(QThread):
             self.finished.emit(results)
 
 class DashboardFixWorker(QThread):
-    progress = pyqtSignal(str, int)
+    progress = pyqtSignal(str, int) # msg, pct
     finished = pyqtSignal(int, int, int) # freed_bytes, reg_fixed, traces_cleaned
 
+    def __init__(
+        self,
+        junk_cleaner: Optional[JunkCleaner] = None,
+        reg_cleaner: Optional[RegistryCleaner] = None,
+        privacy_tweaker: Optional[PrivacyTweaker] = None
+    ):
+        super().__init__()
+        self.junk_cleaner = junk_cleaner or JunkCleaner()
+        self.reg_cleaner = reg_cleaner or RegistryCleaner()
+        self.privacy_tweaker = privacy_tweaker or PrivacyTweaker()
+        self.mem_booster = MemoryBooster()
+
     def run(self):
+        from core.utils import log_debug
         freed_bytes = 0
         reg_fixed = 0
         traces_cleaned = 0
+
+        self.progress.emit("Onarım motoru başlatılıyor...", 5)
+
+        # 1. Junk Files Cleaning (5% -> 55%)
         try:
-            self.progress.emit("Gereksiz dosyalar temizleniyor...", 20)
-            junk_cleaner = JunkCleaner()
-            cats = junk_cleaner.scan_all()
-            freed_bytes, _, _ = junk_cleaner.clean_categories({c.id for c in cats})
+            # Check if categories already contain scanned files
+            has_scanned = any(c.found_files or c.size > 0 or c.is_recycle_bin for c in self.junk_cleaner.categories)
+            if not has_scanned:
+                self.progress.emit("Gereksiz dosyalar analiz ediliyor...", 10)
+                cats = self.junk_cleaner.scan_all()
+            else:
+                cats = self.junk_cleaner.categories
 
-            self.progress.emit("Kayıt defteri sorunları güvenle onarılıyor...", 60)
-            reg_cleaner = RegistryCleaner()
-            issues = reg_cleaner.scan_all()
-            reg_fixed, _, _ = reg_cleaner.fix_issues(issues)
+            cat_ids = {c.id for c in cats}
+            total_cats = max(1, len(cat_ids))
 
-            self.progress.emit("Gizlilik izleri temizleniyor...", 85)
-            privacy = PrivacyTweaker()
-            traces = privacy.scan_privacy_traces()
-            traces_cleaned = privacy.clean_privacy_traces({t.id for t in traces})
+            def _on_cat_prog(cname, cur_cat, tot_c):
+                pct = int(12 + (cur_cat / max(1, tot_c)) * 40)
+                self.progress.emit(f"Temizleniyor: {cname}...", min(54, pct))
 
-            # Memory boost
-            mem = MemoryBooster()
-            mem.optimize_ram()
+            def _on_file_prog(cname, cur_f, tot_f):
+                pct = int(15 + (cur_f / max(1, tot_f)) * 38)
+                self.progress.emit(f"{cname} ({cur_f}/{tot_f})...", min(54, pct))
 
-            self.progress.emit("Onarım başarıyla tamamlandı!", 100)
+            self.progress.emit("Gereksiz dosyalar temizleniyor...", 15)
+            f_freed, _, _ = self.junk_cleaner.clean_categories(
+                cat_ids,
+                progress_callback=_on_cat_prog,
+                file_progress_callback=_on_file_prog
+            )
+            freed_bytes = f_freed
         except Exception as e:
-            from core.utils import log_debug
-            log_debug(f"DashboardFixWorker error: {e}")
-            self.progress.emit("İşlem tamamlandı!", 100)
-        finally:
-            self.finished.emit(freed_bytes, reg_fixed, traces_cleaned)
+            log_debug(f"DashboardFixWorker Junk cleaning error: {e}")
+
+        # 2. Registry Issues Fixing (55% -> 80%)
+        try:
+            self.progress.emit("Kayıt Defteri sorunları onarılıyor...", 55)
+            if not self.reg_cleaner.issues:
+                issues = self.reg_cleaner.scan_all()
+            else:
+                issues = self.reg_cleaner.issues
+
+            total_issues = len(issues)
+            if total_issues > 0:
+                def _on_reg_prog(cat_name, cur_i, tot_i):
+                    pct = int(55 + (cur_i / max(1, tot_i)) * 24)
+                    self.progress.emit(f"Kayıt defteri onarılıyor ({cur_i}/{tot_i}): {cat_name}...", min(79, pct))
+
+                r_fixed, _, _ = self.reg_cleaner.fix_issues(issues, progress_callback=_on_reg_prog)
+                reg_fixed = r_fixed
+            else:
+                reg_fixed = 0
+                self.progress.emit("Kayıt defteri temiz.", 78)
+        except Exception as e:
+            log_debug(f"DashboardFixWorker Registry fix error: {e}")
+
+        # 3. Privacy Traces Cleaning (80% -> 90%)
+        try:
+            self.progress.emit("Gizlilik ve geçmiş izleri temizleniyor...", 80)
+            traces = self.privacy_tweaker.scan_privacy_traces()
+            traces_cleaned = self.privacy_tweaker.clean_privacy_traces({t.id for t in traces})
+            self.progress.emit("Gizlilik izleri temizlendi.", 88)
+        except Exception as e:
+            log_debug(f"DashboardFixWorker Privacy traces error: {e}")
+
+        # 4. Memory Optimization (90% -> 98%)
+        try:
+            self.progress.emit("RAM çalışma kümeleri optimize ediliyor...", 90)
+            self.mem_booster.optimize_ram(max_seconds=3.0)
+            self.progress.emit("Sistem belleği optimize edildi.", 97)
+        except Exception as e:
+            log_debug(f"DashboardFixWorker Memory booster error: {e}")
+
+        # Finished successfully
+        self.progress.emit("Onarım başarıyla tamamlandı!", 100)
+        self.finished.emit(freed_bytes, reg_fixed, traces_cleaned)
 
 class DashboardView(QWidget):
     def __init__(self, parent=None):
@@ -429,10 +492,17 @@ class DashboardView(QWidget):
 
     def _on_scan_progress(self, msg: str, pct: int):
         self.lbl_status.setText(msg)
-        self.progress_bar.setValue(pct)
+        if pct >= 0:
+            self.progress_bar.setValue(pct)
 
     def _on_scan_finished(self, results: dict):
         self.last_results = results
+        # Retain scanned cleaner state so fix does not require redundant re-scanning
+        if self.scan_worker:
+            self.scanned_junk_cleaner = getattr(self.scan_worker, 'junk_cleaner', None)
+            self.scanned_reg_cleaner = getattr(self.scan_worker, 'reg_cleaner', None)
+            self.scanned_privacy_tweaker = getattr(self.scan_worker, 'privacy_tweaker', None)
+
         self.progress_bar.setVisible(False)
         self.btn_action.setEnabled(True)
 
@@ -460,7 +530,12 @@ class DashboardView(QWidget):
         self.progress_bar.setValue(0)
         self.lbl_status.setText("Sistem temizleniyor ve onarılıyor...")
 
-        self.fix_worker = DashboardFixWorker()
+        # Pass already scanned objects to avoid duplicate scanning freeze
+        self.fix_worker = DashboardFixWorker(
+            junk_cleaner=getattr(self, 'scanned_junk_cleaner', None),
+            reg_cleaner=getattr(self, 'scanned_reg_cleaner', None),
+            privacy_tweaker=getattr(self, 'scanned_privacy_tweaker', None)
+        )
         self.fix_worker.progress.connect(self._on_scan_progress)
         self.fix_worker.finished.connect(self._on_fix_finished)
         self.fix_worker.start()
@@ -469,6 +544,11 @@ class DashboardView(QWidget):
         self.progress_bar.setVisible(False)
         self.btn_action.setEnabled(True)
         self.gauge.score = 100
+
+        # Invalidate old scan caches
+        self.scanned_junk_cleaner = None
+        self.scanned_reg_cleaner = None
+        self.scanned_privacy_tweaker = None
 
         freed_str = format_bytes(freed_bytes)
         self.card_junk.set_value("0 B", "Temizlendi")
@@ -484,7 +564,10 @@ class DashboardView(QWidget):
             if has_admin else
             " (💡 Daha derin sistem temizliği için Yönetici Modu önerilir)"
         )
-        self.lbl_status.setText(f"Tebrikler! <b>{freed_str}</b> disk alanı boşaltıldı ve sisteminiz optimize edildi.{admin_note}")
+        if freed_bytes > 0 or reg_fixed > 0 or traces_cleaned > 0:
+            self.lbl_status.setText(f"Tebrikler! <b>{freed_str}</b> disk alanı boşaltıldı ve sisteminiz optimize edildi.{admin_note}")
+        else:
+            self.lbl_status.setText(f"Tebrikler! Sisteminiz zaten temiz durumda ve RAM çalışma kümeleri optimize edildi.{admin_note}")
 
         self.btn_action.setText("🚀  TEK TIKLA SİSTEMİ TARA")
         self.btn_action.setObjectName("BigScanBtn")

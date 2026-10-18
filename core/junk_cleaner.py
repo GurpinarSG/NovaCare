@@ -198,7 +198,7 @@ class JunkCleaner:
         return self.categories
 
     def _scan_folder_recursive(self, path: str, cat: CleanerCategory, depth: int = 0):
-        if depth > 10:  # Prevent cyclic or extreme folder structures
+        if depth > 8:  # Prevent cyclic or extreme folder structures
             return
 
         # CRITICAL SAFETY: Never scan running PyInstaller bundle or NovaCare directories
@@ -219,6 +219,10 @@ class JunkCleaner:
                         if e_name.startswith('_mei') or 'novacare' in e_name:
                             continue
 
+                        # Avoid traversing symlinks and junction points
+                        if entry.is_symlink():
+                            continue
+
                         if entry.is_file(follow_symlinks=False):
                             sz = entry.stat().st_size
                             cat.size += sz
@@ -234,12 +238,16 @@ class JunkCleaner:
     def clean_categories(
         self,
         category_ids: set[str],
-        progress_callback: Optional[Callable[[str, int, int], None]] = None
+        progress_callback: Optional[Callable[[str, int, int], None]] = None,
+        file_progress_callback: Optional[Callable[[str, int, int], None]] = None
     ) -> tuple[int, int, int]:
         """
-        Cleans selected categories.
+        Cleans selected categories with fine-grained file progress and anti-freeze guards.
         Returns: (freed_bytes, cleaned_files_count, failed_files_count)
         """
+        import time
+        from core.utils import log_debug
+
         total_freed = 0
         cleaned_count = 0
         failed_count = 0
@@ -255,16 +263,26 @@ class JunkCleaner:
                 progress_callback(cat.name, idx + 1, total_ops)
 
             if cat.is_recycle_bin:
-                # Query before empty
                 sz, count = query_recycle_bin()
-                if empty_recycle_bin():
+                if empty_recycle_bin(timeout_sec=5.0):
                     total_freed += sz
                     cleaned_count += count
                 cat.size = 0
                 cat.file_count = 0
                 continue
 
-            for f_path in cat.found_files:
+            total_cat_files = len(cat.found_files)
+            consecutive_locks = 0
+            is_browser_cat = cat.id.startswith("browser_")
+            last_progress_time = time.time()
+
+            for f_idx, f_path in enumerate(cat.found_files, 1):
+                # Throttle file-level progress to avoid UI flooding (every 40 files or ~120ms)
+                now = time.time()
+                if file_progress_callback and (f_idx % 40 == 0 or now - last_progress_time > 0.12 or f_idx == total_cat_files):
+                    file_progress_callback(cat.name, f_idx, total_cat_files)
+                    last_progress_time = now
+
                 try:
                     norm_fp = os.path.normpath(f_path).lower()
                     if meipass_norm and norm_fp.startswith(meipass_norm):
@@ -272,30 +290,47 @@ class JunkCleaner:
                     if '\\_mei' in norm_fp or '/_mei' in norm_fp or 'novacare' in norm_fp:
                         continue
 
-                    if os.path.isfile(f_path):
-                        sz = os.path.getsize(f_path)
-                        if safe_remove_file(f_path):
-                            total_freed += sz
-                            cleaned_count += 1
-                        else:
-                            failed_count += 1
+                    if safe_remove_file(f_path):
+                        # Approximate size from original scan or stat
+                        try:
+                            sz = os.path.getsize(f_path)
+                        except Exception:
+                            sz = 0
+                        total_freed += sz
+                        cleaned_count += 1
+                        consecutive_locks = 0
+                    else:
+                        failed_count += 1
+                        if is_browser_cat:
+                            consecutive_locks += 1
+                            # Fast-skip if browser is running and holding open locks
+                            if consecutive_locks >= 25:
+                                log_debug(f"JunkCleaner: {cat.name} açık olduğu için kilitli önbellek atlandı.")
+                                failed_count += (total_cat_files - f_idx)
+                                break
                 except Exception:
                     failed_count += 1
 
-            # Remove empty subdirectories in cleaned paths
-            for p in cat.paths:
-                if os.path.exists(p) and cat.id not in ("system_temp", "user_temp"):
-                    try:
-                        for root, dirs, files in os.walk(p, topdown=False, followlinks=False, onerror=lambda _: None):
-                            for d in dirs:
-                                dir_to_check = os.path.join(root, d)
-                                try:
-                                    if not os.listdir(dir_to_check):
-                                        os.rmdir(dir_to_check)
-                                except OSError:
-                                    pass
-                    except Exception:
-                        pass
+            # Remove empty subdirectories ONLY for safe disposable cache categories
+            # NEVER attempt rmdir in system directories like C:\Windows\Logs, Explorer, or Panther
+            safe_rmdir_cats = {"user_temp", "system_temp", "apps_cache"}
+            if cat.id in safe_rmdir_cats:
+                for p in cat.paths:
+                    if os.path.exists(p):
+                        try:
+                            for root, dirs, _ in os.walk(p, topdown=False, followlinks=False):
+                                # Don't delete root path itself
+                                if root == p:
+                                    continue
+                                for d in dirs:
+                                    dir_to_check = os.path.join(root, d)
+                                    try:
+                                        if not os.listdir(dir_to_check):
+                                            os.rmdir(dir_to_check)
+                                    except (OSError, PermissionError):
+                                        pass
+                        except Exception:
+                            pass
 
             # Reset counts after cleanup
             cat.size = 0

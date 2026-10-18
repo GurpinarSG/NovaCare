@@ -2,6 +2,27 @@
 
 Tüm önemli değişiklikler, yeni özellikler, hata düzeltmeleri ve optimizasyonlar bu belgede kronolojik olarak kayıt altına alınmaktadır.
 
+## 🚀 [v1.1.6] - 2026-10-18
+
+### ⚡ Tek Tıkla Onarma Motoru Hızlandırması & Takılma Koruması (1-Click Repair Anti-Freeze Engine)
+* **Mükerrer Tarama Kaldırıldı (Anında Onarım Başlatma):**
+  * Kullanıcı "Tek Tıkla Sistemi Tara" yaptıktan sonra "Şimdi Onar" butonuna bastığında tüm diskin ve kayıt defterinin ikinci kez baştan taranması engellendi. Taranan dosya ve hata nesneleri doğrudan onarım motoruna devredilerek onarımın 1 saniyede başlaması sağlandı.
+* **Açık Tarayıcı Dosya Kilidi Koruması (Fast-Skip Engine):**
+  * Arka planda açık olan tarayıcıların (Google Chrome, Microsoft Edge, Brave) kilitli önbellek dosyalarında (`Cache_Data`) programın dakikalarca beklemesini engelleyen akıllı atlama mekanizması geliştirildi. Açık tarayıcı tespit edildiğinde kilitli dosyalar pürüzsüzce atlanır; program asla donmaz.
+* **Akıcı Mikro İlerleme Göstergesi (Fluid Real-Time Progress):**
+  * Onarım ilerleme çubuğunun %20 (dosya temizliği) ve %60 (kayıt defteri onarımı) seviyelerinde donup kalması sorunu çözüldü. Dosyalar silinirken ve anahtarlar onarılırken arayüze anlık mikro sayaç ve yüzde bilgisi (`Google Chrome (420/1,500)... %28`) aktarılır.
+* **Asenkron Zaman Aşımı Zırhı (Timeout Armor):**
+  * Geri Dönüşüm Kutusu boşaltma çağrısına (`SHEmptyRecycleBinW`) 5 saniyelik güvenlik zaman aşımı eklendi; kilitli, harici veya yavaş disklerin tüm uygulamayı dondurması engellendi.
+  * RAM çalışma kümesi optimizasyonuna 3.5 saniyelik zaman bütçesi ve kritik Windows sistem süreçleri (`System`, `Registry`, `smss.exe`, `csrss.exe`, `services.exe`) hariç tutma filtresi eklendi.
+* **Yüksek Hızlı Dosya Silme & Windows Uzun Yol Desteği (`\\?\`):**
+  * `safe_remove_file` fonksiyonundaki gereksiz çift disk I/O kontrolleri kaldırılarak doğrudan silme hızlandırıldı (2 ila 4 kat daha hızlı dosya silme).
+  * 240+ karakterden uzun dosya yolları için Windows `\\?\` öneki desteği eklendi.
+  * Sistem dizinlerinde (`C:\Windows\Logs`, `Panther`, `Explorer`) gereksiz `rmdir` alt klasör taramaları tamamen kaldırılarak disk kilitlenmeleri önlendi.
+* **İzole Hata Yönetimi:**
+  * Onarım motorundaki 4 aşama (Gereksiz Dosyalar, Kayıt Defteri, Gizlilik, RAM) birbirinden izole edildi; tek bir izin uyarısında tüm sürecin kesilmesi engellendi.
+
+---
+
 ## 🚀 [v1.1.5] - 2026-10-17
 
 ### 🎯 Program Kaldırıcı Seçim & Metin Düzenleme Hatası Onarımı (Uninstaller Fixes)
