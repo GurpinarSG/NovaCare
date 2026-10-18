@@ -88,7 +88,7 @@ class ConfigManager:
     def get_display_version(self) -> str:
         """Returns formatted version string for UI display, e.g. 'v1.0.0 (Derleme: c77c7b8)'."""
         base_v = self.get_version()
-        mode = self.settings.get("update_mode", "branch")
+        mode = self.settings.get("update_mode", "release")
         sha = self.settings.get("local_commit_sha", "")
         if mode == "branch" and sha:
             return f"v{base_v} (Derleme: {sha[:7]})"
@@ -141,6 +141,10 @@ class ConfigManager:
                 for k, v in defaults.items():
                     if k not in data:
                         data[k] = v
+                # Migrate legacy branch update_mode to release
+                if data.get("update_mode") == "branch":
+                    data["update_mode"] = "release"
+                    self._save(data)
                 # Remove any plaintext token legacy leak if present
                 if "github_token" in data:
                     data.pop("github_token", None)

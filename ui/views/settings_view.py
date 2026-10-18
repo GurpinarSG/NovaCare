@@ -42,7 +42,7 @@ class ManualAutoCleanWorker(QThread):
 class CheckUpdateThread(QThread):
     finished = pyqtSignal(object) # UpdateInfo or Exception
 
-    def __init__(self, repo: str, token: str = "", mode: str = "branch"):
+    def __init__(self, repo: str, token: str = "", mode: str = "release"):
         super().__init__()
         self.repo = repo
         self.token = token
@@ -592,7 +592,7 @@ class SettingsView(QWidget):
 
         repo = self.config.get("github_repo", "GurpinarSG/NovaCare")
         token = self.config.get_secure_token()
-        mode = self.config.get("update_mode", "branch")
+        mode = self.config.get("update_mode", "release")
         self.check_thread = CheckUpdateThread(repo, token=token, mode=mode)
         self.check_thread.finished.connect(self._on_check_finished)
         self.check_thread.start()
