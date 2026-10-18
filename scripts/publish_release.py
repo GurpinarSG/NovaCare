@@ -232,7 +232,8 @@ def create_release(tag_name: str, release_title: Optional[str] = None, changelog
         "name": title,
         "body": body,
         "draft": False,
-        "prerelease": False
+        "prerelease": False,
+        "make_latest": "true"
     }
 
     try:

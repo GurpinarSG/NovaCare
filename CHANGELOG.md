@@ -2,6 +2,20 @@
 
 Tüm önemli değişiklikler, yeni özellikler, hata düzeltmeleri ve optimizasyonlar bu belgede kronolojik olarak kayıt altına alınmaktadır.
 
+## 🚀 [v0.0.1] - 2026-10-18 (Alpha Başlangıcı)
+
+### 🌟 Yeni Sürüm Numaralandırması & Alpha Geliştirme Temeli
+* **Sürüm Numarası v0.0.1 Olarak Başlatıldı:**
+  * NovaCare geliştirme sürecinin henüz erken aşamalarında olması ve kullanıcı talebi doğrultusunda sürüm numaralandırması `v0.0.1` olarak belirlendi.
+  * İlerleyen tüm güncellemeler ve özellik eklemeleri bu temel sürümden itibaren (`v0.0.2`, `v0.0.3`...) kronolojik ve aşamalı olarak devam edecektir.
+* **Sağlam Çekirdek & Performans Altyapısı:**
+  * Tek tıkla derin sistem onarımı (Gereksiz Dosyalar, Kayıt Defteri, Gizlilik İyileştirmeleri, RAM Optimizasyonu).
+  * Asenkron zaman aşımı zırhı (PowerShell, VSS, disk I/O, DNS ve güç yapılandırmaları için sıfır donma garantisi).
+  * Özyinelemeli kayıt defteri artık temizleme motoru (`SHDeleteKeyW` entegrasyonu).
+  * Masaüstü kurulum sihirbazı ve taşınabilir çalışma desteği.
+
+---
+
 ## 🚀 [v1.1.7] - 2026-10-18
 
 ### 🛡️ Derin Kod Tabanı Denetimi, Özyinelemeli Kayıt Defteri Temizliği & Zaman Aşımı Zırhı

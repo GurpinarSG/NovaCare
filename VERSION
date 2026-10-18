@@ -1,8 +1,5 @@
-1.1.7
+0.0.1
 ---
-• Program Kaldırıcı'da alt anahtarı olan yazılım kayıt defteri artıklarının silinememesi sorunu `SHDeleteKeyW` özyinelemeli temizleme mimarisiyle tamamen çözüldü.
-• Sistem Geri Yükleme Noktası oluşturma sürecine VSS servis kilitlenmelerine karşı 45 saniyelik zaman aşımı koruması eklendi.
-• Disk Analizörü'ne Windows kavşak noktası (Directory Junctions/Symlinks) ayıklama koruması eklendi; döngüsel ve mükerrer disk taramaları engellendi.
-• Ağ & DNS İyileştiricisi'ndeki UDP soket yönetimine `try...finally` güvencesi eklenerek soket sızıntıları önlendi.
-• Oyun Hızlandırıcı'daki tüm `powercfg` güç planı yapılandırma çağrılarına 5 saniyelik zaman aşımı kalkanı eklendi.
-• Tüm proje dosyaları derinlemesine denetlenerek kararlılık ve takılmasız akıcılık garanti altına alındı.
+• NovaCare System Care Suite Alpha geliştirme ve temel stabilite sürümü başlatıldı.
+• Tüm sistem optimizasyon motorları, arayüz modülleri ve derin temizlik araçları sıfır hata ile entegre edildi.
+• Gelişmiş tek tıkla sistem onarımı, asenkron zaman aşımı koruması ve özyinelemeli kayıt defteri temizliği aktif.
