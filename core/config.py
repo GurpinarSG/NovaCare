@@ -103,7 +103,7 @@ class ConfigManager:
         return {
             "version": CURRENT_VERSION,
             "github_repo": DEFAULT_GITHUB_REPO,
-            "update_mode": "branch",       # "branch" (anında klasör/commit takibi) or "release"
+            "update_mode": "release",      # "release" (derlenmiş NovaCare.exe paketi) or "branch"
             "target_branch": DEFAULT_BRANCH,
             "local_commit_sha": DEFAULT_COMMIT_SHA,
             "auto_check_updates": True,

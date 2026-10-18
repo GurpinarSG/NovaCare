@@ -110,20 +110,27 @@ class GitHubUpdater:
 
     def check_for_updates(self, mode: Optional[str] = None) -> UpdateInfo:
         """
-        Checks for updates according to mode ('branch' for commit tracking or 'release').
-        Default mode is read from config.
+        Checks for updates.
+        CRITICAL: If running as a frozen executable (NovaCare.exe), ALWAYS track official Releases
+        to download compiled binary packages (NovaCare_Update.zip containing NovaCare.exe).
+        Raw source code zipballs only contain .py scripts and cannot update a frozen PyInstaller binary!
         """
-        current_mode = mode or self.config.get("update_mode", "branch")
-        if current_mode == "branch":
-            return self._check_branch_commits()
-        else:
+        if getattr(sys, 'frozen', False):
             return self._check_releases()
+
+        current_mode = mode or self.config.get("update_mode", "release")
+        if current_mode == "release":
+            return self._check_releases()
+        else:
+            return self._check_branch_commits()
 
     def _check_branch_commits(self) -> UpdateInfo:
         """
-        Inspects the latest commit on the repository branch (e.g. 'main').
-        Whenever you push or edit files directly on GitHub, this detects it instantly!
+        Inspects the latest commit on the repository branch (e.g. 'main') for source development mode.
         """
+        if getattr(sys, 'frozen', False):
+            return self._check_releases()
+
         commits_url = f"https://api.github.com/repos/{self.repo}/commits/{self.branch}"
         local_sha = self.config.get("local_commit_sha", "")
 
@@ -317,6 +324,7 @@ class GitHubUpdater:
             self.config.set("local_commit_sha", new_commit_sha)
 
         # 2. Synchronize version: check VERSION file in extracted source_dir, or explicit new_version
+        clean_ver_num = ""
         v_file = os.path.join(source_dir, "VERSION")
         if os.path.exists(v_file):
             try:
@@ -324,13 +332,18 @@ class GitHubUpdater:
                     from core.config import parse_version_content
                     extracted_ver, _ = parse_version_content(vf.read())
                     if extracted_ver:
+                        clean_ver_num = extracted_ver
                         self.config.set("version", extracted_ver)
             except Exception:
                 pass
         elif new_version:
             from core.config import parse_version_content
             clean_nv, _ = parse_version_content(new_version)
+            clean_ver_num = clean_nv
             self.config.set("version", clean_nv)
+
+        if not clean_ver_num:
+            clean_ver_num = self.config.get_version()
 
         # Create apply_update.bat with UTF-8 and chcp 65001 for flawless Turkish characters support
         if getattr(sys, 'frozen', False):
@@ -345,7 +358,10 @@ class GitHubUpdater:
         with open(batch_path, "w", encoding="utf-8") as bf:
             bf.write(f"""@echo off
 chcp 65001 > nul
-title NovaCare Guncelleme Uygulaniyor...
+title NovaCare Guncelleme Yoneticisi
+echo ========================================================
+echo   NovaCare System Care Suite - Guncelleme Uygulaniyor
+echo ========================================================
 echo NovaCare yeni surum dosyalari yukleniyor, lutfen bekleyin...
 
 :: PyInstaller onefile child-process validation variables strip
@@ -355,18 +371,37 @@ set _PYI_APPLICATION_HOME_DIR=
 set _PYI_ARCHIVE_FILE=
 set _PYI_SPLASH_IPC=
 
-:: Onceki NovaCare surecinin tamamen kapanmasini bekle (dosya kilidi kalmasin)
-for /l %%i in (1,1,15) do (
+:: Onceki tum NovaCare sureclerini kesin olarak sonlandir (dosya kilidi kalmasin)
+taskkill /f /im NovaCare.exe > nul 2>&1
+timeout /t 1 /nobreak > nul
+
+for /l %%i in (1,1,10) do (
     tasklist /fi "imagename eq NovaCare.exe" 2>nul | find /i "NovaCare.exe" >nul
     if errorlevel 1 (
         goto ready_to_copy
     )
+    taskkill /f /im NovaCare.exe > nul 2>&1
     timeout /t 1 /nobreak > nul
 )
 
 :ready_to_copy
-:: Guncel dosyalari uygulama klasorune kopyala (Turkce karakter ve bosluk tam destekli)
+:: 1. Eger guncelleme paketinde yeni derlenmis NovaCare.exe varsa once onu kopyala ve dogrula
+if exist "{source_dir}\\NovaCare.exe" (
+    for /l %%k in (1,1,6) do (
+        copy /y "{source_dir}\\NovaCare.exe" "{app_root}\\NovaCare.exe" > nul 2>&1
+        if not errorlevel 1 goto exe_copied
+        taskkill /f /im NovaCare.exe > nul 2>&1
+        timeout /t 1 /nobreak > nul
+    )
+)
+:exe_copied
+
+:: 2. Tum guncel varliklari ve dosyalari kopyala (assets, VERSION, CHANGELOG vb.)
 xcopy /s /e /y /i /q "{source_dir}\\*" "{app_root}\\" > nul 2>&1
+
+:: 3. Windows Kayit Defterindeki DisplayVersion degerini de guncelle
+reg add "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\NovaCare" /v "DisplayVersion" /d "{clean_ver_num}" /f > nul 2>&1
+reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\NovaCare" /v "DisplayVersion" /d "{clean_ver_num}" /f > nul 2>&1
 
 echo Guncelleme basariyla tamamlandi. NovaCare yeniden baslatiliyor...
 timeout /t 1 /nobreak > nul

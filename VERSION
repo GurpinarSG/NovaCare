@@ -1,6 +1,6 @@
-1.2.0
+1.2.1
 ---
-• Genel Sağlık (General Health) Kategorisi: Kullanıcı talebi doğrultusunda Pil Sağlığı ve Disk Sağlığı tek bir gelişmiş "Genel Sağlık" kategorisi altında Fluent alt sekmelerle birleştirildi.
-• Masaüstü & Dizüstü Akıllı Uyarlanabilirlik: Pil sekmesi masaüstü bilgisayarlarda otomatik gizlenerek arayüz karmaşası önlendi; dizüstü bilgisayarlarda hem Disk S.M.A.R.T. hem de Pil & Güç Teşhisi sekmeleri sunuldu.
-• Fiziksel Disk S.M.A.R.T. Kart Onarımı: Disk kartlarının çizilmesini engelleyen nesne özelliği hatası (operational_status) giderildi; NVMe SSD, SATA SSD ve mekanik HDD disklerin sıcaklık, aşınma ve sağlık raporları anında listeleniyor.
-• Denetim Masası Kaldırma İzni (UAC 740) Çözümü: Windows Kaldırma kaydı HKEY_LOCAL_MACHINE mimarisine geçirilerek yetki uyarısı tamamen çözüldü.
+• Kritik Güncelleme Yöneticisi Düzeltmesi (İkili Dosya Değiştirme Garantisi): Derlenmiş NovaCare.exe çalışırken ham kaynak kod zipball'u yerine doğrudan resmi GitHub Release varlığı olan NovaCare_Update.zip paketinin indirilmesi zorunlu kılındı.
+• Yürütülebilir Dosya Değiştirme Motoru: apply_update.bat betiğine eski NovaCare.exe süreçlerini sonlandırma (taskkill) ve 6 kademeli doğrulanmış ikili dosya kopyalama/yeniden deneme mekanizması eklendi; diğer bilgisayarlarda güncellemelerin sadece sürüm numarasını değil tüm program kodlarını eksiksiz güncellemesi garanti altına alındı.
+• Genel Sağlık (General Health) Kategorisi: Disk Sağlığı (S.M.A.R.T.) ve Pil Sağlığı tek bir gelişmiş arayüz altında Fluent sekmelerle birleştirildi. Masaüstü bilgisayarlarda pil sekmesi otomatik gizlendi.
+• Fiziksel Disk S.M.A.R.T. Kart Onarımı: Disk kartlarının çiziminde yaşanan operational_status hatası giderildi.

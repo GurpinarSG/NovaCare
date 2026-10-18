@@ -2,6 +2,20 @@
 
 Tüm önemli değişiklikler, yeni özellikler, hata düzeltmeleri ve optimizasyonlar bu belgede kronolojik olarak kayıt altına alınmaktadır.
 
+## 🚀 [v1.2.1] - 2026-10-19
+
+### ⚡ Kritik Güncelleme Yöneticisi Düzeltmesi (İkili Dosya Değiştirme Garantisi)
+* **Derlenmiş İkili Paket İndirme Zorunluluğu:**
+  * Diğer bilgisayarlarda güncelleme yapıldığında sadece sürüm numarasının değişmesi ve kod değişikliklerinin uygulanmaması sorunu çözüldü.
+  * Sorunun kök nedeni: `NovaCare.exe` derlenmiş ikili (frozen) olarak çalışırken, eski güncelleme motorunun varsayılan olarak dal takibi (`branch`) modunda çalışıp GitHub'dan sadece ham `.py` kaynak kodlarını içeren kaynak zipball'unu indirmesiydi. Derlenmiş `NovaCare.exe` diskteki `.py` dosyalarını değil kendi içindeki gömülü baytkodu çalıştırdığı için kodlar güncellenmiyordu.
+  * Artık derlenmiş yürütülebilir dosyalar (`getattr(sys, 'frozen', False) == True`) istisnasız olarak doğrudan GitHub Release altında yayınlanan ve içinde güncel `NovaCare.exe` bulunan resmi derlenmiş ikili paketi (`NovaCare_Update.zip`) indirir.
+* **Akıllı Süreç Sonlandırma & Yeniden Deneme (apply_update.bat):**
+  * Eski `NovaCare.exe` süreçlerinin arka planda açık kalarak dosya kilidi oluşturmasını önlemek için betiğe zorunlu `taskkill /f /im NovaCare.exe` ve 10 adımlı süreç kontrolü eklendi.
+  * Yeni `NovaCare.exe` dosyasını hedef klasöre kopyalarken 6 kademeli doğrulanmış yeniden deneme döngüsü oluşturuldu; Windows dosya kilidi nedeniyle dosya kopyalamanın başarısız olması ve sessizce atlanması engellendi.
+  * Güncelleme sonrasında Windows Kayıt Defterindeki (`HKLM` ve `HKCU`) `DisplayVersion` değerleri otomatik olarak yeni sürüme güncellenir.
+
+---
+
 ## 🚀 [v1.2.0] - 2026-10-19
 
 ### 🩺 "Genel Sağlık" Birleşik Teşhis Paneli (Disk & Pil Sağlığı)

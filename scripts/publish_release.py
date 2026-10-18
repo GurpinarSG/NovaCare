@@ -297,8 +297,19 @@ def create_release(tag_name: str, release_title: Optional[str] = None, changelog
     update_file = os.path.join(rel_folder, "NovaCare_Update.zip")
     portable_file = os.path.join(rel_folder, f"NovaCare_v{clean_tag}_Portable.zip")
 
-    if core_exe and (not os.path.exists(update_file) or not os.path.exists(portable_file)):
-        print("  [*] Güncelleme ve Taşınabilir paketler sıkıştırılıyor...")
+    if core_exe:
+        print(f"  [*] Güncelleme ve Taşınabilir paketler sıkıştırılıyor ({core_exe})...")
+        if os.path.exists(update_file):
+            try:
+                os.remove(update_file)
+            except Exception:
+                pass
+        if os.path.exists(portable_file):
+            try:
+                os.remove(portable_file)
+            except Exception:
+                pass
+
         with zipfile.ZipFile(update_file, "w", zipfile.ZIP_DEFLATED) as zf:
             zf.write(core_exe, "NovaCare.exe")
             v_p = os.path.join(ROOT_DIR, "VERSION")
