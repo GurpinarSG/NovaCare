@@ -1,4 +1,4 @@
-0.0.3
+0.1.8
 ---
 • Donanım Sağlığı & Disk S.M.A.R.T. Takibi: Fiziksel SSD/HDD sağlık yüzdesi, aşınma/TBW, sıcaklık, çalışma saati ve donanım sensörleri sekmesi eklendi.
 • Şeffaf Mini Masaüstü Widget'ı: Ekran köşesine yerleşen yarı saydam şık gösterge (CPU, RAM, Ağ İndirme/Yükleme Hızı ve tek tıkla ⚡ Hızlı RAM Temizleme butonu).
