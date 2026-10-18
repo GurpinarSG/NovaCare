@@ -2,6 +2,23 @@
 
 Tüm önemli değişiklikler, yeni özellikler, hata düzeltmeleri ve optimizasyonlar bu belgede kronolojik olarak kayıt altına alınmaktadır.
 
+## 🚀 [v0.0.2] - 2026-10-18
+
+### 🌐 Ağ ve DNS Optimize Edici Pencere Uyumu & Duyarlı Tasarım (Responsive UI)
+* **Pencere Boyutuna Duyarlı Esnek Düzen (Responsive Layout):**
+  * Ağ & DNS İyileştirici görünümündeki (`NetworkView`) tüm bileşenler pencere genişliği ve yüksekliğine tam uyum sağlayacak şekilde yeniden tasarlandı.
+  * Bağdaştırıcı seçici, mevcut DNS rozeti ve işlem butonlarının tek bir satıra sığdırılması sonucu oluşan yatay taşma (horizontal overflow) ve istenmeyen yatay kaydırma çubuğu tamamen ortadan kaldırıldı.
+  * Minimum pencere boyutundan (940x580) 4K tam ekran çözünürlüğe kadar tüm butonlar, tablolar ve bilgi panelleri kusursuz hizalanır.
+* **Ergonomik İki Kademeli Kontrol Mimarisi:**
+  * **Hızlı Ağ Onarımı:** DNS önbellek temizliği (`ipconfig /flushdns`) ve Winsock protokol sıfırlama araçları üst karta kompakt şekilde yerleştirildi.
+  * **DNS Benchmark ve Sunucu Yönetimi:** Ağ bağdaştırıcı seçimi ve DNS durum rozeti bağımsız bir üst bantta; hız testi ve atama butonları ise kendi araç çubuğunda ergonomik olarak konumlandırıldı.
+* **Optimize Edilmiş DNS Kataloğu Tablosu:**
+  * Tablo sütunları (Sağlayıcı, IP Adresleri, Açıklama, Ping ve İşlem) dinamik esneme (`Stretch`) ve içerik genişlikleriyle dengelendi.
+  * Tablo yüksekliği 7 ana DNS sağlayıcısının tamamını iç kaydırmaya gerek kalmadan tek bakışta gösterecek şekilde yapılandırıldı.
+  * Tablo içerisindeki "Uygula" butonları hücre içerisine dikey ve yatay olarak ortalanarak modern bir görünüm kazandırıldı.
+
+---
+
 ## 🚀 [v0.0.1] - 2026-10-18 (Alpha Başlangıcı)
 
 ### 🌟 Yeni Sürüm Numaralandırması & Alpha Geliştirme Temeli

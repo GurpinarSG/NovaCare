@@ -6,7 +6,7 @@ and complete network stack (Winsock, TCP/IP, flushdns) repair.
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTableWidget,
     QTableWidgetItem, QHeaderView, QFrame, QScrollArea, QComboBox, QMessageBox,
-    QAbstractItemView
+    QAbstractItemView, QSizePolicy
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QColor, QFont
@@ -74,14 +74,15 @@ class NetworkView(QWidget):
         # Scroll Area for clean overflow
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         scroll.setObjectName("NetworkScroll")
         scroll.setStyleSheet("QScrollArea#NetworkScroll { background: transparent; border: none; } QWidget#NetworkContainer { background: transparent; }")
 
         container = QWidget()
         container.setObjectName("NetworkContainer")
         layout = QVBoxLayout(container)
-        layout.setContentsMargins(28, 24, 28, 24)
-        layout.setSpacing(20)
+        layout.setContentsMargins(28, 20, 28, 20)
+        layout.setSpacing(16)
 
         # 1. Header
         header = QVBoxLayout()
@@ -100,17 +101,27 @@ class NetworkView(QWidget):
         repair_card = QFrame()
         repair_card.setObjectName("CardFrame")
         r_layout = QVBoxLayout(repair_card)
-        r_layout.setContentsMargins(18, 16, 18, 16)
-        r_layout.setSpacing(12)
+        r_layout.setContentsMargins(18, 14, 18, 14)
+        r_layout.setSpacing(10)
 
+        r_top = QHBoxLayout()
+        r_top.setSpacing(12)
         lbl_r_title = QLabel("⚡  Hızlı Ağ Onarımı ve Çözümleyici")
         lbl_r_title.setStyleSheet("font-size: 14px; font-weight: 700;")
-        r_layout.addWidget(lbl_r_title)
+        r_top.addWidget(lbl_r_title)
+
+        r_top.addStretch()
+
+        self.lbl_repair_status = QLabel("Ağ durumu normal. Bağlantı sorunlarında önbellek temizliğini kullanabilirsiniz.")
+        self.lbl_repair_status.setStyleSheet(f"font-size: 12px; color: {COLOR_SUCCESS}; font-weight: 500;")
+        self.lbl_repair_status.setWordWrap(True)
+        r_top.addWidget(self.lbl_repair_status)
+        r_layout.addLayout(r_top)
 
         r_btns = QHBoxLayout()
-        r_btns.setSpacing(12)
+        r_btns.setSpacing(10)
 
-        self.btn_flush = QPushButton("🧹  DNS Önbelleğini Temizle")
+        self.btn_flush = QPushButton("🧹  DNS Önbelleğini Temizle (Flush DNS)")
         self.btn_flush.setToolTip("Windows DNS çözümleyici önbelleğini (ipconfig /flushdns) anında temizler")
         self.btn_flush.setCursor(Qt.PointingHandCursor)
         self.btn_flush.setProperty("class", "secondary-btn")
@@ -127,75 +138,96 @@ class NetworkView(QWidget):
         r_btns.addStretch()
         r_layout.addLayout(r_btns)
 
-        self.lbl_repair_status = QLabel("Ağ durumu normal. Bağlantı sorunlarında önbellek temizliğini kullanabilirsiniz.")
-        self.lbl_repair_status.setStyleSheet(f"font-size: 12px; color: {COLOR_SUCCESS};")
-        self.lbl_repair_status.setWordWrap(True)
-        r_layout.addWidget(self.lbl_repair_status)
-
         layout.addWidget(repair_card)
 
         # 3. DNS Benchmark & Switcher Card
         dns_card = QFrame()
         dns_card.setObjectName("CardFrame")
         d_layout = QVBoxLayout(dns_card)
-        d_layout.setContentsMargins(18, 16, 18, 16)
-        d_layout.setSpacing(14)
+        d_layout.setContentsMargins(18, 14, 18, 14)
+        d_layout.setSpacing(12)
 
-        # Top Bar: Adapter Selector & Current DNS
-        top_row = QHBoxLayout()
-        top_row.setSpacing(12)
+        # Card Title
+        lbl_dns_title = QLabel("🌐  DNS Sunucuları ve Hız Kıyaslama Kataloğu")
+        lbl_dns_title.setStyleSheet("font-size: 14px; font-weight: 700;")
+        d_layout.addWidget(lbl_dns_title)
 
-        lbl_adapter = QLabel("Bağdaştırıcı:")
+        # Row 1: Adapter Selector & Current DNS Badge
+        row_adapter = QHBoxLayout()
+        row_adapter.setSpacing(10)
+
+        lbl_adapter = QLabel("Ağ Bağdaştırıcısı:")
         lbl_adapter.setStyleSheet("font-weight: 600; font-size: 12px;")
-        top_row.addWidget(lbl_adapter)
+        row_adapter.addWidget(lbl_adapter)
 
         self.combo_adapters = QComboBox()
         self.combo_adapters.setMinimumWidth(180)
+        self.combo_adapters.setStyleSheet("padding: 5px 10px; font-weight: 600; font-size: 12px;")
         self.combo_adapters.currentIndexChanged.connect(self._on_adapter_changed)
-        top_row.addWidget(self.combo_adapters)
+        row_adapter.addWidget(self.combo_adapters)
 
         self.lbl_current_dns = QLabel("Mevcut DNS: Yükleniyor...")
-        self.lbl_current_dns.setStyleSheet(f"font-size: 12px; color: {COLOR_ACCENT}; font-weight: 600;")
-        top_row.addWidget(self.lbl_current_dns)
+        self.lbl_current_dns.setStyleSheet(f"""
+            background: rgba(2, 132, 199, 0.12);
+            color: {COLOR_ACCENT};
+            font-size: 12px;
+            font-weight: 600;
+            padding: 5px 12px;
+            border-radius: 6px;
+            border: 1px solid rgba(2, 132, 199, 0.25);
+        """)
+        row_adapter.addWidget(self.lbl_current_dns)
 
-        top_row.addStretch()
+        row_adapter.addStretch()
+        d_layout.addLayout(row_adapter)
+
+        # Row 2: Actions Toolbar (Benchmark, Apply Fastest, Reset DHCP)
+        row_toolbar = QHBoxLayout()
+        row_toolbar.setSpacing(10)
 
         self.btn_benchmark = QPushButton("📊  DNS Hızlarını Test Et")
         self.btn_benchmark.setCursor(Qt.PointingHandCursor)
         self.btn_benchmark.setProperty("class", "primary-btn")
         self.btn_benchmark.clicked.connect(self._start_dns_benchmark)
-        top_row.addWidget(self.btn_benchmark)
+        row_toolbar.addWidget(self.btn_benchmark)
 
         self.btn_apply_fastest = QPushButton("⚡  En Hızlı DNS'i Ata")
         self.btn_apply_fastest.setCursor(Qt.PointingHandCursor)
         self.btn_apply_fastest.setProperty("class", "success-btn")
         self.btn_apply_fastest.setEnabled(False)
         self.btn_apply_fastest.clicked.connect(self._apply_fastest_dns)
-        top_row.addWidget(self.btn_apply_fastest)
+        row_toolbar.addWidget(self.btn_apply_fastest)
 
         self.btn_reset_dhcp = QPushButton("↩️  DHCP'ye Sıfırla")
         self.btn_reset_dhcp.setCursor(Qt.PointingHandCursor)
         self.btn_reset_dhcp.setProperty("class", "secondary-btn")
         self.btn_reset_dhcp.clicked.connect(self._reset_adapter_to_dhcp)
-        top_row.addWidget(self.btn_reset_dhcp)
+        row_toolbar.addWidget(self.btn_reset_dhcp)
 
-        d_layout.addLayout(top_row)
+        row_toolbar.addStretch()
+        d_layout.addLayout(row_toolbar)
 
         # Table of DNS providers
         self.table = QTableWidget()
         self.table.setColumnCount(5)
         self.table.setHorizontalHeaderLabels([
-            "DNS Sağlayıcısı", "Sunucu Adresleri", "Özellik / Güvenlik", "Gecikme (Ping)", "İşlem"
+            "DNS Sağlayıcısı", "Sunucu Adresleri", "Özellik / Güvenlik Koruması", "Gecikme (Ping)", "İşlem"
         ])
-        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
-        self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)
         self.table.verticalHeader().setVisible(False)
+        self.table.verticalHeader().setDefaultSectionSize(40)
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Interactive)
+        self.table.setColumnWidth(0, 160)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Interactive)
+        self.table.setColumnWidth(1, 150)
+        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Interactive)
+        self.table.setColumnWidth(3, 110)
+        self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Interactive)
+        self.table.setColumnWidth(4, 95)
         self.table.setSelectionMode(QTableWidget.NoSelection)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.table.setMinimumHeight(240)
+        self.table.setMinimumHeight(320)
+        self.table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         d_layout.addWidget(self.table)
 
         layout.addWidget(dns_card)
@@ -235,32 +267,39 @@ class NetworkView(QWidget):
         if dns_info["is_dhcp"]:
             srvs = ", ".join(dns_info["servers"]) if dns_info["servers"] else "Otomatik Ağ Ataması"
             self.lbl_current_dns.setText(f"Mevcut DNS: Otomatik (DHCP) [{srvs}]")
+            self.lbl_current_dns.setToolTip(f"Ağ bağdaştırıcısı DNS adreslerini DHCP üzerinden otomatik alıyor.\nAdresler: {srvs}")
         else:
             srvs = ", ".join(dns_info["servers"]) if dns_info["servers"] else "Statik"
             self.lbl_current_dns.setText(f"Mevcut DNS: Statik [{srvs}]")
+            self.lbl_current_dns.setToolTip(f"Ağ bağdaştırıcısına atanmış statik DNS adresleri: {srvs}")
 
     def _populate_table(self, servers: list[DNSServerInfo]):
         self.table.setUpdatesEnabled(False)
         try:
             self.table.setRowCount(len(servers))
+            theme = get_active_theme_colors()
             for row, s in enumerate(servers):
-                # Name
+                # 1. Name with bold font
                 name_item = QTableWidgetItem(f"  {s.name}")
+                f_name = name_item.font()
+                f_name.setBold(True)
+                name_item.setFont(f_name)
                 name_item.setFlags(Qt.ItemIsEnabled)
                 self.table.setItem(row, 0, name_item)
 
-                # IPs
-                ip_item = QTableWidgetItem(f"{s.primary} / {s.secondary}")
+                # 2. IP Addresses
+                ip_item = QTableWidgetItem(f"{s.primary}   /   {s.secondary}")
+                ip_item.setTextAlignment(Qt.AlignVCenter | Qt.AlignLeft)
                 ip_item.setFlags(Qt.ItemIsEnabled)
                 self.table.setItem(row, 1, ip_item)
 
-                # Description
+                # 3. Description with tooltip
                 desc_item = QTableWidgetItem(s.description)
+                desc_item.setToolTip(s.description)
                 desc_item.setFlags(Qt.ItemIsEnabled)
                 self.table.setItem(row, 2, desc_item)
 
-                # Latency Badge
-                theme = get_active_theme_colors()
+                # 4. Latency Badge
                 if s.latency_ms is not None:
                     lat_str = f"{s.latency_ms} ms"
                     color = theme["COLOR_SUCCESS"] if s.latency_ms < 60 else (theme["COLOR_WARNING"] if s.latency_ms < 100 else theme["COLOR_DANGER"])
@@ -277,12 +316,20 @@ class NetworkView(QWidget):
                 lat_item.setFlags(Qt.ItemIsEnabled)
                 self.table.setItem(row, 3, lat_item)
 
-                # Action button
+                # 5. Centered Action button
                 btn_use = QPushButton("Uygula")
                 btn_use.setCursor(Qt.PointingHandCursor)
                 btn_use.setProperty("class", "secondary-btn")
+                btn_use.setFixedHeight(28)
+                btn_use.setFixedWidth(75)
                 btn_use.clicked.connect(lambda checked, srv=s: self._apply_dns(srv))
-                self.table.setCellWidget(row, 4, btn_use)
+
+                cell_w = QWidget()
+                cell_l = QHBoxLayout(cell_w)
+                cell_l.setContentsMargins(4, 2, 4, 2)
+                cell_l.setAlignment(Qt.AlignCenter)
+                cell_l.addWidget(btn_use)
+                self.table.setCellWidget(row, 4, cell_w)
         finally:
             self.table.setUpdatesEnabled(True)
 

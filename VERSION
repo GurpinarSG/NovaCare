@@ -1,5 +1,6 @@
-0.0.1
+0.0.2
 ---
-• NovaCare System Care Suite Alpha geliştirme ve temel stabilite sürümü başlatıldı.
-• Tüm sistem optimizasyon motorları, arayüz modülleri ve derin temizlik araçları sıfır hata ile entegre edildi.
-• Gelişmiş tek tıkla sistem onarımı, asenkron zaman aşımı koruması ve özyinelemeli kayıt defteri temizliği aktif.
+• Ağ ve DNS Optimize Edici arayüzü pencere boyutuna göre dinamik ve tam duyarlı (responsive) hale getirildi.
+• Yatay taşmalar ve istenmeyen kaydırma çubukları tamamen engellendi; 940x580'den 4K'ya kadar tüm çözünürlüklerde pürüzsüz görünüm sağlandı.
+• Ağ bağdaştırıcı durumu, mevcut DNS rozeti ve işlem araç çubuğu ergonomik şekilde yeniden konumlandırıldı.
+• DNS kataloğu tablosu tüm sağlayıcıları iç kaydırma gerektirmeden tek bakışta sunacak şekilde optimize edildi.
