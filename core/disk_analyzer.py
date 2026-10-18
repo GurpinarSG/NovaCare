@@ -96,34 +96,50 @@ class DiskAnalyzer:
         if not target_dir or not os.path.exists(target_dir):
             return found
 
-        for root, dirs, files in os.walk(target_dir, onerror=lambda _: None):
+        # ⚡ Bolt: Optimize directory traversal using os.scandir with stack
+        # Avoids os.walk + os.stat overhead, caching stat info (especially faster on Windows)
+        dirs_to_scan = [target_dir]
+
+        while dirs_to_scan:
             if cancel_check and cancel_check():
                 break
-            for fname in files:
-                if cancel_check and cancel_check():
-                    break
-                scanned_count += 1
-                if scanned_count % 500 == 0 and progress_callback:
-                    progress_callback(root, scanned_count)
 
-                fpath = os.path.join(root, fname)
-                try:
-                    # Ignore symbolic links to avoid loops
-                    st = os.stat(fpath, follow_symlinks=False)
-                    sz = st.st_size
-                    if sz >= min_bytes:
-                        _, ext = os.path.splitext(fname)
-                        cat = self._determine_category(ext)
-                        found.append(LargeFileInfo(
-                            path=fpath,
-                            name=fname,
-                            size_bytes=sz,
-                            size_str=format_bytes(sz),
-                            category=cat,
-                            extension=ext.lower()
-                        ))
-                except (PermissionError, FileNotFoundError, OSError):
-                    continue
+            current_dir = dirs_to_scan.pop()
+            try:
+                with os.scandir(current_dir) as it:
+                    for entry in it:
+                        if cancel_check and cancel_check():
+                            break
+
+                        # Ignore symlinks to avoid loops
+                        if entry.is_symlink():
+                            continue
+
+                        if entry.is_dir(follow_symlinks=False):
+                            dirs_to_scan.append(entry.path)
+                        elif entry.is_file(follow_symlinks=False):
+                            scanned_count += 1
+                            if scanned_count % 500 == 0 and progress_callback:
+                                progress_callback(current_dir, scanned_count)
+
+                            try:
+                                sz = entry.stat(follow_symlinks=False).st_size
+                                if sz >= min_bytes:
+                                    fname = entry.name
+                                    _, ext = os.path.splitext(fname)
+                                    cat = self._determine_category(ext)
+                                    found.append(LargeFileInfo(
+                                        path=entry.path,
+                                        name=fname,
+                                        size_bytes=sz,
+                                        size_str=format_bytes(sz),
+                                        category=cat,
+                                        extension=ext.lower()
+                                    ))
+                            except (PermissionError, FileNotFoundError, OSError):
+                                continue
+            except (PermissionError, FileNotFoundError, OSError):
+                pass
 
         # Sort descending by size
         found.sort(key=lambda x: x.size_bytes, reverse=True)

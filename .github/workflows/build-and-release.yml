@@ -46,7 +46,7 @@ jobs:
       - name: Create Portable Zip Package
         shell: pwsh
         run: |
-          $ver = (Get-Content VERSION).Trim()
+          $ver = (Get-Content VERSION | Select-Object -First 1).Trim()
           $zipName = "NovaCare_v${ver}_Portable.zip"
           Compress-Archive -Path NovaCare.exe, CHANGELOG.md, README.md, LICENSE, app.manifest -DestinationPath $zipName -Force
 
