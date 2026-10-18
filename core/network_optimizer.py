@@ -188,17 +188,19 @@ class NetworkOptimizer:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.settimeout(timeout)
 
-        for _ in range(repeats):
-            t0 = time.perf_counter()
-            try:
-                sock.sendto(query, (server_ip, 53))
-                data, _ = sock.recvfrom(512)
-                lat = (time.perf_counter() - t0) * 1000.0
-                latencies.append(lat)
-            except Exception:
-                pass
+        try:
+            for _ in range(repeats):
+                t0 = time.perf_counter()
+                try:
+                    sock.sendto(query, (server_ip, 53))
+                    data, _ = sock.recvfrom(512)
+                    lat = (time.perf_counter() - t0) * 1000.0
+                    latencies.append(lat)
+                except Exception:
+                    pass
+        finally:
+            sock.close()
 
-        sock.close()
         return min(latencies) if latencies else None
 
     def benchmark_all_dns(self) -> list[DNSServerInfo]:

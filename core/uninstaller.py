@@ -9,7 +9,7 @@ import subprocess
 import shlex
 from dataclasses import dataclass, field
 from typing import Optional
-from core.utils import format_bytes, safe_remove_directory, safe_remove_file
+from core.utils import format_bytes, safe_remove_directory, safe_remove_file, delete_registry_key_tree
 
 @dataclass
 class InstalledApp:
@@ -239,11 +239,10 @@ class AppUninstaller:
                     if len(parts) == 2:
                         rname, sub = parts
                         root = winreg.HKEY_CURRENT_USER if rname == "HKCU" else winreg.HKEY_LOCAL_MACHINE
-                        # Delete subkey tree safely
-                        try:
-                            winreg.DeleteKey(root, sub)
+                        # Delete subkey tree recursively and safely
+                        if delete_registry_key_tree(root, sub):
                             cleaned += 1
-                        except OSError:
+                        else:
                             failed += 1
             except Exception:
                 failed += 1

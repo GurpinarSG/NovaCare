@@ -242,4 +242,46 @@ def log_debug(msg: str):
     except Exception:
         pass
 
+def delete_registry_key_tree(root_key, subkey_path: str) -> bool:
+    """
+    Recursively deletes a Windows registry key and all of its subkeys and values.
+    Standard winreg.DeleteKey fails if subkeys exist.
+    Uses SHDeleteKeyW with recursive winreg enumeration fallback.
+    """
+    if sys.platform != 'win32' or not subkey_path:
+        return False
+
+    # 1. Try SHDeleteKeyW from shlwapi.dll (fastest, atomic Win32 API)
+    try:
+        shlwapi = ctypes.windll.shlwapi
+        shlwapi.SHDeleteKeyW.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p]
+        shlwapi.SHDeleteKeyW.restype = ctypes.c_long
+        hkey_val = int(root_key)
+        res = shlwapi.SHDeleteKeyW(ctypes.c_void_p(hkey_val), subkey_path)
+        if res == 0:
+            return True
+    except Exception:
+        pass
+
+    # 2. Recursive fallback via winreg
+    try:
+        import winreg
+        def _delete_subkeys(key_handle):
+            while True:
+                try:
+                    sub = winreg.EnumKey(key_handle, 0)
+                    with winreg.OpenKey(key_handle, sub, 0, winreg.KEY_READ | winreg.KEY_WRITE) as child:
+                        _delete_subkeys(child)
+                    winreg.DeleteKey(key_handle, sub)
+                except OSError:
+                    break
+
+        with winreg.OpenKey(root_key, subkey_path, 0, winreg.KEY_READ | winreg.KEY_WRITE) as key:
+            _delete_subkeys(key)
+        winreg.DeleteKey(root_key, subkey_path)
+        return True
+    except Exception:
+        return False
+
+
 

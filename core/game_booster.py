@@ -45,7 +45,7 @@ class GameBooster:
         """Returns the active Windows power scheme GUID and name."""
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         try:
-            out = subprocess.check_output("powercfg /getactivescheme", shell=True, creationflags=flags).decode("cp1254", errors="ignore")
+            out = subprocess.check_output("powercfg /getactivescheme", shell=True, timeout=5, creationflags=flags).decode("cp1254", errors="ignore")
             m = re.search(r"([a-f0-9\-]{36})\s+\((.*?)\)", out, re.I)
             if m:
                 return m.group(1), m.group(2)
@@ -57,7 +57,7 @@ class GameBooster:
         """Finds or creates Windows Ultimate Performance power plan."""
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         try:
-            out = subprocess.check_output("powercfg /list", shell=True, creationflags=flags).decode("cp1254", errors="ignore")
+            out = subprocess.check_output("powercfg /list", shell=True, timeout=5, creationflags=flags).decode("cp1254", errors="ignore")
             # 1. Search for existing Ultimate / Nihai plan
             for line in out.splitlines():
                 if "nihai" in line.lower() or "ultimate" in line.lower():
@@ -69,6 +69,7 @@ class GameBooster:
             dup_out = subprocess.check_output(
                 "powercfg -duplicatescheme e9a42b02-d5df-448d-aa00-03f14749eb61",
                 shell=True,
+                timeout=5,
                 creationflags=flags
             ).decode("cp1254", errors="ignore")
             m = re.search(r"([a-f0-9\-]{36})", dup_out, re.I)
@@ -111,7 +112,7 @@ class GameBooster:
         # Switch power plan
         ultimate_guid = self.ensure_ultimate_power_plan()
         if ultimate_guid:
-            subprocess.run(["powercfg", "/setactive", ultimate_guid], capture_output=True, creationflags=flags)
+            subprocess.run(["powercfg", "/setactive", ultimate_guid], capture_output=True, timeout=5, creationflags=flags)
 
         # Optimize RAM
         booster = MemoryBooster()
@@ -153,7 +154,7 @@ class GameBooster:
         # 1. Restore power scheme
         prev_guid = state.get("previous_power_guid")
         if prev_guid:
-            subprocess.run(["powercfg", "/setactive", prev_guid], capture_output=True, creationflags=flags)
+            subprocess.run(["powercfg", "/setactive", prev_guid], capture_output=True, timeout=5, creationflags=flags)
 
         # 2. Restart previously stopped services
         stopped_svcs = state.get("stopped_services", [])

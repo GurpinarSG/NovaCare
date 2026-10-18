@@ -99,6 +99,8 @@ class DiskAnalyzer:
         for root, dirs, files in os.walk(target_dir, onerror=lambda _: None):
             if cancel_check and cancel_check():
                 break
+            # Prune directory symlinks/junctions to prevent infinite loops or redundant scans
+            dirs[:] = [d for d in dirs if not os.path.islink(os.path.join(root, d))]
             for fname in files:
                 if cancel_check and cancel_check():
                     break

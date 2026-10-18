@@ -102,7 +102,7 @@ class BackupManager:
         cmd = f'powershell.exe -ExecutionPolicy Bypass -Command "Checkpoint-Computer -Description \\"{description}\\" -RestorePointType \\"MODIFY_SETTINGS\\""'
         try:
             flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
-            res = subprocess.run(cmd, shell=True, capture_output=True, text=True, creationflags=flags)
+            res = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=45, creationflags=flags)
             return res.returncode == 0
         except Exception:
             return False

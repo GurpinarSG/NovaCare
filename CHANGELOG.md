@@ -2,6 +2,25 @@
 
 Tüm önemli değişiklikler, yeni özellikler, hata düzeltmeleri ve optimizasyonlar bu belgede kronolojik olarak kayıt altına alınmaktadır.
 
+## 🚀 [v1.1.7] - 2026-10-18
+
+### 🛡️ Derin Kod Tabanı Denetimi, Özyinelemeli Kayıt Defteri Temizliği & Zaman Aşımı Zırhı
+* **Özyinelemeli Kayıt Defteri Artık Temizliği (`delete_registry_key_tree`):**
+  * Windows'un yerel `winreg.DeleteKey` kısıtlaması nedeniyle alt anahtara sahip yazılım kayıtlarının silinememesi (`Access Denied / WinError 5`) hatası kökten giderildi.
+  * Windows `shlwapi.dll` API'sinin `SHDeleteKeyW` fonksiyonu ve `winreg` özyinelemeli arama geri dönüş mekanizması (`delete_registry_key_tree`) geliştirilerek `core/utils.py` ve `core/uninstaller.py` modüllerine entegre edildi. Kaldırılan programların tüm dalları ve alt anahtarları artık eksiksiz temizlenir.
+* **Geri Yükleme Noktası Zaman Aşımı Kalkanı (VSS Shield):**
+  * `core/backup_manager.py` içerisinde PowerShell `Checkpoint-Computer` komutuna 45 saniyelik zaman aşımı koruması eklendi. Windows Birim Gölge Kopyası (VSS) veya Geri Yükleme hizmeti yanıt vermediğinde uygulamanın arka planda kilitlenmesi engellendi.
+* **Disk & Büyük Dosya Analizörü Kavşak Noktası (Junction) Filtresi:**
+  * `core/disk_analyzer.py` içerisindeki `os.walk` tarama döngüsüne Windows dizin kavşak noktalarını (`Directory Junctions / Symlinks` - e.g. `Application Data -> AppData\Roaming`) ayıran filtre eklendi. Mükerrer klasör taramaları ve olası sonsuz döngüler önlendi.
+* **DNS Gecikme Ölçümleyicisi Soket Koruması:**
+  * `core/network_optimizer.py` içerisindeki ham UDP DNS sorgulama fonksiyonu `try...finally: sock.close()` yapısına alınarak istisnai paket düşmelerinde dahi soket tanımlayıcısı (socket descriptor) sızıntısı oluşması engellendi.
+* **Oyun Hızlandırıcısı Güç Planı Zaman Aşımı Koruma Kalkanı:**
+  * `core/game_booster.py` içerisindeki tüm `powercfg` (`/getactivescheme`, `/list`, `-duplicatescheme`, `/setactive`) çağrılarına 5 saniyelik zaman aşımı parametresi eklendi; Windows güç RPC hizmetindeki gecikmelerde uygulamanın donması engellendi.
+* **Tüm Dosyalarda Derinlemesine Sağlamlık & Hata Ayıklama Denetimi:**
+  * 45 Python dosyasının tamamı (`core/`, `ui/`, `scripts/`, `main.py`) sıfır sözdizimi, sıfır içe aktarma ve sıfır mantıksal uyarı ile test edilerek onaylandı.
+
+---
+
 ## 🚀 [v1.1.6] - 2026-10-18
 
 ### ⚡ Tek Tıkla Onarma Motoru Hızlandırması & Takılma Koruması (1-Click Repair Anti-Freeze Engine)
