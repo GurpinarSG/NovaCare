@@ -53,6 +53,8 @@ class HardwareHealthView(QWidget):
         self.disks: list[DiskHealthInfo] = []
 
         self._init_ui()
+        # Immediately populate live hardware sensors (CPU, RAM, GPU, Power) with zero lag
+        self._refresh_live_sensors()
         self._start_scan()
 
         # Live hardware refresh timer (every 3 seconds)
@@ -143,11 +145,17 @@ class HardwareHealthView(QWidget):
         self.btn_refresh.setText("🔄  S.M.A.R.T. Verilerini Yenile")
         self.disks = disks
 
-        # Update Hardware Cards
-        self._update_hw_cards(hw_stats, bat_info)
+        try:
+            # Update Hardware Cards
+            self._update_hw_cards(hw_stats, bat_info)
+        except Exception as e:
+            log_debug(f"_update_hw_cards error: {e}")
 
-        # Render Disk SMART Cards
-        self._render_disk_cards(disks)
+        try:
+            # Render Disk SMART Cards
+            self._render_disk_cards(disks)
+        except Exception as e:
+            log_debug(f"_render_disk_cards error: {e}")
 
     def _refresh_live_sensors(self):
         """Ultra-fast non-blocking live refresh of CPU, GPU, RAM stats."""
@@ -182,10 +190,11 @@ class HardwareHealthView(QWidget):
 
         if bat_info and bat_info.has_battery:
             health_color = theme["COLOR_SUCCESS"] if bat_info.health_percent >= 80 else theme["COLOR_WARNING"]
-            status_text = "Şarj Oluyor" if bat_info.is_charging else "Pilde"
+            is_chg = getattr(bat_info, 'is_charging', getattr(bat_info, 'power_plugged', False))
+            status_text = "Şarj Oluyor" if is_chg else "Pilde"
             self.card_power.set_value(
                 f"%{bat_info.percent} ({status_text})",
-                f"Pil Sağlığı: %{bat_info.health_percent} | {bat_info.cycle_count} Döngü"
+                f"Pil Sağlığı: %{bat_info.health_percent:.0f} | {bat_info.cycle_count} Döngü"
             )
         else:
             self.card_power.set_value("Şebeke Gücü", "Masaüstü / Kesintisiz Güç")

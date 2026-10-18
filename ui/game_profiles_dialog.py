@@ -162,7 +162,7 @@ class GameProfilesDialog(QDialog):
             # 0. Name
             item_name = QTableWidgetItem(f"🎮  {p.get('name', 'Bilinmeyen Oyun')}")
             item_name.setFont(QFont("Segoe UI", 10, QFont.Bold))
-            self.table.setItem(row, item_name)
+            self.table.setItem(row, 0, item_name)
 
             # 1. Executable
             item_exe = QTableWidgetItem(p.get("exe", ""))

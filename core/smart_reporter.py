@@ -45,10 +45,16 @@ class SmartReporter:
         disks: list[DiskHealthInfo] = []
         try:
             ps_code = """
+            $partMap = @{}
+            Get-Partition -ErrorAction SilentlyContinue | Where-Object { $_.DriveLetter } | ForEach-Object {
+                $dn = [string]$_.DiskNumber
+                if (-not $partMap.ContainsKey($dn)) { $partMap[$dn] = @() }
+                $partMap[$dn] += ($_.DriveLetter + ":")
+            }
             Get-PhysicalDisk | ForEach-Object {
                 $d = $_
                 $c = $d | Get-StorageReliabilityCounter -ErrorAction SilentlyContinue
-                $letters = ($d | Get-Disk -ErrorAction SilentlyContinue | Get-Partition -ErrorAction SilentlyContinue | Get-Volume -ErrorAction SilentlyContinue | Where-Object { $_.DriveLetter } | ForEach-Object { $_.DriveLetter + ":" }) -join ", "
+                $letters = if ($partMap.ContainsKey([string]$d.DeviceId)) { $partMap[[string]$d.DeviceId] -join ", " } else { "" }
                 [PSCustomObject]@{
                     DeviceId = $d.DeviceId
                     FriendlyName = $d.FriendlyName

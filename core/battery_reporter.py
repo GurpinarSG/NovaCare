@@ -32,6 +32,10 @@ class BatteryInfo:
     computer_model: str
     active_power_plan: str
 
+    @property
+    def is_charging(self) -> bool:
+        return self.power_plugged and self.percent < 98
+
 class BatteryReporter:
     _cached_hardware: Optional[dict] = None
     _cached_plan: str = "Dengeli (Varsayılan)"

@@ -423,10 +423,14 @@ class DashboardView(QWidget):
         self._sync_game_mode_ui()
 
     def _open_game_profiles(self):
-        from ui.game_profiles_dialog import GameProfilesDialog
-        dlg = GameProfilesDialog(self)
-        dlg.exec_()
-        self._sync_game_mode_ui()
+        try:
+            from ui.game_profiles_dialog import GameProfilesDialog
+            dlg = GameProfilesDialog(self)
+            dlg.exec_()
+            self._sync_game_mode_ui()
+        except Exception as e:
+            from core.utils import log_debug
+            log_debug(f"Error opening GameProfilesDialog: {e}")
 
     def _on_overlay_visibility_changed(self, visible: bool):
         if hasattr(self, 'btn_overlay'):
