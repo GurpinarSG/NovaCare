@@ -1,0 +1,3 @@
+## 2024-10-18 - Replacing os.walk with os.scandir in Windows Directory Scanners
+**Learning:** This codebase performs deep directory scans on Windows (e.g. `DiskAnalyzer.scan_largest_files`). The original approach used `os.walk` paired with `os.stat` inside the inner loop. On Windows, `os.stat` is notoriously slow when called individually per file.
+**Action:** Always prefer `os.scandir` over `os.walk` for file enumeration tasks. `os.scandir` caches `stat` results natively during the initial system call (especially in Windows), providing a massive speedup (often 3-5x faster). In `DiskAnalyzer`, we converted the recursive `os.walk` to a stack-based `os.scandir` loop, leveraging `entry.stat(follow_symlinks=False).st_size`.
