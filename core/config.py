@@ -24,13 +24,13 @@ def parse_version_content(content: str) -> tuple[str, str]:
     """
     lines = content.strip().splitlines()
     if not lines:
-        return "1.0.0", ""
+        return "0.0.1", ""
     first_line = lines[0].strip()
     m = re.search(r'(\d+\.\d+(?:\.\d+)?)', first_line)
     if m:
         ver = m.group(1)
     else:
-        ver = first_line.lstrip("vV").strip() or "1.0.0"
+        ver = first_line.lstrip("vV").strip() or "0.0.1"
 
     notes_lines = lines[1:]
     while notes_lines and notes_lines[0].strip() in ('---', '===', '***', '###', ''):
@@ -50,10 +50,10 @@ def load_version_and_notes() -> tuple[str, str]:
                 return parse_version_content(vf.read())
     except Exception:
         pass
-    return "1.0.0", ""
+    return "0.0.1", ""
 
 def load_base_version() -> str:
-    """Reads clean base version string from VERSION file (e.g. '1.0.5')."""
+    """Reads clean base version string from VERSION file (e.g. '0.0.1')."""
     ver, _ = load_version_and_notes()
     return ver
 
@@ -75,23 +75,15 @@ class ConfigManager:
         self.settings = self._load()
 
     def get_version(self) -> str:
-        """Returns clean base version string like '1.0.7', prioritizing the highest known version."""
+        """Returns clean base version string like '0.0.1' from VERSION file."""
         base_file_ver = load_base_version()
+        if base_file_ver:
+            if self.settings.get("version") != base_file_ver:
+                self.settings["version"] = base_file_ver
+                self._save(self.settings)
+            return base_file_ver
         stored_ver = self.settings.get("version", "").lstrip("vV").strip()
-        if not stored_ver:
-            return base_file_ver or "1.0.0"
-        if not base_file_ver:
-            return stored_ver
-
-        try:
-            import re
-            def to_tuple(v):
-                return tuple(int(x) for x in re.findall(r'\d+', v)) or (0, 0, 0)
-            if to_tuple(stored_ver) > to_tuple(base_file_ver):
-                return stored_ver
-        except Exception:
-            pass
-        return base_file_ver
+        return stored_ver or "0.0.1"
 
     def get_display_version(self) -> str:
         """Returns formatted version string for UI display, e.g. 'v1.0.0 (Derleme: c77c7b8)'."""
