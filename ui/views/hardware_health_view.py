@@ -182,7 +182,6 @@ class HardwareHealthView(QWidget):
             pass
 
     def _update_hw_cards(self, hw_stats: dict, bat_info: Optional[BatteryInfo]):
-        theme = get_active_theme_colors()
         if hw_stats:
             cpu_p = hw_stats.get("cpu_percent", 0)
             cpu_f = hw_stats.get("cpu_freq_ghz", 0.0)
@@ -204,7 +203,6 @@ class HardwareHealthView(QWidget):
             self.card_ram.set_value(f"%{ram_p:.0f}", f"{ram_u} / {ram_t} GB Kullanımda")
 
         if getattr(self, 'has_battery', True) and bat_info and bat_info.has_battery:
-            health_color = theme["COLOR_SUCCESS"] if bat_info.health_percent >= 80 else theme["COLOR_WARNING"]
             is_chg = getattr(bat_info, 'is_charging', getattr(bat_info, 'power_plugged', False))
             status_text = "Şarj Oluyor" if is_chg else "Pilde"
             self.card_power.set_value(
@@ -281,10 +279,11 @@ class HardwareHealthView(QWidget):
                 # Health Badge
                 pct = getattr(d, 'health_percent', 100)
                 h_col = theme["COLOR_SUCCESS"] if pct >= 85 else (theme["COLOR_WARNING"] if pct >= 60 else theme["COLOR_DANGER"])
+                bg_alpha = "rgba(16, 185, 129, 0.12)" if pct >= 85 else ("rgba(245, 158, 11, 0.15)" if pct >= 60 else "rgba(239, 68, 68, 0.15)")
                 status_tr = getattr(d, 'health_status_tr', 'Mükemmel')
                 lbl_health_badge = QLabel(f"  {status_tr}  ")
                 lbl_health_badge.setStyleSheet(f"""
-                    background-color: rgba(16, 185, 129, 0.12);
+                    background-color: {bg_alpha};
                     color: {h_col};
                     border: 1px solid {h_col};
                     border-radius: 6px;
@@ -330,7 +329,12 @@ class HardwareHealthView(QWidget):
                 # Power-on hours
                 poh = getattr(d, 'power_on_hours', None)
                 pod = getattr(d, 'power_on_days', None)
-                poh_str = f"{poh:,} saat (~{pod} gün)" if poh is not None else "Sayaç Yok / Desteklenmiyor"
+                if poh is not None:
+                    poh_str = f"{poh:,} saat (~{pod} gün)"
+                elif "NVME" in m_type_str:
+                    poh_str = "NVMe S.M.A.R.T. (Sağlık: %100)"
+                else:
+                    poh_str = "Sayaç Yok / Desteklenmiyor"
                 grid.addWidget(QLabel("⏱️  Toplam Çalışma Süresi:"), 0, 2)
                 grid.addWidget(QLabel(f"<b>{poh_str}</b>"), 0, 3)
 
@@ -342,8 +346,22 @@ class HardwareHealthView(QWidget):
 
                 # SMART Operational Status
                 op_text = str(getattr(d, 'operational_status', 'OK') or 'OK')
+                h_stat_lower = getattr(d, 'health_status', 'Healthy').lower()
+                is_healthy = (op_text.upper() in ("OK", "NORMAL")) and (h_stat_lower == "healthy")
+                is_warning = ("WARN" in op_text.upper() or h_stat_lower == "warning")
+
+                if is_healthy:
+                    op_col = theme["COLOR_SUCCESS"]
+                    op_desc = f"{op_text} (Arıza Riski Yok / Sağlıklı)"
+                elif is_warning:
+                    op_col = theme["COLOR_WARNING"]
+                    op_desc = f"{op_text} (Uyarı / Yıpranma Algılandı)"
+                else:
+                    op_col = theme["COLOR_DANGER"]
+                    op_desc = f"{op_text} (Kritik / Arıza Riski Mevcut)"
+
                 grid.addWidget(QLabel("🛡️  S.M.A.R.T. Durumu:"), 1, 2)
-                grid.addWidget(QLabel(f"<b style='color:{theme['COLOR_SUCCESS']};'>{op_text} (Arıza Riski Yok)</b>"), 1, 3)
+                grid.addWidget(QLabel(f"<b style='color:{op_col};'>{op_desc}</b>"), 1, 3)
 
                 c_lay.addLayout(grid)
                 self.disks_container.addWidget(card)

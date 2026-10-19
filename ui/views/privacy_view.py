@@ -367,7 +367,7 @@ class PrivacyView(QWidget):
 
         # Locked Browser Alert Banner (Hidden by default)
         self.frame_browser_locked = QFrame()
-        self.frame_browser_locked.setStyleSheet(f"""
+        self.frame_browser_locked.setStyleSheet("""
             background-color: rgba(251, 191, 36, 0.12);
             border: 1px solid rgba(251, 191, 36, 0.35);
             border-radius: 8px;

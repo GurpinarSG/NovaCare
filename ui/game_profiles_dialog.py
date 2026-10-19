@@ -77,7 +77,7 @@ class GameProfilesDialog(QDialog):
 
         # 2. Master Automation Switch Card
         sw_card = QFrame()
-        sw_card.setStyleSheet(f"""
+        sw_card.setStyleSheet("""
             QFrame {{
                 background-color: rgba(16, 185, 129, 0.08);
                 border: 1px solid rgba(16, 185, 129, 0.28);

@@ -124,7 +124,7 @@ def build_executable(onefile: bool = True):
                 pass
 
             print("\n" + "=" * 60)
-            print(f"  [✔] Derleme Başarılı! Tek Dosya EXE Hazır:")
+            print("  [✔] Derleme Başarılı! Tek Dosya EXE Hazır:")
             print(f"  Konum: {root_exe}")
             print(f"  Ayrıca: {target_exe}")
             print(f"  Boyut: {size_mb:.1f} MB")
@@ -136,7 +136,7 @@ def build_executable(onefile: bool = True):
         target_folder = os.path.join(dist_dir, "NovaCare")
         if os.path.exists(target_folder):
             print("\n" + "=" * 60)
-            print(f"  [✔] Derleme Başarılı! Taşınabilir Klasör Hazır:")
+            print("  [✔] Derleme Başarılı! Taşınabilir Klasör Hazır:")
             print(f"  Konum: {target_folder}")
             print("=" * 60)
             return True

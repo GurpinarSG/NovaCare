@@ -33,14 +33,19 @@ def get_base_dir():
 
 def _load_app_version():
     try:
+        from core.config import load_base_version
+        return load_base_version()
+    except Exception:
+        pass
+    try:
         base = get_base_dir()
         v_file = os.path.join(base, "VERSION")
         if os.path.exists(v_file):
             with open(v_file, "r", encoding="utf-8") as f:
-                return f.readline().strip()
+                return f.readline().strip().lstrip("vV")
     except Exception:
         pass
-    return "0.2.0"
+    return "1.2.1"
 
 # Version & Product Info
 APP_NAME = "NovaCare"

@@ -98,11 +98,15 @@ class BackupManager:
         return restored, failed
 
     def create_system_restore_point(self, description: str = "NovaCare Bakım Öncesi") -> bool:
-        """Invokes PowerShell to create a Windows System Restore Point."""
-        cmd = f'powershell.exe -ExecutionPolicy Bypass -Command "Checkpoint-Computer -Description \\"{description}\\" -RestorePointType \\"MODIFY_SETTINGS\\""'
+        """Invokes PowerShell to create a Windows System Restore Point, ensuring protection is enabled."""
+        cmd = (
+            f'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command '
+            f'"Enable-ComputerRestore -Drive \'C:\\\' -ErrorAction SilentlyContinue; '
+            f'Checkpoint-Computer -Description \\"{description}\\" -RestorePointType \\"MODIFY_SETTINGS\\""'
+        )
         try:
             flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
-            res = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=45, creationflags=flags)
+            res = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=50, creationflags=flags)
             return res.returncode == 0
         except Exception:
             return False

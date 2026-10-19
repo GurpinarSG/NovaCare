@@ -127,8 +127,6 @@ class StatCard(QFrame):
         self.setMinimumHeight(108)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
-        p = get_active_theme_colors()
-
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 12, 16, 12)
         layout.setSpacing(4)

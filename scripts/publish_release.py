@@ -62,7 +62,7 @@ def push_files_to_github(commit_msg: Optional[str] = None):
         return False
 
     print("=" * 65)
-    print(f"  NovaCare System Care - GitHub Kod Yükleyici")
+    print("  NovaCare System Care - GitHub Kod Yükleyici")
     print(f"  Hedef Depo: {REPO} (Dal: {BRANCH})")
     print("=" * 65)
 
@@ -354,7 +354,7 @@ def create_release(tag_name: str, release_title: Optional[str] = None, changelog
         upload_release_asset(upload_url, sums_file, "SHA256SUMS.txt", "text/plain")
 
     print("\n" + "=" * 65)
-    print(f"  [✔] GitHub Sürümü (Release) Başarıyla Yayınlandı!")
+    print("  [✔] GitHub Sürümü (Release) Başarıyla Yayınlandı!")
     print(f"  Sürüm Bağlantısı: {rel_data.get('html_url')}")
     print("=" * 65)
     return True

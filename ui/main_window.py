@@ -598,22 +598,8 @@ class MainWindow(QMainWindow):
                 w.show()
                 w.raise_()
 
-    def closeEvent(self, event):
-        if not getattr(self, '_force_exit', False) and self.config.get("close_to_tray", True):
-            event.ignore()
-            self.hide()
-            from core.memory_booster import MemoryBooster
-            MemoryBooster.trim_own_memory()
-            if hasattr(self, 'tray_icon') and self.tray_icon.isVisible():
-                self.tray_icon.showMessage(
-                    "NovaCare Arka Planda Çalışıyor",
-                    "NovaCare sisteminizi korumaya devam etmek için sistem tepsisine küçültüldü.",
-                    QSystemTrayIcon.Information,
-                    2000
-                )
-            return
-
-        # Clean shutdown of worker threads
+    def cleanup_workers(self):
+        """Cleanly stops all background worker threads before application shutdown."""
         try:
             if self.auto_check_thread and self.auto_check_thread.isRunning():
                 self.auto_check_thread.quit()
@@ -636,10 +622,26 @@ class MainWindow(QMainWindow):
             if hasattr(self, 'auto_game_watcher') and self.auto_game_watcher and self.auto_game_watcher.isRunning():
                 self.auto_game_watcher.stop()
                 self.auto_game_watcher.quit()
-                self.auto_game_watcher.wait(300)
+                self.auto_game_watcher.wait(1000)
             if hasattr(self.view_dashboard, 'overlay_widget') and self.view_dashboard.overlay_widget:
                 self.view_dashboard.overlay_widget.close()
         except Exception:
             pass
 
+    def closeEvent(self, event):
+        if not getattr(self, '_force_exit', False) and self.config.get("close_to_tray", True):
+            event.ignore()
+            self.hide()
+            from core.memory_booster import MemoryBooster
+            MemoryBooster.trim_own_memory()
+            if hasattr(self, 'tray_icon') and self.tray_icon.isVisible():
+                self.tray_icon.showMessage(
+                    "NovaCare Arka Planda Çalışıyor",
+                    "NovaCare sisteminizi korumaya devam etmek için sistem tepsisine küçültüldü.",
+                    QSystemTrayIcon.Information,
+                    2000
+                )
+            return
+
+        self.cleanup_workers()
         event.accept()

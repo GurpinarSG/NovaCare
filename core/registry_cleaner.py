@@ -196,7 +196,10 @@ class RegistryCleaner:
                                     clean_p = self._clean_path_string(os.path.expandvars(str(uninst_str)))
                                     # Check if exe path doesn't exist and isn't msiexec
                                     if clean_p and not os.path.exists(clean_p) and not 'msiexec' in clean_p.lower():
-                                        disp_name, _ = winreg.QueryValueEx(app_key, "DisplayName")
+                                        try:
+                                            disp_name, _ = winreg.QueryValueEx(app_key, "DisplayName")
+                                        except OSError:
+                                            disp_name = app_guid
                                         self.issues.append(RegistryIssue(
                                             id=f"uninst_{root_name}_{app_guid}_{i}",
                                             category="Bozuk Kaldırma Bilgisi",
@@ -325,10 +328,19 @@ class RegistryCleaner:
 
             try:
                 root = self._get_root_key(issue.root_name)
-                # If value_name is set, delete the value
-                with winreg.OpenKey(root, issue.sub_key, 0, winreg.KEY_SET_VALUE) as key:
-                    winreg.DeleteValue(key, issue.value_name)
-                    fixed_count += 1
+                try:
+                    with winreg.OpenKey(root, issue.sub_key, 0, winreg.KEY_SET_VALUE) as key:
+                        winreg.DeleteValue(key, issue.value_name)
+                        fixed_count += 1
+                except Exception:
+                    # If deleting default value failed and subkey is an empty orphaned container, delete key
+                    if not issue.value_name and "\\" in issue.sub_key:
+                        parent_sub, child_name = issue.sub_key.rsplit("\\", 1)
+                        with winreg.OpenKey(root, parent_sub, 0, winreg.KEY_SET_VALUE) as pkey:
+                            winreg.DeleteKey(pkey, child_name)
+                            fixed_count += 1
+                    else:
+                        raise
             except Exception:
                 failed_count += 1
 

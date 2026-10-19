@@ -61,8 +61,8 @@ def create_shortcuts():
         f'$s.Arguments = \'"{main_py}"\';',
         f'$s.WorkingDirectory = "{app_dir}";',
         f'$s.IconLocation = "{ico}";',
-        f'$s.Description = "NovaCare System Care Suite 2026";',
-        f'$s.Save();'
+        '$s.Description = "NovaCare System Care Suite 2026";',
+        '$s.Save();'
     ])
 
     # 2. Desktop shortcuts
@@ -74,8 +74,8 @@ def create_shortcuts():
             f'$d.Arguments = \'"{main_py}"\';',
             f'$d.WorkingDirectory = "{app_dir}";',
             f'$d.IconLocation = "{ico}";',
-            f'$d.Description = "NovaCare System Care Suite 2026";',
-            f'$d.Save();'
+            '$d.Description = "NovaCare System Care Suite 2026";',
+            '$d.Save();'
         ])
 
     full_ps = " ".join(ps_commands)

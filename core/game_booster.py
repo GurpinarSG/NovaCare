@@ -417,12 +417,19 @@ class AutoGameWatcher(QThread):
     def stop(self):
         self._running = False
 
+    def _interruptible_sleep(self, ms: int = 3000):
+        step = 50
+        elapsed = 0
+        while elapsed < ms and self._running:
+            self.msleep(min(step, ms - elapsed))
+            elapsed += step
+
     def run(self):
         while self._running:
             try:
                 # Check user preference
                 if not self.config.get("auto_game_mode_enabled", True):
-                    self.msleep(3000)
+                    self._interruptible_sleep(3000)
                     continue
 
                 profiles = self.profile_mgr.get_profiles()
@@ -433,7 +440,7 @@ class AutoGameWatcher(QThread):
                 }
 
                 if not active_profile_map:
-                    self.msleep(3000)
+                    self._interruptible_sleep(3000)
                     continue
 
                 # Query running processes
@@ -451,7 +458,7 @@ class AutoGameWatcher(QThread):
                     curr_prof = next((p for p in profiles if p.get("id") == self._active_game_id), None)
                     if curr_prof and curr_prof.get("exe", "").lower() in running_exes:
                         # Game is still active
-                        self.msleep(3000)
+                        self._interruptible_sleep(3000)
                         continue
                     else:
                         # Game was closed!
@@ -461,7 +468,7 @@ class AutoGameWatcher(QThread):
                             self.game_booster.deactivate()
                             self._auto_activated = False
                         self.game_stopped.emit(closed_name)
-                        self.msleep(2000)
+                        self._interruptible_sleep(2000)
                         continue
 
                 # 2. If no game is currently tracked, check if any registered game started
@@ -477,4 +484,5 @@ class AutoGameWatcher(QThread):
             except Exception:
                 pass
 
-            self.msleep(3000)
+            self._interruptible_sleep(3000)
+

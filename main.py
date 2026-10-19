@@ -243,7 +243,10 @@ def perform_self_uninstall(silent: bool = False):
 
     if "AppData" in install_dir or "Programs" in install_dir or "NovaCare" in install_dir:
         flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0) | getattr(subprocess, 'DETACHED_PROCESS', 0x00000008)
+        local_cfg = os.path.join(os.environ.get('LOCALAPPDATA', ''), 'NovaCare')
         del_cmd = f'cmd.exe /c timeout /t 2 /nobreak > nul & rmdir /s /q "{install_dir}"'
+        if os.path.exists(local_cfg) and os.path.abspath(local_cfg) != os.path.abspath(install_dir):
+            del_cmd += f' & rmdir /s /q "{local_cfg}"'
         try:
             subprocess.Popen(del_cmd, shell=True, creationflags=flags)
         except Exception:
@@ -311,9 +314,10 @@ def main():
 
     set_windows_app_id()
 
+    from core.config import CURRENT_VERSION
     app = QApplication(sys.argv)
     app.setApplicationName("NovaCare System Care")
-    app.setApplicationVersion("1.0.0")
+    app.setApplicationVersion(CURRENT_VERSION)
     app.setOrganizationName("NovaCare")
 
     # Enforce single instance: prevent duplicate processes

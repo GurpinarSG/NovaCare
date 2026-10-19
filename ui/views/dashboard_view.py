@@ -138,7 +138,6 @@ class DashboardFixWorker(QThread):
                 cats = self.junk_cleaner.categories
 
             cat_ids = {c.id for c in cats}
-            total_cats = max(1, len(cat_ids))
 
             def _on_cat_prog(cname, cur_cat, tot_c):
                 pct = int(12 + (cur_cat / max(1, tot_c)) * 40)

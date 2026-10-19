@@ -189,7 +189,7 @@ class GitHubUpdater:
                 raise RuntimeError("Güncelleme sunucusu yetkilendirme hatası.")
             else:
                 raise RuntimeError(f"Güncelleme sunucusu yanıt vermedi ({resp.status_code})")
-        except requests.RequestException as e:
+        except requests.RequestException:
             raise RuntimeError("Güncelleme sunucusuna bağlanılamadı. Lütfen internet bağlantınızı kontrol edin.")
 
     def _check_releases(self) -> UpdateInfo:
@@ -257,7 +257,7 @@ class GitHubUpdater:
                 return self._check_branch_commits()
             else:
                 raise RuntimeError(f"Güncelleme sunucusu yanıt vermedi ({resp.status_code})")
-        except requests.RequestException as e:
+        except requests.RequestException:
             raise RuntimeError("Güncelleme sunucusuna bağlanılamadı. Lütfen internet bağlantınızı kontrol edin.")
 
     def download_and_prepare_update(

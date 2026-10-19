@@ -135,7 +135,15 @@ class AppUninstaller:
             import re
             expanded = re.sub(r'(?i)/i\s*', '/X ', expanded)
 
-        return subprocess.Popen(expanded, shell=True)
+        try:
+            return subprocess.Popen(expanded, shell=True)
+        except OSError as e:
+            if getattr(e, 'winerror', None) == 740 or '740' in str(e) or 'elevation' in str(e).lower():
+                # UAC Elevation required - launch elevated via PowerShell Start-Process
+                flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                ps_cmd = f"Start-Process cmd.exe -ArgumentList '/c', '{expanded}' -Verb RunAs"
+                return subprocess.Popen(["powershell", "-NoProfile", "-Command", ps_cmd], creationflags=flags)
+            raise e
 
     def scan_multiple_leftovers(self, apps: list[InstalledApp]) -> list[LeftoverItem]:
         """Scans remnants for multiple apps and removes duplicates."""
