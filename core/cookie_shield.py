@@ -80,12 +80,15 @@ class CookieShield:
         """Resets protected whitelist to defaults."""
         self.save_whitelist(list(DEFAULT_WHITELIST))
 
-    def is_protected_domain(self, host: str, whitelist: Optional[list[str]] = None) -> bool:
-        """Checks if a given cookie host matches protected domains."""
-        wl = whitelist if whitelist is not None else self.get_whitelist()
+    def is_protected_domain(self, host: str, whitelist: Optional[set[str]] = None) -> bool:
+        """Checks if a given cookie host matches protected domains using O(1) set lookup."""
+        wl = whitelist if whitelist is not None else set(self.get_whitelist())
         clean_host = host.lower().lstrip(".")
-        for protected in wl:
-            if clean_host == protected or clean_host.endswith("." + protected):
+        parts = clean_host.split(".")
+
+        for i in range(len(parts)):
+            domain_to_check = ".".join(parts[i:])
+            if domain_to_check in wl:
                 return True
         return False
 
@@ -204,7 +207,7 @@ class CookieShield:
         """
         Scans all accessible browser cookie stores and classifies them.
         """
-        whitelist = self.get_whitelist()
+        whitelist = set(self.get_whitelist())
         targets = self.get_browser_targets()
 
         total_cookies = 0
@@ -277,7 +280,7 @@ class CookieShield:
         preserving protected user login sessions.
         Returns (deleted_count, preserved_count, locked_browsers).
         """
-        whitelist = self.get_whitelist()
+        whitelist = set(self.get_whitelist())
         targets = self.get_browser_targets()
 
         deleted_total = 0
