@@ -619,10 +619,13 @@ class MainWindow(QMainWindow):
             if hasattr(self, 'view_hardware_health') and hasattr(self.view_hardware_health, 'scan_worker') and self.view_hardware_health.scan_worker and self.view_hardware_health.scan_worker.isRunning():
                 self.view_hardware_health.scan_worker.quit()
                 self.view_hardware_health.scan_worker.wait(300)
-            if hasattr(self, 'auto_game_watcher') and self.auto_game_watcher and self.auto_game_watcher.isRunning():
-                self.auto_game_watcher.stop()
-                self.auto_game_watcher.quit()
-                self.auto_game_watcher.wait(1000)
+            if hasattr(self, 'auto_game_watcher') and self.auto_game_watcher:
+                if getattr(self.auto_game_watcher, '_auto_activated', False) and hasattr(self.auto_game_watcher, 'game_booster') and self.auto_game_watcher.game_booster.is_active():
+                    self.auto_game_watcher.game_booster.deactivate()
+                if self.auto_game_watcher.isRunning():
+                    self.auto_game_watcher.stop()
+                    self.auto_game_watcher.quit()
+                    self.auto_game_watcher.wait(1000)
             if hasattr(self.view_dashboard, 'overlay_widget') and self.view_dashboard.overlay_widget:
                 self.view_dashboard.overlay_widget.close()
         except Exception:

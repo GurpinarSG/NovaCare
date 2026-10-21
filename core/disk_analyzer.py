@@ -100,7 +100,12 @@ class DiskAnalyzer:
             if cancel_check and cancel_check():
                 break
             # Prune directory symlinks/junctions to prevent infinite loops or redundant scans
-            dirs[:] = [d for d in dirs if not os.path.islink(os.path.join(root, d))]
+            def _is_symlink(p: str) -> bool:
+                try:
+                    return os.path.islink(p)
+                except Exception:
+                    return True
+            dirs[:] = [d for d in dirs if not _is_symlink(os.path.join(root, d))]
             for fname in files:
                 if cancel_check and cancel_check():
                     break

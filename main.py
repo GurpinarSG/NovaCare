@@ -186,10 +186,12 @@ def perform_self_uninstall(silent: bool = False):
 
     # 1. Terminate other running NovaCare processes
     my_pid = os.getpid()
+    flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0x08000000)
     try:
         subprocess.run(
             ["taskkill", "/f", "/fi", f"PID ne {my_pid}", "/im", "NovaCare.exe"],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            creationflags=flags, timeout=5
         )
     except Exception:
         pass
@@ -198,7 +200,8 @@ def perform_self_uninstall(silent: bool = False):
     try:
         subprocess.run(
             ["schtasks", "/delete", "/tn", "NovaCare_Autostart", "/f"],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            creationflags=flags, timeout=5
         )
     except Exception:
         pass
