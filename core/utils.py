@@ -87,7 +87,7 @@ def get_folder_size(path: str) -> tuple[int, int]:
     return total_size, total_files
 
 def to_long_path(path: str) -> str:
-    """Prepends \\?\ prefix to Windows absolute paths exceeding MAX_PATH (240+ chars)."""
+    r"""Prepends \\?\ prefix to Windows absolute paths exceeding MAX_PATH (240+ chars)."""
     if os.name == 'nt' and path and not path.startswith('\\\\?\\') and len(path) >= 240 and os.path.isabs(path):
         return '\\\\?\\' + os.path.normpath(path)
     return path
