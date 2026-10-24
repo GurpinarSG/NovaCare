@@ -2,7 +2,26 @@
 
 Tüm önemli değişiklikler, yeni özellikler, hata düzeltmeleri ve optimizasyonlar bu belgede kronolojik olarak kayıt altına alınmaktadır.
 
-## 🚀 [v1.2.1] - 2026-10-19
+## 🚀 [v1.2.2] - 2026-10-25
+
+### 🚀 Gerçek Zamanlı İnternet Hız Testi (Speed Test Engine)
+* **Kapsamlı Ağ Performansı Ölçümü:**
+  * Ağ ve DNS menüsüne entegre edilen modern hız testi kartı ile anlık **İndirme (Download)**, **Yükleme (Upload)**, **Gecikme (Ping)** ve **Dalgalanma (Jitter)** değerleri gerçek zamanlı olarak ölçülebilir hale getirildi.
+  * Hiçbir harici CLI ikili bağımlılığı gerektirmeyen motor, küresel ve Türkiye'deki (İstanbul, Ankara, İzmir vb.) Cloudflare Edge sunucuları üzerinden doğrudan akışlı HTTP/HTTPS ölçümü yapar.
+* **Akıllı Bağlantı Değerlendirmesi:**
+  * Test tamamlandığında bağlantının 4K/8K canlı yayın, rekabetçi e-spor oyunları ve video konferanslar için uygunluğunu analiz eden değerlendirme rozeti sunulur.
+* **Canlı İlerleme & İptal Koruması:**
+  * Test sırasında anlık Mbps hız göstergesi, ilerleme çubuğu ve tek tıkla güvenli durdurma imkanı sağlandı.
+
+### ⚡ Başlatma ve Performans Hızlandırması
+* **Win32 `powrprof.dll` Entegrasyonu:**
+  * Güç planı sorgusunda `powercfg.exe` alt süreci yerine doğrudan yerel Win32 API çağrısına geçildi (225 ms -> 1.7 ms, ~130 kat hızlanma).
+* **Kayıt Defteri Görev Önbelleği (TaskCache) Sorgusu:**
+  * Başlangıçta çalışma denetimi `schtasks` komutu yerine doğrudan `HKLM\...\Schedule\TaskCache\Tree` üzerinden okunarak 46 ms'den 0.06 ms'ye indirildi.
+* **Tembel Yükleme ve Görünürlük Koruması:**
+  * Donanım sağlığı ve batarya zamanlayıcılarına görünürlük koruması eklenerek ana pencere açılış süresi %51.5 hızlandırıldı (~455 ms).
+
+---
 
 ### ⚡ Kritik Güncelleme Yöneticisi Düzeltmesi (İkili Dosya Değiştirme Garantisi)
 * **Derlenmiş İkili Paket İndirme Zorunluluğu:**

@@ -619,6 +619,13 @@ class MainWindow(QMainWindow):
             if hasattr(self, 'view_hardware_health') and hasattr(self.view_hardware_health, 'scan_worker') and self.view_hardware_health.scan_worker and self.view_hardware_health.scan_worker.isRunning():
                 self.view_hardware_health.scan_worker.quit()
                 self.view_hardware_health.scan_worker.wait(300)
+            if hasattr(self, 'view_network') and hasattr(self.view_network, 'speed_worker') and self.view_network.speed_worker and self.view_network.speed_worker.isRunning():
+                self.view_network.speed_worker.cancel()
+                self.view_network.speed_worker.quit()
+                self.view_network.speed_worker.wait(500)
+            if hasattr(self, 'view_network') and hasattr(self.view_network, 'meta_worker') and self.view_network.meta_worker and self.view_network.meta_worker.isRunning():
+                self.view_network.meta_worker.quit()
+                self.view_network.meta_worker.wait(300)
             if hasattr(self, 'auto_game_watcher') and self.auto_game_watcher:
                 if getattr(self.auto_game_watcher, '_auto_activated', False) and hasattr(self.auto_game_watcher, 'game_booster') and self.auto_game_watcher.game_booster.is_active():
                     self.auto_game_watcher.game_booster.deactivate()

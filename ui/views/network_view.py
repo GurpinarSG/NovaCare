@@ -1,21 +1,58 @@
 """
 NovaCare System Suite - Network & DNS Optimizer View
-Real-time DNS latency benchmark, 1-click DNS assignment, DHCP reset,
+Real-time Internet Speed Test (Download, Upload, Ping, Jitter),
+DNS latency benchmark, 1-click DNS assignment, DHCP reset,
 and complete network stack (Winsock, TCP/IP, flushdns) repair.
 """
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTableWidget,
     QTableWidgetItem, QHeaderView, QFrame, QScrollArea, QComboBox, QMessageBox,
-    QAbstractItemView, QSizePolicy
+    QAbstractItemView, QSizePolicy, QProgressBar
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QColor, QFont
 from core.network_optimizer import NetworkOptimizer, DNSServerInfo, DNS_CATALOG
+from core.speed_tester import SpeedTester, SpeedTestResult
 from core.utils import log_debug
+from ui.components import StatCard
 from ui.styles import (
     get_active_theme_colors, TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED,
     COLOR_ACCENT, COLOR_SUCCESS, COLOR_WARNING, COLOR_DANGER
 )
+
+class SpeedTestWorker(QThread):
+    phase_changed = pyqtSignal(str, str) # phase, msg
+    speed_progress = pyqtSignal(float, int) # mbps, percent
+    finished = pyqtSignal(object) # SpeedTestResult
+
+    def __init__(self):
+        super().__init__()
+        self.tester = SpeedTester()
+
+    def run(self):
+        try:
+            res = self.tester.run_full_test(
+                phase_callback=lambda p, m: self.phase_changed.emit(p, m),
+                progress_callback=lambda s, pct: self.speed_progress.emit(s, pct)
+            )
+            self.finished.emit(res)
+        except Exception as e:
+            log_debug(f"SpeedTestWorker error: {e}")
+            self.finished.emit(None)
+
+    def cancel(self):
+        self.tester.cancel()
+
+class MetaFetchWorker(QThread):
+    finished = pyqtSignal(str, str)
+
+    def run(self):
+        try:
+            tester = SpeedTester()
+            ip, loc = tester.get_network_meta()
+            self.finished.emit(ip, loc)
+        except Exception:
+            self.finished.emit("Otomatik", "Türkiye / Avrupa Edge Sunucusu")
 
 class DNSBenchmarkWorker(QThread):
     finished = pyqtSignal(list)
@@ -63,6 +100,8 @@ class NetworkView(QWidget):
         self.optimizer = NetworkOptimizer()
         self.benchmark_worker = None
         self.repair_worker = None
+        self.speed_worker = None
+        self.meta_worker = None
         self.dns_results: list[DNSServerInfo] = []
         self._init_ui()
         self._load_network_info()
@@ -91,13 +130,136 @@ class NetworkView(QWidget):
         lbl_title.setStyleSheet("font-size: 22px; font-weight: 800;")
         header.addWidget(lbl_title)
 
-        lbl_sub = QLabel("İnternet bağlantınızı onarın, DNS gecikmelerini (ping) test edin ve en hızlı DNS sunucusunu tek tıkla aktif edin.")
+        lbl_sub = QLabel("Gerçek zamanlı internet hızınızı test edin, ağ bağlantınızı onarın ve en hızlı DNS sunucusunu tek tıkla aktif edin.")
         lbl_sub.setStyleSheet(f"font-size: 13px; color: {TEXT_SECONDARY};")
         lbl_sub.setWordWrap(True)
         header.addWidget(lbl_sub)
         layout.addLayout(header)
 
-        # 2. Network Repair & Flush Card
+        # 2. Internet Speed Test Card
+        speed_card = QFrame()
+        speed_card.setObjectName("CardFrame")
+        sp_layout = QVBoxLayout(speed_card)
+        sp_layout.setContentsMargins(18, 16, 18, 16)
+        sp_layout.setSpacing(14)
+
+        # Top row: Title + Server Location Info
+        sp_top = QHBoxLayout()
+        sp_top.setSpacing(10)
+        lbl_sp_title = QLabel("🚀  İnternet Hız Testi (Bant Genişliği & Gecikme)")
+        lbl_sp_title.setStyleSheet("font-size: 15px; font-weight: 700;")
+        sp_top.addWidget(lbl_sp_title)
+        sp_top.addStretch()
+
+        self.lbl_server_info = QLabel("📍 Sunucu: Bağlanıyor...")
+        self.lbl_server_info.setStyleSheet(f"""
+            background: rgba(14, 165, 233, 0.12);
+            color: {COLOR_ACCENT};
+            font-size: 11px;
+            font-weight: 600;
+            padding: 4px 10px;
+            border-radius: 6px;
+            border: 1px solid rgba(14, 165, 233, 0.25);
+        """)
+        sp_top.addWidget(self.lbl_server_info)
+        sp_layout.addLayout(sp_top)
+
+        # 4 Stat Cards Row: Download, Upload, Ping, Jitter
+        stats_layout = QHBoxLayout()
+        stats_layout.setSpacing(12)
+        self.card_dl = StatCard("⬇️", "İndirme (Download)", "-- Mbps", "Alınan veri bant genişliği")
+        self.card_ul = StatCard("⬆️", "Yükleme (Upload)", "-- Mbps", "Gönderilen veri bant genişliği")
+        self.card_ping = StatCard("⚡", "Gecikme (Ping)", "-- ms", "Sunucu tepki süresi")
+        self.card_jitter = StatCard("〰️", "Dalgalanma (Jitter)", "-- ms", "Gecikme kararlılığı")
+
+        stats_layout.addWidget(self.card_dl, 1)
+        stats_layout.addWidget(self.card_ul, 1)
+        stats_layout.addWidget(self.card_ping, 1)
+        stats_layout.addWidget(self.card_jitter, 1)
+        sp_layout.addLayout(stats_layout)
+
+        # Live speed & status indicator row
+        live_row = QHBoxLayout()
+        live_row.setSpacing(12)
+
+        self.lbl_live_speed = QLabel("⚡ Anlık Hız: -- Mbps")
+        self.lbl_live_speed.setStyleSheet(f"font-size: 15px; font-weight: 800; color: {COLOR_ACCENT};")
+        live_row.addWidget(self.lbl_live_speed)
+
+        self.lbl_speed_status = QLabel("Hız testine başlamak için butona tıklayın.")
+        self.lbl_speed_status.setStyleSheet(f"font-size: 12px; color: {TEXT_SECONDARY}; font-weight: 500;")
+        live_row.addWidget(self.lbl_speed_status, 1)
+
+        sp_layout.addLayout(live_row)
+
+        # Progress bar
+        self.speed_pbar = QProgressBar()
+        self.speed_pbar.setFixedHeight(10)
+        self.speed_pbar.setRange(0, 100)
+        self.speed_pbar.setValue(0)
+        self.speed_pbar.setTextVisible(False)
+        self.speed_pbar.setStyleSheet(f"""
+            QProgressBar {{
+                background-color: rgba(255, 255, 255, 0.08);
+                border: none;
+                border-radius: 5px;
+            }}
+            QProgressBar::chunk {{
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0284C7, stop:1 #38BDF8);
+                border-radius: 5px;
+            }}
+        """)
+        sp_layout.addWidget(self.speed_pbar)
+
+        # Action Buttons Row + Grade Banner
+        action_row = QHBoxLayout()
+        action_row.setSpacing(10)
+
+        self.btn_start_speed = QPushButton("🚀  Hız Testini Başlat")
+        self.btn_start_speed.setCursor(Qt.PointingHandCursor)
+        self.btn_start_speed.setProperty("class", "primary-btn")
+        self.btn_start_speed.clicked.connect(self._start_speed_test)
+        action_row.addWidget(self.btn_start_speed)
+
+        self.btn_cancel_speed = QPushButton("⏹️  Durdur")
+        self.btn_cancel_speed.setCursor(Qt.PointingHandCursor)
+        self.btn_cancel_speed.setProperty("class", "danger-btn")
+        self.btn_cancel_speed.setEnabled(False)
+        self.btn_cancel_speed.clicked.connect(self._cancel_speed_test)
+        action_row.addWidget(self.btn_cancel_speed)
+
+        action_row.addStretch()
+        sp_layout.addLayout(action_row)
+
+        # Connection Quality Grade Banner (hidden initially)
+        self.frame_grade = QFrame()
+        self.frame_grade.setVisible(False)
+        self.frame_grade.setStyleSheet("""
+            QFrame {
+                background: rgba(16, 185, 129, 0.12);
+                border: 1px solid rgba(16, 185, 129, 0.3);
+                border-radius: 8px;
+                padding: 10px;
+            }
+        """)
+        g_layout = QVBoxLayout(self.frame_grade)
+        g_layout.setContentsMargins(12, 8, 12, 8)
+        g_layout.setSpacing(3)
+
+        self.lbl_grade_title = QLabel("🌟 Bağlantı Değerlendirmesi: Mükemmel")
+        self.lbl_grade_title.setStyleSheet(f"font-size: 13px; font-weight: 800; color: {COLOR_SUCCESS};")
+        g_layout.addWidget(self.lbl_grade_title)
+
+        self.lbl_grade_desc = QLabel("Bağlantınız yüksek hızlı 4K yayın ve rekabetçi çevrimiçi oyunlar için ideal.")
+        self.lbl_grade_desc.setStyleSheet(f"font-size: 12px; color: {TEXT_PRIMARY};")
+        self.lbl_grade_desc.setWordWrap(True)
+        g_layout.addWidget(self.lbl_grade_desc)
+
+        sp_layout.addWidget(self.frame_grade)
+
+        layout.addWidget(speed_card)
+
+        # 3. Network Repair & Flush Card
         repair_card = QFrame()
         repair_card.setObjectName("CardFrame")
         r_layout = QVBoxLayout(repair_card)
@@ -140,7 +302,7 @@ class NetworkView(QWidget):
 
         layout.addWidget(repair_card)
 
-        # 3. DNS Benchmark & Switcher Card
+        # 4. DNS Benchmark & Switcher Card
         dns_card = QFrame()
         dns_card.setObjectName("CardFrame")
         d_layout = QVBoxLayout(dns_card)
@@ -239,6 +401,106 @@ class NetworkView(QWidget):
         # Populate initial catalog rows
         self._populate_table(DNS_CATALOG)
 
+        # Asynchronously fetch meta (client IP & Edge server)
+        self._fetch_meta_async()
+
+    def _fetch_meta_async(self):
+        self.meta_worker = MetaFetchWorker()
+        self.meta_worker.finished.connect(self._on_meta_loaded)
+        self.meta_worker.start()
+
+    def _on_meta_loaded(self, ip: str, loc: str):
+        self.lbl_server_info.setText(f"📍 Sunucu: {loc}  |  IP: {ip}")
+
+    # =========================================================================
+    # Speed Test Controls & Slots
+    # =========================================================================
+    def _start_speed_test(self):
+        if self.speed_worker and self.speed_worker.isRunning():
+            return
+
+        self.btn_start_speed.setEnabled(False)
+        self.btn_cancel_speed.setEnabled(True)
+        self.speed_pbar.setValue(5)
+        self.lbl_speed_status.setText("Hız testi motoru başlatılıyor...")
+        self.lbl_live_speed.setText("⚡ Test Başlatılıyor...")
+        self.frame_grade.setVisible(False)
+
+        # Reset stat cards
+        self.card_dl.set_value("-- Mbps", "Ölçülüyor...")
+        self.card_ul.set_value("-- Mbps", "Bekleniyor...")
+        self.card_ping.set_value("-- ms", "Bekleniyor...")
+        self.card_jitter.set_value("-- ms", "Bekleniyor...")
+
+        self.speed_worker = SpeedTestWorker()
+        self.speed_worker.phase_changed.connect(self._on_speed_phase_changed)
+        self.speed_worker.speed_progress.connect(self._on_speed_progress)
+        self.speed_worker.finished.connect(self._on_speed_finished)
+        self.speed_worker.start()
+
+    def _cancel_speed_test(self):
+        if self.speed_worker and self.speed_worker.isRunning():
+            self.lbl_speed_status.setText("Test iptal ediliyor...")
+            self.speed_worker.cancel()
+            self.btn_cancel_speed.setEnabled(False)
+
+    def _on_speed_phase_changed(self, phase: str, msg: str):
+        self.lbl_speed_status.setText(msg)
+        if phase == "meta":
+            self.speed_pbar.setValue(10)
+        elif phase == "ping":
+            self.speed_pbar.setValue(20)
+            self.lbl_live_speed.setText("⚡ Gecikme Ölçülüyor...")
+        elif phase == "download":
+            self.speed_pbar.setValue(35)
+            self.card_dl.set_value("Ölçülüyor...", "Veri çekiliyor")
+        elif phase == "upload":
+            self.speed_pbar.setValue(65)
+            self.card_ul.set_value("Ölçülüyor...", "Veri gönderiliyor")
+
+    def _on_speed_progress(self, mbps: float, pct: int):
+        self.speed_pbar.setValue(pct)
+        if self.speed_worker and getattr(self.speed_worker.tester, '_cancelled', False):
+            return
+        if pct < 60:
+            self.lbl_live_speed.setText(f"⬇️ İndirme: {mbps:.1f} Mbps")
+            self.card_dl.set_value(f"{mbps:.1f} Mbps", "Canlı İndirme Hızı")
+        else:
+            self.lbl_live_speed.setText(f"⬆️ Yükleme: {mbps:.1f} Mbps")
+            self.card_ul.set_value(f"{mbps:.1f} Mbps", "Canlı Yükleme Hızı")
+
+    def _on_speed_finished(self, res: SpeedTestResult | None):
+        self.btn_start_speed.setEnabled(True)
+        self.btn_cancel_speed.setEnabled(False)
+
+        if not res or res.grade == "İptal Edildi":
+            self.lbl_speed_status.setText("Hız testi kullanıcı tarafından durduruldu.")
+            self.lbl_live_speed.setText("⏹️ Test Durduruldu")
+            self.speed_pbar.setValue(0)
+            return
+
+        self.speed_pbar.setValue(100)
+        self.lbl_speed_status.setText(f"Test tamamlandı! ({res.timestamp})")
+        self.lbl_live_speed.setText(f"✅ İndirme: {res.download_mbps:.1f} Mbps  |  Yükleme: {res.upload_mbps:.1f} Mbps")
+
+        # Update Stat Cards
+        self.card_dl.set_value(f"{res.download_mbps:.1f} Mbps", "İndirme Hızı")
+        self.card_ul.set_value(f"{res.upload_mbps:.1f} Mbps", "Yükleme Hızı")
+        self.card_ping.set_value(f"{res.ping_ms:.1f} ms", "Gecikme (Ping)")
+        self.card_jitter.set_value(f"{res.jitter_ms:.1f} ms", "Dalgalanma (Jitter)")
+
+        # Update Server info badge if valid
+        if res.client_ip and res.server_location:
+            self.lbl_server_info.setText(f"📍 Sunucu: {res.server_location}  |  IP: {res.client_ip}")
+
+        # Update Quality Assessment
+        self.lbl_grade_title.setText(f"🌟 Bağlantı Değerlendirmesi: {res.grade}")
+        self.lbl_grade_desc.setText(res.grade_description)
+        self.frame_grade.setVisible(True)
+
+    # =========================================================================
+    # DNS Optimizer Controls & Slots
+    # =========================================================================
     def _load_network_info(self):
         """Loads network adapters and sets the active one."""
         self.combo_adapters.clear()
