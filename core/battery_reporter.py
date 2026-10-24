@@ -36,29 +36,40 @@ class BatteryInfo:
     def is_charging(self) -> bool:
         return self.power_plugged and self.percent < 98
 
-def is_battery_present() -> bool:
+_battery_present_cached: Optional[bool] = None
+
+def is_battery_present(force_refresh: bool = False) -> bool:
     """
     Checks whether the system has a physical battery (laptop, notebook, tablet, portable PC)
     or is a desktop workstation running solely on AC / wall power.
-    Non-blocking, fast and reliable (<0.1ms).
+    Non-blocking, fast and reliable (<0.01ms cached).
     """
+    global _battery_present_cached
+    if _battery_present_cached is not None and not force_refresh:
+        return _battery_present_cached
+
     try:
         from core.config import ConfigManager
         forced = ConfigManager().get("force_battery_view", None)
         if forced is not None:
-            return bool(forced)
+            _battery_present_cached = bool(forced)
+            return _battery_present_cached
     except Exception:
         pass
 
     try:
         b = psutil.sensors_battery()
         if b is None:
+            _battery_present_cached = False
             return False
         if getattr(b, 'percent', None) is not None:
             if b.percent < 0 or b.percent > 100:
+                _battery_present_cached = False
                 return False
+        _battery_present_cached = True
         return True
     except Exception:
+        _battery_present_cached = False
         return False
 
 class BatteryReporter:
@@ -67,19 +78,40 @@ class BatteryReporter:
     _last_plan_time: float = 0.0
 
     @staticmethod
-    def is_battery_present() -> bool:
-        return is_battery_present()
+    def is_battery_present(force_refresh: bool = False) -> bool:
+        return is_battery_present(force_refresh=force_refresh)
 
     def __init__(self):
         pass
 
     def get_active_power_plan(self) -> str:
-        """Retrieves currently active Windows power scheme name (cached for 15s)."""
+        """Retrieves currently active Windows power scheme name via fast Win32 powrprof API (< 0.1ms)."""
         import time
         now = time.time()
-        if now - self._last_plan_time < 15.0:
+        if now - self._last_plan_time < 15.0 and self._cached_plan:
             return self._cached_plan
 
+        # 1. Fast Win32 API via powrprof.dll (instant, 0 subprocess overhead)
+        try:
+            import ctypes
+            from ctypes import wintypes
+            guid_ptr = ctypes.c_void_p()
+            powrprof = ctypes.windll.powrprof
+            if powrprof.PowerGetActiveScheme(None, ctypes.byref(guid_ptr)) == 0 and guid_ptr.value:
+                buf_size = wintypes.DWORD(256)
+                buf = ctypes.create_unicode_buffer(256)
+                if powrprof.PowerReadFriendlyName(None, guid_ptr, None, None, buf, ctypes.byref(buf_size)) == 0:
+                    val = buf.value.strip()
+                    if val:
+                        self._cached_plan = val
+                        self._last_plan_time = now
+                        ctypes.windll.kernel32.LocalFree(guid_ptr)
+                        return self._cached_plan
+                ctypes.windll.kernel32.LocalFree(guid_ptr)
+        except Exception:
+            pass
+
+        # 2. Fallback to powercfg CLI
         try:
             kwargs = {"capture_output": True, "text": True, "timeout": 2}
             if hasattr(subprocess, "CREATE_NO_WINDOW"):

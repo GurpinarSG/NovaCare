@@ -53,8 +53,8 @@ class GeneralHealthView(QWidget):
         """Triggered when Genel Sağlık is clicked in sidebar."""
         if hasattr(self.view_hardware, 'on_activated'):
             self.view_hardware.on_activated()
-        if self.view_battery and hasattr(self.view_battery, 'refresh_metrics'):
-            self.view_battery.refresh_metrics(query_hardware=False)
+        if self.view_battery and hasattr(self.view_battery, 'on_activated'):
+            self.view_battery.on_activated()
 
     def set_sub_tab(self, index: int):
         """Navigate to a specific sub-tab (0: Disk Health, 1: Battery Health)."""

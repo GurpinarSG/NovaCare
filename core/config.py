@@ -64,7 +64,21 @@ DEFAULT_BRANCH = "main"
 DEFAULT_COMMIT_SHA = "c77c7b8"
 
 class ConfigManager:
+    _instance = None
+
+    def __new__(cls, config_dir: str | None = None):
+        if config_dir is None:
+            if cls._instance is None:
+                cls._instance = super(ConfigManager, cls).__new__(cls)
+                cls._instance._initialized = False
+            return cls._instance
+        obj = super(ConfigManager, cls).__new__(cls)
+        obj._initialized = False
+        return obj
+
     def __init__(self, config_dir: str | None = None):
+        if getattr(self, '_initialized', False):
+            return
         if config_dir is None:
             local_app = os.environ.get('LOCALAPPDATA', os.path.expanduser('~'))
             self.config_dir = os.path.join(local_app, 'NovaCare')
@@ -73,6 +87,7 @@ class ConfigManager:
         os.makedirs(self.config_dir, exist_ok=True)
         self.config_file = os.path.join(self.config_dir, "settings.json")
         self.settings = self._load()
+        self._initialized = True
 
     def get_version(self) -> str:
         """Returns clean base version string like '0.0.1' from VERSION file."""

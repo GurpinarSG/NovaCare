@@ -42,15 +42,18 @@ class BatteryView(QWidget):
         self.hw_worker = None
         self._init_ui()
         if self.has_battery:
-            self.refresh_metrics(query_hardware=False)
-            self._fetch_hardware_async()
-
             # Auto-refresh timer every 10 seconds (ultra-fast, non-blocking psutil query)
             self.timer = QTimer(self)
             self.timer.timeout.connect(self._on_timer)
             self.timer.start(10000)
         else:
             self.timer = QTimer(self)
+
+    def on_activated(self):
+        """Called when user opens battery view."""
+        if self.has_battery:
+            self.refresh_metrics(query_hardware=False)
+            self._fetch_hardware_async()
 
     def _fetch_hardware_async(self):
         if BatteryReporter._cached_hardware is not None:

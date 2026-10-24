@@ -53,8 +53,6 @@ class HardwareHealthView(QWidget):
         self.disks: list[DiskHealthInfo] = []
 
         self._init_ui()
-        # Immediately populate live hardware sensors (CPU, RAM, GPU, Power) with zero lag
-        self._refresh_live_sensors()
 
         # If cached disks already exist, render them instantly
         if self.smart_reporter._cached_results:
@@ -172,8 +170,16 @@ class HardwareHealthView(QWidget):
         except Exception as e:
             log_debug(f"_render_disk_cards error: {e}")
 
+    def on_activated(self):
+        """Called when user opens hardware health view."""
+        self._refresh_live_sensors()
+        if not self.disks and (self.scan_worker is None or not self.scan_worker.isRunning()):
+            self._start_scan()
+
     def _refresh_live_sensors(self):
         """Ultra-fast non-blocking live refresh of CPU, GPU, RAM stats."""
+        if not self.isVisible():
+            return
         try:
             hw_stats = self.hw_monitor.get_hardware_stats()
             bat_info = self.battery_reporter.get_battery_info()
