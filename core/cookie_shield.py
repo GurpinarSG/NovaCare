@@ -207,6 +207,15 @@ class CookieShield:
         whitelist = self.get_whitelist()
         targets = self.get_browser_targets()
 
+        # O(1) batched process lookup cache
+        running_exes = set()
+        for p in psutil.process_iter(['name']):
+            try:
+                if p.info['name']:
+                    running_exes.add(p.info['name'].lower())
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+
         total_cookies = 0
         protected_count = 0
         tracking_count = 0
@@ -219,7 +228,7 @@ class CookieShield:
             b_type = t['type']
             exe = t['exe']
 
-            if self.is_browser_running(exe):
+            if exe.lower() in running_exes:
                 locked_browsers.add(browser_name)
                 # Try reading anyway in case read sharing is open
             con = None
@@ -280,6 +289,15 @@ class CookieShield:
         whitelist = self.get_whitelist()
         targets = self.get_browser_targets()
 
+        # O(1) batched process lookup cache
+        running_exes = set()
+        for p in psutil.process_iter(['name']):
+            try:
+                if p.info['name']:
+                    running_exes.add(p.info['name'].lower())
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+
         deleted_total = 0
         preserved_total = 0
         locked_browsers = []
@@ -290,7 +308,7 @@ class CookieShield:
             b_type = t['type']
             exe = t['exe']
 
-            if self.is_browser_running(exe):
+            if exe.lower() in running_exes:
                 locked_browsers.append(browser_name)
                 continue
 
