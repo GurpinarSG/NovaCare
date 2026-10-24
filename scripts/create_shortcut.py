@@ -79,7 +79,8 @@ def create_shortcuts():
         ])
 
     full_ps = " ".join(ps_commands)
-    subprocess.run(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", full_ps], check=True)
+    flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+    subprocess.run(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", full_ps], creationflags=flags, check=True)
     print("NovaCare shortcut with icon created successfully!")
 
 if __name__ == "__main__":

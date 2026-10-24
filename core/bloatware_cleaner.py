@@ -138,8 +138,11 @@ class BloatwareCleaner:
         """Uninstalls a specific AppX package."""
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         try:
-            ps_cmd = f"Get-AppxPackage -Name '{package_name}' | Remove-AppxPackage -ErrorAction SilentlyContinue"
-            p = subprocess.run(["powershell", "-NoProfile", "-Command", ps_cmd], capture_output=True, text=True, timeout=25, creationflags=flags)
+            ps_cmd = (
+                f"Get-AppxPackage -Name '{package_name}' -AllUsers -ErrorAction SilentlyContinue | Remove-AppxPackage -ErrorAction SilentlyContinue; "
+                f"Get-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue | Where-Object DisplayName -eq '{package_name}' | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue"
+            )
+            p = subprocess.run(["powershell", "-NoProfile", "-Command", ps_cmd], capture_output=True, text=True, timeout=30, creationflags=flags)
             if p.returncode == 0:
                 return True, "Uygulama başarıyla kaldırıldı."
             return False, p.stderr or "Kaldırma başarısız oldu."

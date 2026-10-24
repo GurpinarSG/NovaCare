@@ -114,7 +114,6 @@ class BackupManager:
     def open_system_restore_ui(self):
         """Launches the Windows native System Restore wizard (rstrui.exe)."""
         try:
-            flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
-            subprocess.Popen("rstrui.exe", shell=True, creationflags=flags)
+            subprocess.Popen(["rstrui.exe"])
         except Exception:
             pass

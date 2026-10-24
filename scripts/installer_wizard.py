@@ -91,8 +91,12 @@ class InstallWorker(QThread):
 
             # 1. Close running instances if any
             try:
-                subprocess.run(["taskkill", "/f", "/im", "NovaCare.exe"],
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0x08000000)
+                subprocess.run(
+                    ["taskkill", "/f", "/im", "NovaCare.exe"],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    creationflags=flags, timeout=5
+                )
                 time.sleep(0.5)
             except Exception:
                 pass

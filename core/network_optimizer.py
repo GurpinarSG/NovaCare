@@ -228,15 +228,15 @@ class NetworkOptimizer:
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         try:
             # 1. Set Primary
-            cmd1 = f'netsh interface ipv4 set dns name="{adapter_name}" static {primary} primary'
-            p1 = subprocess.run(cmd1, shell=True, capture_output=True, text=True, creationflags=flags)
+            cmd1 = ["netsh", "interface", "ipv4", "set", "dns", f"name={adapter_name}", "static", primary, "primary"]
+            p1 = subprocess.run(cmd1, capture_output=True, text=True, creationflags=flags)
             if p1.returncode != 0:
                 return False, f"Birincil DNS ayarlanamadı: {p1.stderr}"
 
             # 2. Add Secondary if provided
             if secondary:
-                cmd2 = f'netsh interface ipv4 add dns name="{adapter_name}" {secondary} index=2'
-                subprocess.run(cmd2, shell=True, capture_output=True, creationflags=flags)
+                cmd2 = ["netsh", "interface", "ipv4", "add", "dns", f"name={adapter_name}", secondary, "index=2"]
+                subprocess.run(cmd2, capture_output=True, text=True, creationflags=flags)
 
             # Flush DNS cache after change
             self.flush_dns()
@@ -248,8 +248,8 @@ class NetworkOptimizer:
         """Resets adapter DNS configuration back to automatic (DHCP)."""
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         try:
-            cmd = f'netsh interface ipv4 set dns name="{adapter_name}" dhcp'
-            p = subprocess.run(cmd, shell=True, capture_output=True, text=True, creationflags=flags)
+            cmd = ["netsh", "interface", "ipv4", "set", "dns", f"name={adapter_name}", "dhcp"]
+            p = subprocess.run(cmd, capture_output=True, text=True, creationflags=flags)
             if p.returncode == 0:
                 self.flush_dns()
                 return True, f"{adapter_name} DNS ayarları otomatik (DHCP) olarak sıfırlandı."
