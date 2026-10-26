@@ -220,12 +220,6 @@ class HardwareHealthView(QWidget):
         else:
             self.card_power.setVisible(False)
 
-    def on_activated(self):
-        """Called when this view or tab is activated."""
-        self._refresh_live_sensors()
-        if not self.disks and (self.scan_worker is None or not self.scan_worker.isRunning()):
-            self._start_scan()
-
     def _render_disk_cards(self, disks: list[DiskHealthInfo]):
         # Clear existing disk widgets
         while self.disks_container.count():

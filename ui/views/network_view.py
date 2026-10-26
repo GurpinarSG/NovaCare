@@ -198,7 +198,7 @@ class NetworkView(QWidget):
         self.speed_pbar.setRange(0, 100)
         self.speed_pbar.setValue(0)
         self.speed_pbar.setTextVisible(False)
-        self.speed_pbar.setStyleSheet(f"""
+        self.speed_pbar.setStyleSheet("""
             QProgressBar {{
                 background-color: rgba(255, 255, 255, 0.08);
                 border: none;
