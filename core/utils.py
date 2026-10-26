@@ -68,21 +68,22 @@ def get_folder_size(path: str) -> tuple[int, int]:
     if not os.path.exists(path):
         return 0, 0
 
-    try:
-        with os.scandir(path) as it:
-            for entry in it:
-                try:
-                    if entry.is_file(follow_symlinks=False):
-                        total_size += entry.stat().st_size
-                        total_files += 1
-                    elif entry.is_dir(follow_symlinks=False):
-                        s, f = get_folder_size(entry.path)
-                        total_size += s
-                        total_files += f
-                except (PermissionError, FileNotFoundError, OSError):
-                    continue
-    except (PermissionError, FileNotFoundError, OSError):
-        pass
+    stack = [path]
+    while stack:
+        current_path = stack.pop()
+        try:
+            with os.scandir(current_path) as it:
+                for entry in it:
+                    try:
+                        if entry.is_file(follow_symlinks=False):
+                            total_size += entry.stat(follow_symlinks=False).st_size
+                            total_files += 1
+                        elif entry.is_dir(follow_symlinks=False):
+                            stack.append(entry.path)
+                    except (PermissionError, FileNotFoundError, OSError):
+                        continue
+        except (PermissionError, FileNotFoundError, OSError):
+            continue
 
     return total_size, total_files
 

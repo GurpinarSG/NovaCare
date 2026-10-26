@@ -197,43 +197,51 @@ class JunkCleaner:
 
         return self.categories
 
-    def _scan_folder_recursive(self, path: str, cat: CleanerCategory, depth: int = 0):
-        if depth > 8:  # Prevent cyclic or extreme folder structures
-            return
-
-        # CRITICAL SAFETY: Never scan running PyInstaller bundle or NovaCare directories
-        norm_path = os.path.normpath(path).lower()
+    def _scan_folder_recursive(self, start_path: str, cat: CleanerCategory):
+        # We simulate depth by storing tuples of (path, current_depth)
+        stack = [(start_path, 0)]
         meipass = getattr(sys, '_MEIPASS', None)
-        if meipass and norm_path.startswith(os.path.normpath(meipass).lower()):
-            return
-        base_name = os.path.basename(norm_path)
-        if base_name.startswith('_mei') or 'novacare' in base_name:
-            return
+        meipass_lower = os.path.normpath(meipass).lower() if meipass else None
 
-        try:
-            with os.scandir(path) as it:
-                for entry in it:
-                    try:
-                        e_name = entry.name.lower()
-                        # Strict exclusion of active PyInstaller runtime directories
-                        if e_name.startswith('_mei') or 'novacare' in e_name:
+        while stack:
+            path, depth = stack.pop()
+
+            if depth > 8:  # Prevent cyclic or extreme folder structures
+                continue
+
+            # CRITICAL SAFETY: Never scan running PyInstaller bundle or NovaCare directories
+            norm_path = os.path.normpath(path).lower()
+            if meipass_lower and norm_path.startswith(meipass_lower):
+                continue
+
+            base_name = os.path.basename(norm_path)
+            if base_name.startswith('_mei') or 'novacare' in base_name:
+                continue
+
+            try:
+                with os.scandir(path) as it:
+                    for entry in it:
+                        try:
+                            e_name = entry.name.lower()
+                            # Strict exclusion of active PyInstaller runtime directories
+                            if e_name.startswith('_mei') or 'novacare' in e_name:
+                                continue
+
+                            # Avoid traversing symlinks and junction points
+                            if entry.is_symlink():
+                                continue
+
+                            if entry.is_file(follow_symlinks=False):
+                                sz = entry.stat().st_size
+                                cat.size += sz
+                                cat.file_count += 1
+                                cat.found_files.append(entry.path)
+                            elif entry.is_dir(follow_symlinks=False):
+                                stack.append((entry.path, depth + 1))
+                        except (PermissionError, FileNotFoundError, OSError):
                             continue
-
-                        # Avoid traversing symlinks and junction points
-                        if entry.is_symlink():
-                            continue
-
-                        if entry.is_file(follow_symlinks=False):
-                            sz = entry.stat().st_size
-                            cat.size += sz
-                            cat.file_count += 1
-                            cat.found_files.append(entry.path)
-                        elif entry.is_dir(follow_symlinks=False):
-                            self._scan_folder_recursive(entry.path, cat, depth + 1)
-                    except (PermissionError, FileNotFoundError, OSError):
-                        continue
-        except (PermissionError, FileNotFoundError, OSError):
-            pass
+            except (PermissionError, FileNotFoundError, OSError):
+                pass
 
     def clean_categories(
         self,
