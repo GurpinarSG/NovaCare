@@ -138,15 +138,12 @@ class JunkCleaner:
             ),
             CleanerCategory(
                 id="apps_cache",
-                name="Geliştirici & Uygulama Önbellekleri",
-                description="Discord, Spotify, Pip ve Npm geçici paket önbellekleri",
+                name="Geliştirici & Paket Önbellekleri",
+                description="Pip, Npm ve geçici paket yöneticisi önbellekleri",
                 icon="📦",
                 paths=[
                     os.path.join(local_app, 'pip', 'cache'),
-                    os.path.join(app_data, 'npm-cache'),
-                    os.path.join(app_data, 'discord', 'Cache'),
-                    os.path.join(app_data, 'discord', 'Code Cache'),
-                    os.path.join(local_app, 'Spotify', 'Storage')
+                    os.path.join(app_data, 'npm-cache')
                 ]
             )
         ]
@@ -210,6 +207,11 @@ class JunkCleaner:
         if base_name.startswith('_mei') or 'novacare' in base_name:
             return
 
+        # CRITICAL PROTECTION: Discord, Telegram, WhatsApp and sensitive chat apps shield
+        # Never scan, index or traverse Discord or communication app configuration, sessions or caches
+        if any(app in norm_path for app in ('\\discord', '/discord', '\\telegram', '\\whatsapp', '\\signal')):
+            return
+
         try:
             with os.scandir(path) as it:
                 for entry in it:
@@ -217,6 +219,10 @@ class JunkCleaner:
                         e_name = entry.name.lower()
                         # Strict exclusion of active PyInstaller runtime directories
                         if e_name.startswith('_mei') or 'novacare' in e_name:
+                            continue
+
+                        # Strict exclusion of Discord and sensitive configurations/tokens/databases
+                        if e_name in ('discord', 'discordcanary', 'discordptb', 'settings.json', 'local storage', 'session storage', 'local state', 'preferences', 'module_data', 'blob_storage'):
                             continue
 
                         # Avoid traversing symlinks and junction points
@@ -290,6 +296,12 @@ class JunkCleaner:
                     if '\\_mei' in norm_fp or '/_mei' in norm_fp or 'novacare' in norm_fp:
                         continue
 
+                    # Absolute shield: Never touch Discord or real-time communication app files
+                    if any(app in norm_fp for app in ('\\discord\\', '/discord/', '\\telegram\\', '\\whatsapp\\', '\\signal\\')):
+                        continue
+                    if any(sens in norm_fp for sens in ('settings.json', 'local storage', 'session storage', 'local state', 'preferences', 'module_data')):
+                        continue
+
                     try:
                         sz = os.path.getsize(f_path)
                     except Exception:
@@ -316,6 +328,9 @@ class JunkCleaner:
             safe_rmdir_cats = {"user_temp", "system_temp", "apps_cache"}
             if cat.id in safe_rmdir_cats:
                 for p in cat.paths:
+                    p_norm = os.path.normpath(p).lower()
+                    if any(app in p_norm for app in ('discord', 'telegram', 'whatsapp', 'signal')):
+                        continue
                     if os.path.exists(p):
                         try:
                             for root, dirs, _ in os.walk(p, topdown=False, followlinks=False):
@@ -337,3 +352,36 @@ class JunkCleaner:
             cat.found_files.clear()
 
         return total_freed, cleaned_count, failed_count
+
+    @staticmethod
+    def is_discord_running() -> bool:
+        """Checks if any Discord process is currently active."""
+        import psutil
+        try:
+            for proc in psutil.process_iter(['name']):
+                name = (proc.info.get('name') or '').lower()
+                if 'discord' in name:
+                    return True
+        except Exception:
+            pass
+        return False
+
+    @staticmethod
+    def get_discord_status() -> dict:
+        """
+        Returns the health and protection status of local Discord installation.
+        Verifies settings.json, session tokens (Local Storage), and running processes.
+        """
+        app_data = os.environ.get('APPDATA', '')
+        disc_dir = os.path.join(app_data, 'discord')
+        installed = os.path.exists(disc_dir)
+        settings_ok = os.path.exists(os.path.join(disc_dir, 'settings.json'))
+        local_storage_ok = os.path.exists(os.path.join(disc_dir, 'Local Storage', 'leveldb'))
+        is_running = JunkCleaner.is_discord_running()
+        return {
+            "installed": installed,
+            "running": is_running,
+            "settings_intact": settings_ok,
+            "session_intact": local_storage_ok,
+            "protected": True
+        }

@@ -319,11 +319,7 @@ class GitHubUpdater:
                 dest_direct_exe = os.path.join(temp_dir, "NovaCare.exe")
                 shutil.copy2(zip_path, dest_direct_exe)
 
-        # 1. If we updated to a new commit sha, save it to local settings now
-        if new_commit_sha:
-            self.config.set("local_commit_sha", new_commit_sha)
-
-        # 2. Synchronize version: check VERSION file in extracted source_dir, or explicit new_version
+        # 1. Determine target version (DO NOT prematurely save to settings.json before copy succeeds!)
         clean_ver_num = ""
         v_file = os.path.join(source_dir, "VERSION")
         if os.path.exists(v_file):
@@ -333,19 +329,19 @@ class GitHubUpdater:
                     extracted_ver, _ = parse_version_content(vf.read())
                     if extracted_ver:
                         clean_ver_num = extracted_ver
-                        self.config.set("version", extracted_ver)
             except Exception:
                 pass
         elif new_version:
             from core.config import parse_version_content
             clean_nv, _ = parse_version_content(new_version)
             clean_ver_num = clean_nv
-            self.config.set("version", clean_nv)
 
         if not clean_ver_num:
             clean_ver_num = self.config.get_version()
 
-        # Create apply_update.bat with UTF-8 and chcp 65001 for flawless Turkish characters support
+        current_pid = os.getpid()
+
+        # Determine app paths
         if getattr(sys, 'frozen', False):
             app_root = os.path.dirname(sys.executable)
             launcher_target = os.path.join(app_root, "NovaCare.exe")
@@ -354,8 +350,103 @@ class GitHubUpdater:
             launcher_target = os.path.join(app_root, "NovaCare.bat")
         main_py = os.path.join(app_root, "main.py")
 
+        # =====================================================================
+        # 2. Generate apply_update.ps1 (Ultra-robust PowerShell script)
+        # =====================================================================
+        ps1_path = os.path.join(temp_dir, "apply_update.ps1")
+        with open(ps1_path, "w", encoding="utf-8") as pf:
+            pf.write(f"""# NovaCare System Suite - Robust In-Place PowerShell Updater
+$ErrorActionPreference = 'SilentlyContinue'
+$sourceDir = '{source_dir}'
+$appRoot = '{app_root}'
+$launcher = '{launcher_target}'
+$parentPid = {current_pid}
+$version = '{clean_ver_num}'
+$commitSha = '{new_commit_sha}'
+
+# 1. Terminate current NovaCare process and any tree processes
+if ($parentPid -gt 0) {{
+    Stop-Process -Id $parentPid -Force -ErrorAction SilentlyContinue
+}}
+Get-Process -Name 'NovaCare' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+
+# Wait up to 15 seconds for complete process exit & file release
+$stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+while ($stopwatch.Elapsed.TotalSeconds -lt 15) {{
+    $running = Get-Process -Name 'NovaCare' -ErrorAction SilentlyContinue
+    if (-not $running) {{ break }}
+    Start-Sleep -Milliseconds 600
+}}
+Start-Sleep -Milliseconds 800
+
+# 2. Atomic executable replacement
+$srcExe = Join-Path $sourceDir 'NovaCare.exe'
+$destExe = Join-Path $appRoot 'NovaCare.exe'
+$oldExe = Join-Path $appRoot 'NovaCare.exe.old'
+
+if (Test-Path $srcExe) {{
+    if (Test-Path $oldExe) {{ Remove-Item $oldExe -Force -ErrorAction SilentlyContinue }}
+    if (Test-Path $destExe) {{
+        # In Windows NT, renaming an in-use / closing executable always succeeds
+        Move-Item -Path $destExe -Destination $oldExe -Force -ErrorAction SilentlyContinue
+    }}
+
+    $copied = $false
+    for ($attempt = 1; $attempt -le 10; $attempt++) {{
+        Copy-Item -Path $srcExe -Destination $destExe -Force -ErrorAction SilentlyContinue
+        if ((Test-Path $destExe) -and ((Get-Item $destExe).Length -gt 1000000)) {{
+            $copied = $true
+            break
+        }}
+        Start-Sleep -Milliseconds 800
+    }}
+
+    if (-not $copied) {{
+        # Rollback original executable if copy failed
+        if (Test-Path $oldExe) {{
+            Move-Item -Path $oldExe -Destination $destExe -Force -ErrorAction SilentlyContinue
+        }}
+        Start-Process $launcher
+        exit 1
+    }}
+    if (Test-Path $oldExe) {{ Remove-Item $oldExe -Force -ErrorAction SilentlyContinue }}
+}}
+
+# 3. Synchronize all updated assets and files
+Get-ChildItem -Path $sourceDir | ForEach-Object {{
+    if ($_.Name -ne 'NovaCare.exe') {{
+        Copy-Item -Path $_.FullName -Destination $appRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }}
+}}
+
+# 4. Synchronize Registry DisplayVersion
+if ($version) {{
+    Set-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\NovaCare' -Name 'DisplayVersion' -Value $version -ErrorAction SilentlyContinue
+    Set-ItemProperty -Path 'HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\NovaCare' -Name 'DisplayVersion' -Value $version -ErrorAction SilentlyContinue
+}}
+
+# 5. Persist new version to settings.json ONLY after copy has succeeded
+$cfgPath = Join-Path $env:LOCALAPPDATA 'NovaCare\\settings.json'
+if (Test-Path $cfgPath) {{
+    try {{
+        $json = Get-Content $cfgPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ($version) {{ $json.version = $version }}
+        if ($commitSha) {{ $json.local_commit_sha = $commitSha }}
+        $json | ConvertTo-Json -Depth 10 | Set-Content $cfgPath -Encoding UTF8
+    }} catch {{}}
+}}
+
+# 6. Relaunch updated NovaCare
+Start-Sleep -Milliseconds 500
+Start-Process $launcher
+exit 0
+""")
+
+        # =====================================================================
+        # 3. Generate apply_update.bat (BOM-encoded runner & fail-safe fallback)
+        # =====================================================================
         batch_path = os.path.join(temp_dir, "apply_update.bat")
-        with open(batch_path, "w", encoding="utf-8") as bf:
+        with open(batch_path, "w", encoding="utf-8-sig") as bf:
             bf.write(f"""@echo off
 chcp 65001 > nul
 title NovaCare Guncelleme Yoneticisi
@@ -371,42 +462,57 @@ set _PYI_APPLICATION_HOME_DIR=
 set _PYI_ARCHIVE_FILE=
 set _PYI_SPLASH_IPC=
 
-:: Onceki tum NovaCare sureclerini kesin olarak sonlandir (dosya kilidi kalmasin)
-taskkill /f /im NovaCare.exe > nul 2>&1
+:: 1. Try PowerShell Updater engine first (100% reliable Unicode & atomic rename handling)
+if exist "%~dp0apply_update.ps1" (
+    powershell.exe -ExecutionPolicy Bypass -NoProfile -File "%~dp0apply_update.ps1"
+    if not errorlevel 1 goto cleanup_batch
+)
+
+:: 2. Fail-safe native CMD fallback in case PowerShell is disabled or restricted
+taskkill /f /t /pid {current_pid} > nul 2>&1
+taskkill /f /t /im NovaCare.exe > nul 2>&1
 timeout /t 1 /nobreak > nul
 
-for /l %%i in (1,1,10) do (
+for /l %%i in (1,1,15) do (
     tasklist /fi "imagename eq NovaCare.exe" 2>nul | find /i "NovaCare.exe" >nul
     if errorlevel 1 (
         goto ready_to_copy
     )
-    taskkill /f /im NovaCare.exe > nul 2>&1
+    taskkill /f /t /im NovaCare.exe > nul 2>&1
     timeout /t 1 /nobreak > nul
 )
 
 :ready_to_copy
-:: 1. Eger guncelleme paketinde yeni derlenmis NovaCare.exe varsa once onu kopyala ve dogrula
+timeout /t 1 /nobreak > nul
+
+:: Atomic replacement via move/rename trick
 if exist "{source_dir}\\NovaCare.exe" (
-    for /l %%k in (1,1,6) do (
+    if exist "{app_root}\\NovaCare.exe.old" del /f /q "{app_root}\\NovaCare.exe.old" > nul 2>&1
+    move /y "{app_root}\\NovaCare.exe" "{app_root}\\NovaCare.exe.old" > nul 2>&1
+    for /l %%k in (1,1,10) do (
         copy /y "{source_dir}\\NovaCare.exe" "{app_root}\\NovaCare.exe" > nul 2>&1
-        if not errorlevel 1 goto exe_copied
-        taskkill /f /im NovaCare.exe > nul 2>&1
+        if exist "{app_root}\\NovaCare.exe" goto exe_copied
         timeout /t 1 /nobreak > nul
     )
+    :: Rollback if copy failed
+    if exist "{app_root}\\NovaCare.exe.old" move /y "{app_root}\\NovaCare.exe.old" "{app_root}\\NovaCare.exe" > nul 2>&1
+    goto launch_fallback
 )
-:exe_copied
 
-:: 2. Tum guncel varliklari ve dosyalari kopyala (assets, VERSION, CHANGELOG vb.)
+:exe_copied
+if exist "{app_root}\\NovaCare.exe.old" del /f /q "{app_root}\\NovaCare.exe.old" > nul 2>&1
+
+:: Copy other assets
 xcopy /s /e /y /i /q "{source_dir}\\*" "{app_root}\\" > nul 2>&1
 
-:: 3. Windows Kayit Defterindeki DisplayVersion degerini de guncelle
+:: Update registry DisplayVersion
 reg add "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\NovaCare" /v "DisplayVersion" /d "{clean_ver_num}" /f > nul 2>&1
 reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\NovaCare" /v "DisplayVersion" /d "{clean_ver_num}" /f > nul 2>&1
 
-echo Guncelleme basariyla tamamlandi. NovaCare yeniden baslatiliyor...
+:launch_fallback
+echo Guncelleme islemi tamamlandi. NovaCare yeniden baslatiliyor...
 timeout /t 1 /nobreak > nul
 
-:: Clear again before launching to guarantee clean environment
 set _PYI_PARENT_PID=
 set _MEIPASS2=
 set _PYI_APPLICATION_HOME_DIR=
@@ -419,21 +525,31 @@ if exist "{launcher_target}" (
     start "" pythonw "{main_py}"
 )
 
-:: Gecici guncelleme betigini temizle
-del /f /q "%~f0"
+:cleanup_batch
+del /f /q "%~f0" > nul 2>&1
 exit
 """)
 
         return batch_path
 
     def launch_updater_and_exit(self, batch_path: str):
-        """Spawns the updater batch script in background and exits current application."""
+        """Spawns the updater batch script in background and exits current application cleanly."""
         clean_env = os.environ.copy()
         for k in list(clean_env.keys()):
             if k.startswith('_PYI') or k.startswith('_MEI'):
                 clean_env.pop(k, None)
 
         flags = getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0)
-        # Directly invokes Windows Unicode CreateProcessW without shell quoting distortions
         subprocess.Popen(["cmd.exe", "/c", batch_path], env=clean_env, creationflags=flags)
+
+        # Cleanly close all Qt windows to release file handles immediately
+        try:
+            from PyQt5.QtWidgets import QApplication
+            app = QApplication.instance()
+            if app:
+                app.closeAllWindows()
+                app.quit()
+        except Exception:
+            pass
+
         sys.exit(0)
