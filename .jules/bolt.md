@@ -1,0 +1,3 @@
+## 2024-05-18 - Optimizing Deep File Scanning (Junction Point & Recursion Protection)
+**Learning:** `os.walk` on Windows for full disk or deep directory scans can hit `RecursionError` and suffers from high object allocation overhead for deep directory trees and junction points. Iterative `os.scandir` loops are significantly faster because they only fetch stats when needed and use a manual stack to traverse directories iteratively without recursive call overhead.
+**Action:** For large file system traversals like disk analyzers or junk cleaners, always prefer a stack-based `os.scandir` implementation.
