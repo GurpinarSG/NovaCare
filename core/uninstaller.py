@@ -9,7 +9,11 @@ import subprocess
 import shlex
 from dataclasses import dataclass, field
 from typing import Optional
-from core.utils import format_bytes, safe_remove_directory, safe_remove_file, delete_registry_key_tree
+from core.utils import format_bytes, safe_remove_directory, safe_remove_file, delete_registry_key_tree, log_debug
+
+_NAME_EXCLUSIONS = frozenset({'microsoft', 'windows', 'the', 'for', 'corporation', 'setup', 'edition', 'suite'})
+_DIR_EXCLUSIONS = frozenset({'system32', 'syswow64', 'common files', 'microsoft', 'windows'})
+_REG_EXCLUSIONS = frozenset({'microsoft', 'classes', 'registeredapplications', 'policies'})
 
 @dataclass
 class InstalledApp:
@@ -37,6 +41,15 @@ class AppUninstaller:
     def __init__(self):
         self.apps: list[InstalledApp] = []
 
+    @staticmethod
+    def _get_reg_val(key, name: str, default: str = "") -> str:
+        """Helper to read registry string value without re-allocating inner functions."""
+        try:
+            val, _ = winreg.QueryValueEx(key, name)
+            return str(val).strip()
+        except OSError:
+            return default
+
     def scan_installed_apps(self) -> list[InstalledApp]:
         self.apps.clear()
         targets = [
@@ -57,14 +70,7 @@ class AppUninstaller:
                             app_sub = winreg.EnumKey(base_key, i)
                             full_sub = f"{sub}\\{app_sub}"
                             with winreg.OpenKey(root, full_sub, 0, winreg.KEY_READ) as app_key:
-                                def get_val(name: str, default="") -> str:
-                                    try:
-                                        val, _ = winreg.QueryValueEx(app_key, name)
-                                        return str(val).strip()
-                                    except OSError:
-                                        return default
-
-                                name = get_val("DisplayName")
+                                name = self._get_reg_val(app_key, "DisplayName")
                                 if not name:
                                     continue
 
@@ -82,9 +88,9 @@ class AppUninstaller:
                                     continue
                                 seen_names.add(norm_name)
 
-                                version = get_val("DisplayVersion", "1.0")
-                                publisher = get_val("Publisher", "Bilinmiyor")
-                                inst_date = get_val("InstallDate", "")
+                                version = self._get_reg_val(app_key, "DisplayVersion", "1.0")
+                                publisher = self._get_reg_val(app_key, "Publisher", "Bilinmiyor")
+                                inst_date = self._get_reg_val(app_key, "InstallDate", "")
                                 if len(inst_date) == 8 and inst_date.isdigit():
                                     inst_date = f"{inst_date[:4]}-{inst_date[4:6]}-{inst_date[6:]}"
 
@@ -95,10 +101,10 @@ class AppUninstaller:
                                 except (OSError, ValueError):
                                     pass
 
-                                uninst_str = get_val("UninstallString")
-                                quiet_uninst = get_val("QuietUninstallString")
-                                inst_loc = get_val("InstallLocation")
-                                icon_p = get_val("DisplayIcon")
+                                uninst_str = self._get_reg_val(app_key, "UninstallString")
+                                quiet_uninst = self._get_reg_val(app_key, "QuietUninstallString")
+                                inst_loc = self._get_reg_val(app_key, "InstallLocation")
+                                icon_p = self._get_reg_val(app_key, "DisplayIcon")
 
                                 self.apps.append(InstalledApp(
                                     id=f"{root_name}_{app_sub}",
@@ -161,7 +167,7 @@ class AppUninstaller:
     def scan_leftovers(self, app: InstalledApp) -> list[LeftoverItem]:
         """Scans filesystem and registry for remnants related to this app."""
         leftovers: list[LeftoverItem] = []
-        app_name_parts = [p.lower() for p in app.name.split() if len(p) >= 3 and p.lower() not in ('microsoft', 'windows', 'the', 'for', 'corporation', 'setup', 'edition', 'suite')]
+        app_name_parts = [p.lower() for p in app.name.split() if len(p) >= 3 and p.lower() not in _NAME_EXCLUSIONS]
         if not app_name_parts:
             app_name_parts = [app.name.lower()]
 
@@ -186,18 +192,19 @@ class AppUninstaller:
             if not base_dir or not os.path.exists(base_dir):
                 continue
             try:
-                for entry in os.scandir(base_dir):
-                    if entry.is_dir():
-                        dname = entry.name.lower()
-                        # Match if matches app's prominent words
-                        if any(part in dname for part in app_name_parts):
-                            # Avoid false positives with common system folders
-                            if dname not in ('system32', 'syswow64', 'common files', 'microsoft', 'windows'):
-                                leftovers.append(LeftoverItem(
-                                    item_type="folder",
-                                    path=entry.path,
-                                    details=f"Kalan Uygulama Verisi ({entry.name})"
-                                ))
+                with os.scandir(base_dir) as it:
+                    for entry in it:
+                        if entry.is_dir():
+                            dname = entry.name.lower()
+                            # Match if matches app's prominent words
+                            if any(part in dname for part in app_name_parts):
+                                # Avoid false positives with common system folders
+                                if dname not in _DIR_EXCLUSIONS:
+                                    leftovers.append(LeftoverItem(
+                                        item_type="folder",
+                                        path=entry.path,
+                                        details=f"Kalan Uygulama Verisi ({entry.name})"
+                                    ))
             except (PermissionError, OSError):
                 continue
 
@@ -210,8 +217,9 @@ class AppUninstaller:
                     for i in range(count):
                         try:
                             sub_k = winreg.EnumKey(k, i)
-                            if any(part in sub_k.lower() for part in app_name_parts):
-                                if sub_k.lower() not in ('microsoft', 'classes', 'registeredapplications', 'policies'):
+                            low_sub = sub_k.lower()
+                            if any(part in low_sub for part in app_name_parts):
+                                if low_sub not in _REG_EXCLUSIONS:
                                     leftovers.append(LeftoverItem(
                                         item_type="registry",
                                         path=f"{rname}\\Software\\{sub_k}",

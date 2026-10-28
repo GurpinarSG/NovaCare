@@ -6,7 +6,11 @@ import sys
 import ctypes
 import shutil
 import subprocess
+from functools import lru_cache
 from typing import Optional
+
+_UNITS = ('B', 'KB', 'MB', 'GB', 'TB', 'PB')
+_LOG_DIR: Optional[str] = None
 
 def is_admin() -> bool:
     """Check if the current process has administrative privileges."""
@@ -51,38 +55,39 @@ def format_bytes(bytes_count: int | float) -> str:
     """Convert bytes count to human-readable string (KB, MB, GB, etc.)."""
     if bytes_count <= 0:
         return "0 B"
-    units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB']
-    unit_index = 0
     val = float(bytes_count)
-    while val >= 1024.0 and unit_index < len(units) - 1:
+    unit_index = 0
+    max_idx = len(_UNITS) - 1
+    while val >= 1024.0 and unit_index < max_idx:
         val /= 1024.0
         unit_index += 1
     if unit_index == 0:
-        return f"{int(val)} {units[unit_index]}"
-    return f"{val:.2f} {units[unit_index]}"
+        return f"{int(val)} {_UNITS[unit_index]}"
+    return f"{val:.2f} {_UNITS[unit_index]}"
 
 def get_folder_size(path: str) -> tuple[int, int]:
-    """Calculate total size in bytes and number of files in folder, ignoring errors."""
+    """Calculate total size in bytes and number of files in folder iteratively, avoiding recursion limits."""
     total_size = 0
     total_files = 0
     if not os.path.exists(path):
         return 0, 0
 
-    try:
-        with os.scandir(path) as it:
-            for entry in it:
-                try:
-                    if entry.is_file(follow_symlinks=False):
-                        total_size += entry.stat().st_size
-                        total_files += 1
-                    elif entry.is_dir(follow_symlinks=False):
-                        s, f = get_folder_size(entry.path)
-                        total_size += s
-                        total_files += f
-                except (PermissionError, FileNotFoundError, OSError):
-                    continue
-    except (PermissionError, FileNotFoundError, OSError):
-        pass
+    stack = [path]
+    while stack:
+        current = stack.pop()
+        try:
+            with os.scandir(current) as it:
+                for entry in it:
+                    try:
+                        if entry.is_file(follow_symlinks=False):
+                            total_size += entry.stat().st_size
+                            total_files += 1
+                        elif entry.is_dir(follow_symlinks=False):
+                            stack.append(entry.path)
+                    except (PermissionError, FileNotFoundError, OSError):
+                        continue
+        except (PermissionError, FileNotFoundError, OSError):
+            continue
 
     return total_size, total_files
 
@@ -179,11 +184,13 @@ def empty_recycle_bin(timeout_sec: float = 5.0) -> bool:
     except Exception:
         return False
 
+@lru_cache(maxsize=1)
 def ensure_ssl_ca_bundle() -> Optional[str]:
     """
     Ensures that a valid TLS/SSL CA certificate bundle is always accessible,
     persisting cacert.pem into %LOCALAPPDATA%\\NovaCare\\cacert.pem.
     Sets REQUESTS_CA_BUNDLE and SSL_CERT_FILE environment variables.
+    Cached via @lru_cache so disk I/O and checks are executed only once.
     """
     app_data = os.path.join(os.environ.get('LOCALAPPDATA', os.path.expanduser('~')), 'NovaCare')
     os.makedirs(app_data, exist_ok=True)
@@ -233,11 +240,13 @@ def ensure_ssl_ca_bundle() -> Optional[str]:
 
 def log_debug(msg: str):
     """Appends a debug message to %LOCALAPPDATA%/NovaCare/startup.log safely."""
+    global _LOG_DIR
     try:
         import time
-        log_dir = os.path.join(os.environ.get('LOCALAPPDATA', os.path.expanduser('~')), 'NovaCare')
-        os.makedirs(log_dir, exist_ok=True)
-        with open(os.path.join(log_dir, 'startup.log'), "a", encoding="utf-8") as f:
+        if _LOG_DIR is None:
+            _LOG_DIR = os.path.join(os.environ.get('LOCALAPPDATA', os.path.expanduser('~')), 'NovaCare')
+            os.makedirs(_LOG_DIR, exist_ok=True)
+        with open(os.path.join(_LOG_DIR, 'startup.log'), "a", encoding="utf-8") as f:
             f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {msg}\n")
     except Exception:
         pass

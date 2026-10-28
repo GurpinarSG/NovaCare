@@ -4,10 +4,17 @@ Real-time CPU/RAM monitor, process inspector, and RAM working set trimmer.
 """
 import ctypes
 import os
+import heapq
 import psutil
 from dataclasses import dataclass
 from typing import Optional
-from core.utils import format_bytes
+from core.utils import format_bytes, log_debug
+
+# Known protected Windows system processes to skip
+PROTECTED_SYSTEM_PROCESSES = frozenset({
+    "system", "system idle process", "registry", "smss.exe", "csrss.exe",
+    "wininit.exe", "services.exe", "lsass.exe", "winlogon.exe"
+})
 
 @dataclass
 class ProcessInfo:
@@ -71,9 +78,11 @@ class MemoryBooster:
             except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                 continue
 
-        # Sort descending by memory usage and take top active processes
+        # Extract top active processes via heap selection
+        if len(procs) > limit:
+            return heapq.nlargest(limit, procs, key=lambda x: x.memory_mb)
         procs.sort(key=lambda x: x.memory_mb, reverse=True)
-        return procs[:limit]
+        return procs
 
     def kill_process(self, pid: int, force: bool = False) -> bool:
         """Terminate or kill a process by PID."""
@@ -84,7 +93,8 @@ class MemoryBooster:
             else:
                 p.terminate()
             return True
-        except Exception:
+        except Exception as e:
+            log_debug(f"MemoryBooster: kill_process error on pid {pid}: {e}")
             return False
 
     def optimize_ram(self, max_seconds: float = 3.5) -> tuple[int, int]:
@@ -103,12 +113,6 @@ class MemoryBooster:
         # Trim NovaCare's own memory first
         self.trim_own_memory()
 
-        # Known protected Windows system processes to skip
-        system_names = {
-            "system", "system idle process", "registry", "smss.exe", "csrss.exe",
-            "wininit.exe", "services.exe", "lsass.exe", "winlogon.exe"
-        }
-
         try:
             for proc in psutil.process_iter(['pid', 'name']):
                 # Strict timeout protection: never spend more than max_seconds trimming RAM
@@ -122,7 +126,7 @@ class MemoryBooster:
                         continue
 
                     p_name = (info.get('name') or '').lower()
-                    if p_name in system_names:
+                    if p_name in PROTECTED_SYSTEM_PROCESSES:
                         continue
 
                     handle = ctypes.windll.kernel32.OpenProcess(

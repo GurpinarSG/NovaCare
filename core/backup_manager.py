@@ -8,7 +8,7 @@ import winreg
 import subprocess
 from dataclasses import dataclass
 from typing import Optional
-from core.utils import format_bytes
+from core.utils import format_bytes, log_debug
 
 @dataclass
 class BackupEntry:
@@ -33,32 +33,36 @@ class BackupManager:
         if not os.path.exists(self.backup_dir):
             return entries
 
-        for fname in os.listdir(self.backup_dir):
-            if fname.startswith("Registry_Backup_") and fname.endswith(".json"):
-                fpath = os.path.join(self.backup_dir, fname)
-                try:
-                    sz = os.path.getsize(fpath)
-                    with open(fpath, "r", encoding="utf-8") as f:
-                        data = json.load(f)
-                        count = len(data) if isinstance(data, list) else 0
+        try:
+            with os.scandir(self.backup_dir) as it:
+                for entry in it:
+                    if entry.is_file() and entry.name.startswith("Registry_Backup_") and entry.name.endswith(".json"):
+                        try:
+                            sz = entry.stat().st_size
+                            with open(entry.path, "r", encoding="utf-8") as f:
+                                data = json.load(f)
+                                count = len(data) if isinstance(data, list) else 0
 
-                    # Parse timestamp from filename: Registry_Backup_YYYYMMDD_HHMMSS.json
-                    ts_part = fname.replace("Registry_Backup_", "").replace(".json", "")
-                    if len(ts_part) == 15 and "_" in ts_part:
-                        d, t = ts_part.split("_")
-                        formatted_ts = f"{d[:4]}-{d[4:6]}-{d[6:]} {t[:2]}:{t[2:4]}:{t[4:]}"
-                    else:
-                        formatted_ts = ts_part
+                            fname = entry.name
+                            ts_part = fname.replace("Registry_Backup_", "").replace(".json", "")
+                            if len(ts_part) == 15 and "_" in ts_part:
+                                d, t = ts_part.split("_")
+                                formatted_ts = f"{d[:4]}-{d[4:6]}-{d[6:]} {t[:2]}:{t[2:4]}:{t[4:]}"
+                            else:
+                                formatted_ts = ts_part
 
-                    entries.append(BackupEntry(
-                        filename=fname,
-                        filepath=fpath,
-                        timestamp=formatted_ts,
-                        issue_count=count,
-                        size_str=format_bytes(sz)
-                    ))
-                except Exception:
-                    continue
+                            entries.append(BackupEntry(
+                                filename=fname,
+                                filepath=entry.path,
+                                timestamp=formatted_ts,
+                                issue_count=count,
+                                size_str=format_bytes(sz)
+                            ))
+                        except Exception as e:
+                            log_debug(f"BackupManager: reading backup {entry.name} failed: {e}")
+                            continue
+        except OSError as e:
+            log_debug(f"BackupManager: list_backups error: {e}")
 
         # Sort newest first
         entries.sort(key=lambda x: x.timestamp, reverse=True)
@@ -90,9 +94,11 @@ class BackupManager:
                     with winreg.CreateKey(root, sub_key) as k:
                         winreg.SetValueEx(k, val_name, 0, val_type, val_data)
                         restored += 1
-                except Exception:
+                except Exception as e:
+                    log_debug(f"BackupManager: Error restoring key {sub_key}: {e}")
                     failed += 1
-        except Exception:
+        except Exception as e:
+            log_debug(f"BackupManager: Error reading backup file {backup_filepath}: {e}")
             return 0, 1
 
         return restored, failed

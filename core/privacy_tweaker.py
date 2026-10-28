@@ -8,7 +8,7 @@ import winreg
 import ctypes
 from dataclasses import dataclass
 from typing import Callable, Optional
-from core.utils import safe_remove_file
+from core.utils import safe_remove_file, log_debug
 
 @dataclass
 class PrivacyTraceItem:
@@ -102,14 +102,15 @@ class PrivacyTweaker:
         """Scans for user activity traces: Recent files, Run MRU, Typed Paths, Clipboard."""
         items: list[PrivacyTraceItem] = []
 
-        # 1. Recent documents
+        # 1. Recent documents (iterator based, zero memory overhead)
         recent_dir = os.path.join(os.environ.get('APPDATA', ''), r'Microsoft\Windows\Recent')
         recent_count = 0
         if os.path.exists(recent_dir):
             try:
-                recent_count = len([f for f in os.listdir(recent_dir) if f.endswith('.lnk')])
-            except OSError:
-                pass
+                with os.scandir(recent_dir) as it:
+                    recent_count = sum(1 for entry in it if entry.name.endswith('.lnk'))
+            except OSError as e:
+                log_debug(f"PrivacyTweaker recent docs scan error: {e}")
         items.append(PrivacyTraceItem(
             id="recent_docs",
             name="Son Açılan Dosyalar Geçmişi",
@@ -164,12 +165,13 @@ class PrivacyTweaker:
             recent_dir = os.path.join(os.environ.get('APPDATA', ''), r'Microsoft\Windows\Recent')
             if os.path.exists(recent_dir):
                 try:
-                    for f in os.listdir(recent_dir):
-                        if f.endswith(('.lnk', '.destlist')):
-                            if safe_remove_file(os.path.join(recent_dir, f)):
-                                cleaned += 1
-                except OSError:
-                    pass
+                    with os.scandir(recent_dir) as it:
+                        for entry in it:
+                            if entry.is_file() and entry.name.endswith(('.lnk', '.destlist')):
+                                if safe_remove_file(entry.path):
+                                    cleaned += 1
+                except OSError as e:
+                    log_debug(f"PrivacyTweaker clean recent docs error: {e}")
 
         # Run MRU
         if "run_mru" in selected_ids:
@@ -181,8 +183,8 @@ class PrivacyTweaker:
                     for n in names:
                         winreg.DeleteValue(k, n)
                         cleaned += 1
-            except OSError:
-                pass
+            except OSError as e:
+                log_debug(f"PrivacyTweaker clean run MRU error: {e}")
 
         # Typed paths
         if "typed_paths" in selected_ids:
@@ -194,8 +196,8 @@ class PrivacyTweaker:
                     for n in names:
                         winreg.DeleteValue(k, n)
                         cleaned += 1
-            except OSError:
-                pass
+            except OSError as e:
+                log_debug(f"PrivacyTweaker clean typed paths error: {e}")
 
         # Clipboard
         if "clipboard" in selected_ids:
@@ -204,8 +206,8 @@ class PrivacyTweaker:
                     ctypes.windll.user32.EmptyClipboard()
                     ctypes.windll.user32.CloseClipboard()
                     cleaned += 1
-            except Exception:
-                pass
+            except Exception as e:
+                log_debug(f"PrivacyTweaker empty clipboard error: {e}")
 
         return cleaned
 
@@ -228,7 +230,9 @@ class PrivacyTweaker:
                 winreg.SetValueEx(k, tweak.value_name, 0, winreg.REG_DWORD, val_to_set)
                 tweak.current_enabled = enable
                 return True
-        except PermissionError:
+        except PermissionError as e:
+            log_debug(f"PrivacyTweaker: Permission denied applying {tweak.id}: {e}")
             return False
-        except Exception:
+        except Exception as e:
+            log_debug(f"PrivacyTweaker: Failed applying {tweak.id}: {e}")
             return False

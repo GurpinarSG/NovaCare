@@ -8,6 +8,7 @@ import statistics
 import requests
 from dataclasses import dataclass
 from typing import Optional, Callable
+from core.utils import log_debug
 
 AIRPORT_COLO_MAP = {
     "IST": "İstanbul",
@@ -59,6 +60,19 @@ class SpeedTester:
     def cancel(self):
         """Signals the running test to cancel safely."""
         self._cancelled = True
+
+    def close(self):
+        """Safely closes the underlying requests session and socket pools."""
+        try:
+            self.session.close()
+        except Exception:
+            pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
 
     def get_network_meta(self) -> tuple[str, str]:
         """
@@ -121,18 +135,18 @@ class SpeedTester:
         initial_bytes = 2_500_000
         dl_total = 0
         try:
-            r = self.session.get(f"https://speed.cloudflare.com/__down?bytes={initial_bytes}", stream=True, timeout=8)
-            for chunk in r.iter_content(chunk_size=32768):
-                if self._cancelled:
-                    return 0.0
-                if chunk:
-                    dl_total += len(chunk)
-                    elapsed = max(0.05, time.perf_counter() - t_start)
-                    cur_speed = (dl_total * 8.0) / (elapsed * 1_000_000.0)
-                    if progress_callback:
-                        progress_callback(round(cur_speed, 1), min(45, int((dl_total / initial_bytes) * 45)))
-        except Exception:
-            pass
+            with self.session.get(f"https://speed.cloudflare.com/__down?bytes={initial_bytes}", stream=True, timeout=8) as r:
+                for chunk in r.iter_content(chunk_size=32768):
+                    if self._cancelled:
+                        return 0.0
+                    if chunk:
+                        dl_total += len(chunk)
+                        elapsed = max(0.05, time.perf_counter() - t_start)
+                        cur_speed = (dl_total * 8.0) / (elapsed * 1_000_000.0)
+                        if progress_callback:
+                            progress_callback(round(cur_speed, 1), min(45, int((dl_total / initial_bytes) * 45)))
+        except Exception as e:
+            log_debug(f"SpeedTester download stage 1 info: {e}")
 
         t_initial = max(0.05, time.perf_counter() - t_start)
         initial_mbps = (dl_total * 8.0) / (t_initial * 1_000_000.0)
@@ -148,19 +162,19 @@ class SpeedTester:
         t_stage2 = time.perf_counter()
         stage2_dl = 0
         try:
-            r2 = self.session.get(f"https://speed.cloudflare.com/__down?bytes={target_bytes}", stream=True, timeout=15)
-            for chunk in r2.iter_content(chunk_size=65536):
-                if self._cancelled:
-                    return 0.0
-                if chunk:
-                    stage2_dl += len(chunk)
-                    elapsed = max(0.05, time.perf_counter() - t_stage2)
-                    cur_speed = (stage2_dl * 8.0) / (elapsed * 1_000_000.0)
-                    pct = 45 + int((stage2_dl / target_bytes) * 55)
-                    if progress_callback:
-                        progress_callback(round(cur_speed, 1), min(99, pct))
-        except Exception:
-            pass
+            with self.session.get(f"https://speed.cloudflare.com/__down?bytes={target_bytes}", stream=True, timeout=15) as r2:
+                for chunk in r2.iter_content(chunk_size=65536):
+                    if self._cancelled:
+                        return 0.0
+                    if chunk:
+                        stage2_dl += len(chunk)
+                        elapsed = max(0.05, time.perf_counter() - t_stage2)
+                        cur_speed = (stage2_dl * 8.0) / (elapsed * 1_000_000.0)
+                        pct = 45 + int((stage2_dl / target_bytes) * 55)
+                        if progress_callback:
+                            progress_callback(round(cur_speed, 1), min(99, pct))
+        except Exception as e:
+            log_debug(f"SpeedTester download stage 2 info: {e}")
 
         t_total = max(0.1, time.perf_counter() - t_stage2)
         final_mbps = (stage2_dl * 8.0) / (t_total * 1_000_000.0) if stage2_dl > 0 else initial_mbps

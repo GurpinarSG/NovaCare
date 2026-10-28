@@ -45,7 +45,7 @@ def _load_app_version():
                 return f.readline().strip().lstrip("vV")
     except Exception:
         pass
-    return "1.2.1"
+    return "1.2.3"
 
 # Version & Product Info
 APP_NAME = "NovaCare"

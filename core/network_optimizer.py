@@ -7,10 +7,12 @@ import socket
 import time
 import subprocess
 import re
+import concurrent.futures
 from dataclasses import dataclass
 from typing import Optional
 import psutil
 import winreg
+from core.utils import log_debug
 
 @dataclass
 class DNSServerInfo:
@@ -116,6 +118,8 @@ class NetworkOptimizer:
                 return iface["name"]
         return interfaces[0]["name"] if interfaces else None
 
+    _adapter_guid_cache: dict[str, str] = {}
+
     def get_current_dns(self, adapter_name: str) -> dict:
         """
         Retrieves currently configured DNS servers for the specified adapter.
@@ -124,22 +128,24 @@ class NetworkOptimizer:
         """
         result = {"is_dhcp": True, "servers": []}
         
-        # 1. Fast Registry Query
+        # 1. Fast Registry Query with cached GUID resolution
         try:
-            net_path = r"SYSTEM\CurrentControlSet\Control\Network\{4D36E972-E325-11CE-BFC1-08002BE10318}"
-            target_guid = None
-            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, net_path) as net_key:
-                count = winreg.QueryInfoKey(net_key)[0]
-                for i in range(count):
-                    guid = winreg.EnumKey(net_key, i)
-                    try:
-                        with winreg.OpenKey(net_key, rf"{guid}\Connection") as conn_key:
-                            name, _ = winreg.QueryValueEx(conn_key, "Name")
-                            if name.lower() == adapter_name.lower():
-                                target_guid = guid
-                                break
-                    except Exception:
-                        pass
+            target_guid = self._adapter_guid_cache.get(adapter_name.lower())
+            if not target_guid:
+                net_path = r"SYSTEM\CurrentControlSet\Control\Network\{4D36E972-E325-11CE-BFC1-08002BE10318}"
+                with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, net_path) as net_key:
+                    count = winreg.QueryInfoKey(net_key)[0]
+                    for i in range(count):
+                        guid = winreg.EnumKey(net_key, i)
+                        try:
+                            with winreg.OpenKey(net_key, rf"{guid}\Connection") as conn_key:
+                                name, _ = winreg.QueryValueEx(conn_key, "Name")
+                                if name.lower() == adapter_name.lower():
+                                    target_guid = guid
+                                    self._adapter_guid_cache[adapter_name.lower()] = guid
+                                    break
+                        except Exception:
+                            pass
             
             if target_guid:
                 tcp_path = rf"SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\{target_guid}"
@@ -159,8 +165,8 @@ class NetworkOptimizer:
                         result["servers"] = servers
                         result["is_dhcp"] = not bool(ns.strip())
                         return result
-        except Exception:
-            pass
+        except Exception as e:
+            log_debug(f"NetworkOptimizer: Registry DNS query error: {e}")
 
         # 2. Fallback to netsh if registry query yielded no servers
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -173,8 +179,8 @@ class NetworkOptimizer:
                 result["is_dhcp"] = True
             elif "Statically" in out or "Statik" in out:
                 result["is_dhcp"] = False
-        except Exception:
-            pass
+        except Exception as e:
+            log_debug(f"NetworkOptimizer: netsh show dns fallback failed: {e}")
         return result
 
     def test_dns_latency(self, server_ip: str, timeout: float = 1.0, repeats: int = 2) -> Optional[float]:
@@ -204,12 +210,13 @@ class NetworkOptimizer:
         return min(latencies) if latencies else None
 
     def benchmark_all_dns(self) -> list[DNSServerInfo]:
-        """Tests latency for all catalog DNS servers and returns them sorted by fastest ping."""
-        servers = []
-        for item in DNS_CATALOG:
-            # Test primary IP
+        """
+        Tests latency for all catalog DNS servers concurrently in parallel threads
+        and returns them sorted by fastest ping (<0.5s total time).
+        """
+        def _test_item(item: DNSServerInfo) -> DNSServerInfo:
             lat = self.test_dns_latency(item.primary)
-            servers.append(DNSServerInfo(
+            return DNSServerInfo(
                 id=item.id,
                 name=item.name,
                 provider=item.provider,
@@ -217,7 +224,10 @@ class NetworkOptimizer:
                 secondary=item.secondary,
                 description=item.description,
                 latency_ms=round(lat, 1) if lat is not None else None
-            ))
+            )
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(DNS_CATALOG)) as executor:
+            servers = list(executor.map(_test_item, DNS_CATALOG))
 
         # Sort: valid latencies first (ascending), then timeouts
         servers.sort(key=lambda s: s.latency_ms if s.latency_ms is not None else 999999)

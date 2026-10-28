@@ -7,6 +7,10 @@ import winreg
 import glob
 from dataclasses import dataclass
 from typing import Optional
+from core.utils import log_debug
+
+HIGH_IMPACT_KEYWORDS = ('steam', 'epic', 'discord', 'spotify', 'antivirus', 'cortana', 'teams', 'onedrive', 'update', 'chrome')
+LOW_IMPACT_KEYWORDS = ('realtek', 'audio', 'touchpad', 'synaptics', 'f.lux', 'tray')
 
 @dataclass
 class StartupItem:
@@ -33,13 +37,11 @@ class StartupManager:
     def _estimate_impact(self, name: str, command: str) -> str:
         cmd_lower = command.lower()
         name_lower = name.lower()
-        high_impact_keywords = ['steam', 'epic', 'discord', 'spotify', 'antivirus', 'cortana', 'teams', 'onedrive', 'update', 'chrome']
-        low_impact_keywords = ['realtek', 'audio', 'touchpad', 'synaptics', 'f.lux', 'tray']
 
-        for kw in high_impact_keywords:
+        for kw in HIGH_IMPACT_KEYWORDS:
             if kw in cmd_lower or kw in name_lower:
                 return "Yüksek"
-        for kw in low_impact_keywords:
+        for kw in LOW_IMPACT_KEYWORDS:
             if kw in cmd_lower or kw in name_lower:
                 return "Düşük"
         return "Orta"
@@ -120,27 +122,28 @@ class StartupManager:
             if not os.path.exists(folder):
                 continue
             try:
-                for entry in os.scandir(folder):
-                    if entry.is_file():
-                        name = entry.name
-                        enabled = True
-                        if name.endswith('.disabled'):
-                            name = name[:-9]
-                            enabled = False
+                with os.scandir(folder) as it:
+                    for entry in it:
+                        if entry.is_file():
+                            name = entry.name
+                            enabled = True
+                            if name.endswith('.disabled'):
+                                name = name[:-9]
+                                enabled = False
 
-                        if name.lower().endswith(('.lnk', '.exe', '.bat', '.cmd', '.vbs')) or not enabled:
-                            display_name = os.path.splitext(name)[0]
-                            self.items.append(StartupItem(
-                                id=f"folder_{entry.path}",
-                                name=display_name,
-                                command=entry.path,
-                                location=desc,
-                                location_type="folder",
-                                source_key_or_path=entry.path,
-                                root_name=None,
-                                enabled=enabled,
-                                boot_impact=self._estimate_impact(display_name, entry.path) if enabled else "Devre Dışı"
-                            ))
+                            if name.lower().endswith(('.lnk', '.exe', '.bat', '.cmd', '.vbs')) or not enabled:
+                                display_name = os.path.splitext(name)[0]
+                                self.items.append(StartupItem(
+                                    id=f"folder_{entry.path}",
+                                    name=display_name,
+                                    command=entry.path,
+                                    location=desc,
+                                    location_type="folder",
+                                    source_key_or_path=entry.path,
+                                    root_name=None,
+                                    enabled=enabled,
+                                    boot_impact=self._estimate_impact(display_name, entry.path) if enabled else "Devre Dışı"
+                                ))
             except Exception:
                 continue
 

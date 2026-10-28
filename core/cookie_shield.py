@@ -9,8 +9,9 @@ import sqlite3
 import subprocess
 import psutil
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Union, Iterable
 from core.config import ConfigManager
+from core.utils import log_debug
 
 DEFAULT_WHITELIST = [
     "google.com", "youtube.com", "github.com", "microsoft.com",
@@ -80,12 +81,22 @@ class CookieShield:
         """Resets protected whitelist to defaults."""
         self.save_whitelist(list(DEFAULT_WHITELIST))
 
-    def is_protected_domain(self, host: str, whitelist: Optional[list[str]] = None) -> bool:
-        """Checks if a given cookie host matches protected domains."""
-        wl = whitelist if whitelist is not None else self.get_whitelist()
+    def is_protected_domain(self, host: str, whitelist: Optional[Union[list[str], set[str]]] = None) -> bool:
+        """
+        Checks if a given cookie host matches protected domains.
+        Optimized with O(1) set lookup and domain hierarchy checks.
+        """
+        if whitelist is None:
+            wl = self.get_whitelist()
+        else:
+            wl = whitelist
+        wl_set = wl if isinstance(wl, (set, frozenset)) else set(wl)
         clean_host = host.lower().lstrip(".")
-        for protected in wl:
-            if clean_host == protected or clean_host.endswith("." + protected):
+        if clean_host in wl_set:
+            return True
+        parts = clean_host.split(".")
+        for i in range(1, len(parts)):
+            if ".".join(parts[i:]) in wl_set:
                 return True
         return False
 
@@ -178,16 +189,24 @@ class CookieShield:
 
         return targets
 
-    def is_browser_running(self, exe_name: str) -> bool:
-        """Checks if a browser process is currently holding database locks."""
-        low_exe = exe_name.lower()
+    def get_running_process_names(self) -> set[str]:
+        """Snapshots all running process names in a single psutil pass for O(1) checks."""
+        names = set()
         for p in psutil.process_iter(['name']):
             try:
-                if p.info['name'] and p.info['name'].lower() == low_exe:
-                    return True
+                name = p.info.get('name')
+                if name:
+                    names.add(name.lower())
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 continue
-        return False
+        return names
+
+    def is_browser_running(self, exe_name: str, running_names: Optional[set[str]] = None) -> bool:
+        """Checks if a browser process is currently holding database locks."""
+        low_exe = exe_name.lower()
+        if running_names is not None:
+            return low_exe in running_names
+        return low_exe in self.get_running_process_names()
 
     def close_browser(self, exe_name: str) -> bool:
         """Gracefully closes a browser to release file locks."""
@@ -197,15 +216,19 @@ class CookieShield:
                 kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
             subprocess.run(["taskkill", "/F", "/IM", exe_name], **kwargs)
             return True
-        except Exception:
+        except Exception as e:
+            log_debug(f"CookieShield: close_browser failed for {exe_name}: {e}")
             return False
 
     def scan_cookies(self) -> dict:
         """
         Scans all accessible browser cookie stores and classifies them.
+        Optimized to snapshot running processes once and use fast set lookups.
         """
         whitelist = self.get_whitelist()
+        whitelist_set = set(whitelist)
         targets = self.get_browser_targets()
+        running_procs = self.get_running_process_names()
 
         total_cookies = 0
         protected_count = 0
@@ -219,7 +242,7 @@ class CookieShield:
             b_type = t['type']
             exe = t['exe']
 
-            if self.is_browser_running(exe):
+            if self.is_browser_running(exe, running_procs):
                 locked_browsers.add(browser_name)
                 # Try reading anyway in case read sharing is open
             con = None
@@ -234,8 +257,9 @@ class CookieShield:
 
                 for host, count in cur.fetchall():
                     total_cookies += count
-                    is_prot = self.is_protected_domain(host, whitelist)
-                    is_track = any(t in host.lower() for t in KNOWN_TRACKERS)
+                    is_prot = self.is_protected_domain(host, whitelist_set)
+                    low_host = host.lower()
+                    is_track = any(t in low_host for t in KNOWN_TRACKERS)
 
                     if is_prot:
                         protected_count += count
@@ -249,8 +273,8 @@ class CookieShield:
                         is_protected=is_prot,
                         is_known_tracker=is_track
                     ))
-            except Exception:
-                # If locked, record browser as locked
+            except Exception as e:
+                log_debug(f"CookieShield: Error scanning {browser_name} ({db_path}): {e}")
                 locked_browsers.add(browser_name)
             finally:
                 if con:
@@ -278,7 +302,9 @@ class CookieShield:
         Returns (deleted_count, preserved_count, locked_browsers).
         """
         whitelist = self.get_whitelist()
+        whitelist_set = set(whitelist)
         targets = self.get_browser_targets()
+        running_procs = self.get_running_process_names()
 
         deleted_total = 0
         preserved_total = 0
@@ -290,7 +316,7 @@ class CookieShield:
             b_type = t['type']
             exe = t['exe']
 
-            if self.is_browser_running(exe):
+            if self.is_browser_running(exe, running_procs):
                 locked_browsers.append(browser_name)
                 continue
 
@@ -307,7 +333,7 @@ class CookieShield:
 
                 delete_rowids = []
                 for rowid, host in rows:
-                    if self.is_protected_domain(host, whitelist):
+                    if self.is_protected_domain(host, whitelist_set):
                         preserved_total += 1
                     else:
                         delete_rowids.append(rowid)
@@ -323,9 +349,10 @@ class CookieShield:
                     deleted_total += len(delete_rowids)
                     try:
                         cur.execute("VACUUM")
-                    except Exception:
-                        pass
-            except Exception:
+                    except Exception as e:
+                        log_debug(f"CookieShield: VACUUM failed on {db_path}: {e}")
+            except Exception as e:
+                log_debug(f"CookieShield: Error cleaning {browser_name} ({db_path}): {e}")
                 locked_browsers.append(browser_name)
             finally:
                 if con:

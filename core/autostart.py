@@ -8,6 +8,7 @@ import os
 import sys
 import winreg
 import subprocess
+from core.utils import log_debug
 
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 APP_NAME = "NovaCare"
@@ -100,7 +101,8 @@ def set_autostart(enable: bool) -> bool:
             """
             r = subprocess.run(["powershell", "-NoProfile", "-Command", ps_script], creationflags=flags, timeout=8)
             task_created = (r.returncode == 0)
-        except Exception:
+        except Exception as e:
+            log_debug(f"Autostart: PowerShell task creation failed: {e}")
             try:
                 r = subprocess.run(
                     ["schtasks", "/create", "/tn", TASK_NAME, "/tr", cmd_str, "/sc", "onlogon", "/rl", "highest", "/f"],
@@ -108,7 +110,8 @@ def set_autostart(enable: bool) -> bool:
                     timeout=5
                 )
                 task_created = (r.returncode == 0)
-            except Exception:
+            except Exception as e2:
+                log_debug(f"Autostart: schtasks creation fallback failed: {e2}")
                 task_created = False
 
         if task_created:
@@ -123,8 +126,8 @@ def set_autostart(enable: bool) -> bool:
             try:
                 with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE) as key:
                     winreg.SetValueEx(key, APP_NAME, 0, winreg.REG_SZ, cmd_str)
-            except Exception:
-                pass
+            except Exception as e:
+                log_debug(f"Autostart: HKCU Run fallback failed: {e}")
 
         return True
     else:

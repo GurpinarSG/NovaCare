@@ -7,8 +7,10 @@ import os
 import winreg
 import json
 import time
+from functools import lru_cache
 from dataclasses import dataclass, asdict
 from typing import Callable, Optional
+from core.utils import log_debug
 
 @dataclass
 class RegistryIssue:
@@ -39,8 +41,10 @@ class RegistryCleaner:
             return winreg.HKEY_LOCAL_MACHINE
         raise ValueError(f"Unknown root key: {root_name}")
 
-    def _clean_path_string(self, raw_cmd: str) -> str:
-        """Extract clean file path from command line arguments."""
+    @staticmethod
+    @lru_cache(maxsize=1024)
+    def _clean_path_string(raw_cmd: str) -> str:
+        """Extract clean file path from command line arguments with LRU caching."""
         cmd = raw_cmd.strip()
         if not cmd:
             return ""
@@ -341,9 +345,11 @@ class RegistryCleaner:
                             fixed_count += 1
                     else:
                         raise
-            except Exception:
+            except Exception as e:
+                log_debug(f"RegistryCleaner: Failed fixing issue {issue.id}: {e}")
                 failed_count += 1
 
-        # Remove fixed items from issues
-        self.issues = [i for i in self.issues if i not in issues]
+        # Remove fixed items from issues using O(N+M) set lookup
+        fixed_ids = {i.id for i in issues}
+        self.issues = [i for i in self.issues if i.id not in fixed_ids]
         return fixed_count, failed_count, backup_path

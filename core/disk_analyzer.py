@@ -6,7 +6,8 @@ import os
 import psutil
 from dataclasses import dataclass
 from typing import Callable, Optional
-from core.utils import format_bytes, safe_remove_file
+import heapq
+from core.utils import format_bytes, safe_remove_file, log_debug
 
 @dataclass
 class PartitionInfo:
@@ -30,6 +31,28 @@ class LargeFileInfo:
     category: str
     extension: str
 
+# Precomputed flat dictionary for O(1) extension category lookup
+_EXT_TO_CATEGORY: dict[str, str] = {
+    # Video
+    '.mp4': "🎬 Video", '.mkv': "🎬 Video", '.avi': "🎬 Video", '.mov': "🎬 Video",
+    '.wmv': "🎬 Video", '.flv': "🎬 Video", '.webm': "🎬 Video", '.m4v': "🎬 Video",
+    # Archive
+    '.zip': "📦 Arşiv / İmaj", '.rar': "📦 Arşiv / İmaj", '.7z': "📦 Arşiv / İmaj",
+    '.tar': "📦 Arşiv / İmaj", '.gz': "📦 Arşiv / İmaj", '.iso': "📦 Arşiv / İmaj",
+    '.vmdk': "📦 Arşiv / İmaj", '.vhd': "📦 Arşiv / İmaj", '.vhdx': "📦 Arşiv / İmaj",
+    # Executable
+    '.exe': "⚙️ Yürütülebilir", '.msi': "⚙️ Yürütülebilir", '.dll': "⚙️ Yürütülebilir",
+    '.sys': "⚙️ Yürütülebilir", '.cab': "⚙️ Yürütülebilir",
+    # Audio
+    '.mp3': "🎵 Ses", '.wav': "🎵 Ses", '.flac': "🎵 Ses", '.aac': "🎵 Ses",
+    '.ogg': "🎵 Ses", '.m4a': "🎵 Ses",
+    # Document / Data
+    '.pdf': "📄 Belge / Veri", '.docx': "📄 Belge / Veri", '.xlsx': "📄 Belge / Veri",
+    '.pptx': "📄 Belge / Veri", '.doc': "📄 Belge / Veri", '.xls': "📄 Belge / Veri",
+    '.txt': "📄 Belge / Veri", '.csv': "📄 Belge / Veri", '.sql': "📄 Belge / Veri",
+    '.db': "📄 Belge / Veri"
+}
+
 class DiskAnalyzer:
     CATEGORY_MAP = {
         'video': ('.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v'),
@@ -38,6 +61,14 @@ class DiskAnalyzer:
         'audio': ('.mp3', '.wav', '.flac', '.aac', '.ogg', '.m4a'),
         'document': ('.pdf', '.docx', '.xlsx', '.pptx', '.doc', '.xls', '.txt', '.csv', '.sql', '.db')
     }
+
+    @staticmethod
+    def _is_symlink(p: str) -> bool:
+        """Fast, static symlink check to prevent loop closures inside directory walk."""
+        try:
+            return os.path.islink(p)
+        except Exception:
+            return True
 
     def get_partitions(self) -> list[PartitionInfo]:
         """Returns disk space usage for all connected fixed/removable drives."""
@@ -62,20 +93,8 @@ class DiskAnalyzer:
         return results
 
     def _determine_category(self, ext: str) -> str:
-        ext = ext.lower()
-        for cat, exts in self.CATEGORY_MAP.items():
-            if ext in exts:
-                if cat == 'video':
-                    return "🎬 Video"
-                elif cat == 'archive':
-                    return "📦 Arşiv / İmaj"
-                elif cat == 'executable':
-                    return "⚙️ Yürütülebilir"
-                elif cat == 'audio':
-                    return "🎵 Ses"
-                elif cat == 'document':
-                    return "📄 Belge / Veri"
-        return "📁 Diğer"
+        """O(1) dictionary lookup for file extension category."""
+        return _EXT_TO_CATEGORY.get(ext.lower(), "📁 Diğer")
 
     def scan_largest_files(
         self,
@@ -87,7 +106,7 @@ class DiskAnalyzer:
     ) -> list[LargeFileInfo]:
         """
         Scans target_dir for the largest files exceeding min_size_mb.
-        Returns top sorted list up to limit.
+        Returns top sorted list up to limit using heap selection for optimal memory usage.
         """
         min_bytes = min_size_mb * 1024 * 1024
         found: list[LargeFileInfo] = []
@@ -100,12 +119,7 @@ class DiskAnalyzer:
             if cancel_check and cancel_check():
                 break
             # Prune directory symlinks/junctions to prevent infinite loops or redundant scans
-            def _is_symlink(p: str) -> bool:
-                try:
-                    return os.path.islink(p)
-                except Exception:
-                    return True
-            dirs[:] = [d for d in dirs if not _is_symlink(os.path.join(root, d))]
+            dirs[:] = [d for d in dirs if not self._is_symlink(os.path.join(root, d))]
             for fname in files:
                 if cancel_check and cancel_check():
                     break
@@ -132,9 +146,10 @@ class DiskAnalyzer:
                 except (PermissionError, FileNotFoundError, OSError):
                     continue
 
-        # Sort descending by size
+        if len(found) > limit:
+            return heapq.nlargest(limit, found, key=lambda x: x.size_bytes)
         found.sort(key=lambda x: x.size_bytes, reverse=True)
-        return found[:limit]
+        return found
 
     def delete_file(self, file_path: str) -> bool:
         """Safely delete a large file."""

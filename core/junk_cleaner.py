@@ -13,8 +13,16 @@ from core.utils import (
     safe_remove_file,
     safe_remove_directory,
     query_recycle_bin,
-    empty_recycle_bin
+    empty_recycle_bin,
+    log_debug
 )
+
+_EXCLUDED_APP_FRAGMENTS = ('\\discord', '/discord', '\\telegram', '\\whatsapp', '\\signal')
+_EXCLUDED_NAMES = frozenset({
+    'discord', 'discordcanary', 'discordptb', 'settings.json', 'local storage',
+    'session storage', 'local state', 'preferences', 'module_data', 'blob_storage'
+})
+_SHIELD_SENSITIVE_PARTS = ('settings.json', 'local storage', 'session storage', 'local state', 'preferences', 'module_data')
 
 @dataclass
 class CleanerCategory:
@@ -209,7 +217,7 @@ class JunkCleaner:
 
         # CRITICAL PROTECTION: Discord, Telegram, WhatsApp and sensitive chat apps shield
         # Never scan, index or traverse Discord or communication app configuration, sessions or caches
-        if any(app in norm_path for app in ('\\discord', '/discord', '\\telegram', '\\whatsapp', '\\signal')):
+        if any(app in norm_path for app in _EXCLUDED_APP_FRAGMENTS):
             return
 
         try:
@@ -221,8 +229,8 @@ class JunkCleaner:
                         if e_name.startswith('_mei') or 'novacare' in e_name:
                             continue
 
-                        # Strict exclusion of Discord and sensitive configurations/tokens/databases
-                        if e_name in ('discord', 'discordcanary', 'discordptb', 'settings.json', 'local storage', 'session storage', 'local state', 'preferences', 'module_data', 'blob_storage'):
+                        # Strict exclusion of Discord and sensitive configurations/tokens/databases via O(1) set
+                        if e_name in _EXCLUDED_NAMES:
                             continue
 
                         # Avoid traversing symlinks and junction points
@@ -297,9 +305,9 @@ class JunkCleaner:
                         continue
 
                     # Absolute shield: Never touch Discord or real-time communication app files
-                    if any(app in norm_fp for app in ('\\discord\\', '/discord/', '\\telegram\\', '\\whatsapp\\', '\\signal\\')):
+                    if any(app in norm_fp for app in _EXCLUDED_APP_FRAGMENTS):
                         continue
-                    if any(sens in norm_fp for sens in ('settings.json', 'local storage', 'session storage', 'local state', 'preferences', 'module_data')):
+                    if any(sens in norm_fp for sens in _SHIELD_SENSITIVE_PARTS):
                         continue
 
                     try:

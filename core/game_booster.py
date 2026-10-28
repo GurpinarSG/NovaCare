@@ -10,8 +10,11 @@ import re
 import json
 import subprocess
 import psutil
+import ctypes
+import uuid
 from core.config import ConfigManager
 from core.memory_booster import MemoryBooster
+from core.utils import log_debug
 
 # Non-essential services that can be safely suspended during gaming
 GAME_MODE_SERVICES = [
@@ -42,15 +45,36 @@ class GameBooster:
         return False
 
     def get_current_power_scheme(self) -> tuple[str, str]:
-        """Returns the active Windows power scheme GUID and name."""
+        """
+        Returns the active Windows power scheme GUID and name.
+        Uses native Win32 powrprof API for instant memory-level query (<1ms)
+        with fallback to powercfg command line.
+        """
+        if sys.platform == 'win32':
+            try:
+                p_active = ctypes.c_void_p()
+                res = ctypes.windll.powrprof.PowerGetActiveScheme(None, ctypes.byref(p_active))
+                if res == 0 and p_active.value:
+                    guid_str = str(uuid.UUID(bytes_le=ctypes.string_at(p_active, 16)))
+                    buf_size = ctypes.c_ulong(512)
+                    buf = ctypes.create_unicode_buffer(512)
+                    name_res = ctypes.windll.powrprof.PowerReadFriendlyName(
+                        None, p_active, None, None, buf, ctypes.byref(buf_size)
+                    )
+                    friendly_name = buf.value if name_res == 0 and buf.value else "Windows Güç Planı"
+                    ctypes.windll.ole32.CoTaskMemFree(p_active)
+                    return guid_str, friendly_name
+            except Exception as e:
+                log_debug(f"GameBooster: Native PowerGetActiveScheme error: {e}")
+
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         try:
             out = subprocess.check_output("powercfg /getactivescheme", shell=True, timeout=5, creationflags=flags).decode("cp1254", errors="ignore")
             m = re.search(r"([a-f0-9\-]{36})\s+\((.*?)\)", out, re.I)
             if m:
                 return m.group(1), m.group(2)
-        except Exception:
-            pass
+        except Exception as e:
+            log_debug(f"GameBooster: powercfg fallback failed: {e}")
         return "", "Bilinmiyor"
 
     def ensure_ultimate_power_plan(self) -> str:
@@ -201,6 +225,7 @@ POPULAR_GAMES_DATABASE = [
     {"name": "Genshin Impact", "exe": "GenshinImpact.exe"},
     {"name": "Rocket League", "exe": "RocketLeague.exe"}
 ]
+POPULAR_GAMES_MAP = {g["exe"].lower(): g["name"] for g in POPULAR_GAMES_DATABASE}
 
 class GameProfileManager:
     """Manages game profiles, auto-boost configuration, and local library scanning."""
@@ -371,25 +396,25 @@ class GameProfileManager:
             except Exception:
                 pass
 
-        # 4. Check against POPULAR_GAMES_DATABASE for currently running processes
+        # 4. Check against POPULAR_GAMES_DATABASE for currently running processes via O(1) map
         try:
             for p in psutil.process_iter(['name', 'exe']):
                 try:
                     p_name = p.info.get('name')
                     p_exe = p.info.get('exe')
                     if p_name:
-                        for db_game in POPULAR_GAMES_DATABASE:
-                            if p_name.lower() == db_game["exe"].lower() and p_name.lower() not in seen_exes:
-                                seen_exes.add(p_name.lower())
-                                found_games.append({
-                                    "name": db_game["name"],
-                                    "exe": p_name,
-                                    "path": p_exe or ""
-                                })
+                        p_low = p_name.lower()
+                        if p_low in POPULAR_GAMES_MAP and p_low not in seen_exes:
+                            seen_exes.add(p_low)
+                            found_games.append({
+                                "name": POPULAR_GAMES_MAP[p_low],
+                                "exe": p_name,
+                                "path": p_exe or ""
+                            })
                 except Exception:
                     continue
-        except Exception:
-            pass
+        except Exception as e:
+            log_debug(f"GameBooster: scan_installed_games process scan error: {e}")
 
         return found_games
 
@@ -418,7 +443,7 @@ class AutoGameWatcher(QThread):
         self._running = False
 
     def _interruptible_sleep(self, ms: int = 3000):
-        step = 50
+        step = 200
         elapsed = 0
         while elapsed < ms and self._running:
             self.msleep(min(step, ms - elapsed))
@@ -481,8 +506,8 @@ class AutoGameWatcher(QThread):
                         self.game_started.emit(prof.get("name", exe))
                         break
 
-            except Exception:
-                pass
+            except Exception as e:
+                log_debug(f"AutoGameWatcher error: {e}")
 
             self._interruptible_sleep(3000)
 

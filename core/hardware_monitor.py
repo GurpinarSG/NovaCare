@@ -8,6 +8,15 @@ import threading
 import subprocess
 import psutil
 from typing import Optional
+from core.utils import log_debug
+
+def _fmt_speed(bps: float) -> str:
+    """Fast network speed formatter."""
+    if bps >= 1048576.0:
+        return f"{bps / 1048576.0:.1f} MB/s"
+    elif bps >= 1024.0:
+        return f"{bps / 1024.0:.0f} KB/s"
+    return f"{int(bps)} B/s"
 
 class HardwareMonitor:
     _instance = None
@@ -23,6 +32,7 @@ class HardwareMonitor:
     def _init_monitor(self):
         self.has_nvml = False
         self.nvml_handle = None
+        self._pynvml = None
         self.gpu_name = "Harici GPU Yok"
         self.cpu_temp: Optional[float] = None
         self.last_cpu_temp_update = 0
@@ -43,8 +53,10 @@ class HardwareMonitor:
                 self.nvml_handle = pynvml.nvmlDeviceGetHandleByIndex(0)
                 raw_name = pynvml.nvmlDeviceGetName(self.nvml_handle)
                 self.gpu_name = raw_name if isinstance(raw_name, str) else raw_name.decode("utf-8", errors="ignore")
+                self._pynvml = pynvml
                 self.has_nvml = True
-        except Exception:
+        except Exception as e:
+            log_debug(f"HardwareMonitor: NVML init info: {e}")
             self.has_nvml = False
 
     def stop(self):
@@ -105,13 +117,12 @@ class HardwareMonitor:
         gpu_mem_used_mb = 0
         gpu_mem_total_mb = 0
 
-        if self.has_nvml and self.nvml_handle:
+        if self.has_nvml and self.nvml_handle and self._pynvml:
             try:
-                import pynvml
-                gpu_temp = pynvml.nvmlDeviceGetTemperature(self.nvml_handle, pynvml.NVML_TEMPERATURE_GPU)
-                rates = pynvml.nvmlDeviceGetUtilizationRates(self.nvml_handle)
+                gpu_temp = self._pynvml.nvmlDeviceGetTemperature(self.nvml_handle, self._pynvml.NVML_TEMPERATURE_GPU)
+                rates = self._pynvml.nvmlDeviceGetUtilizationRates(self.nvml_handle)
                 gpu_load = rates.gpu
-                mem_info = pynvml.nvmlDeviceGetMemoryInfo(self.nvml_handle)
+                mem_info = self._pynvml.nvmlDeviceGetMemoryInfo(self.nvml_handle)
                 gpu_mem_used_mb = int(mem_info.used / (1024 ** 2))
                 gpu_mem_total_mb = int(mem_info.total / (1024 ** 2))
             except Exception:
@@ -129,13 +140,6 @@ class HardwareMonitor:
         self._last_net_bytes = (net.bytes_recv, net.bytes_sent)
         self._last_net_time = now
 
-        def _fmt_spd(bps: float) -> str:
-            if bps >= 1024 * 1024:
-                return f"{bps / (1024 * 1024):.1f} MB/s"
-            elif bps >= 1024:
-                return f"{bps / 1024:.0f} KB/s"
-            return f"{int(bps)} B/s"
-
         return {
             "cpu_percent": cpu_percent,
             "cpu_freq_ghz": cpu_freq_ghz,
@@ -151,6 +155,6 @@ class HardwareMonitor:
             "has_gpu": self.has_nvml,
             "net_down_bps": down_bps,
             "net_up_bps": up_bps,
-            "net_down_str": _fmt_spd(down_bps),
-            "net_up_str": _fmt_spd(up_bps)
+            "net_down_str": _fmt_speed(down_bps),
+            "net_up_str": _fmt_speed(up_bps)
         }
