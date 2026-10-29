@@ -91,6 +91,24 @@ class BackupManager:
                     val_data = item.get('value_data')
                     val_type = item.get('value_type', winreg.REG_SZ)
 
+                    # Normalize val_data to the required type
+                    if val_type in (winreg.REG_DWORD, getattr(winreg, 'REG_DWORD_LITTLE_ENDIAN', 4), getattr(winreg, 'REG_QWORD', 11)):
+                        if isinstance(val_data, str):
+                            val_data = int(val_data, 16) if val_data.startswith("0x") else int(val_data)
+                        else:
+                            val_data = int(val_data)
+                    elif val_type == winreg.REG_BINARY:
+                        if isinstance(val_data, str):
+                            try:
+                                val_data = bytes.fromhex(val_data.replace(" ", "").replace(",", ""))
+                            except Exception:
+                                val_data = val_data.encode("utf-8")
+                    elif val_type == winreg.REG_MULTI_SZ:
+                        if isinstance(val_data, str):
+                            val_data = [val_data]
+                    elif val_type in (winreg.REG_SZ, winreg.REG_EXPAND_SZ):
+                        val_data = str(val_data)
+
                     with winreg.CreateKey(root, sub_key) as k:
                         winreg.SetValueEx(k, val_name, 0, val_type, val_data)
                         restored += 1

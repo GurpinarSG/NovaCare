@@ -594,31 +594,58 @@ class MainWindow(QMainWindow):
     def cleanup_workers(self):
         """Cleanly stops all background worker threads before application shutdown."""
         try:
+            # 1. Stop background polling and hardware singleton threads
+            from core.hardware_monitor import HardwareMonitor
+            HardwareMonitor().stop()
+
+            # 2. Stop core and view timers
+            if hasattr(self, 'auto_clean_timer') and self.auto_clean_timer.isActive():
+                self.auto_clean_timer.stop()
+            if hasattr(self, 'view_dashboard') and hasattr(self.view_dashboard, 'timer') and self.view_dashboard.timer.isActive():
+                self.view_dashboard.timer.stop()
+            if hasattr(self, 'view_memory') and hasattr(self.view_memory, 'timer') and self.view_memory.timer.isActive():
+                self.view_memory.timer.stop()
+            if hasattr(self, 'view_hardware_health') and hasattr(self.view_hardware_health, 'timer') and self.view_hardware_health.timer.isActive():
+                self.view_hardware_health.timer.stop()
+
+            # 3. Stop main window worker threads
             if self.auto_check_thread and self.auto_check_thread.isRunning():
                 self.auto_check_thread.quit()
                 self.auto_check_thread.wait(300)
             if self.auto_install_thread and self.auto_install_thread.isRunning():
                 self.auto_install_thread.quit()
                 self.auto_install_thread.wait(300)
-            if hasattr(self.view_memory, 'loader_worker') and self.view_memory.loader_worker and self.view_memory.loader_worker.isRunning():
-                self.view_memory.loader_worker.quit()
-                self.view_memory.loader_worker.wait(300)
-            if hasattr(self.view_uninstaller, 'scan_worker') and self.view_uninstaller.scan_worker and self.view_uninstaller.scan_worker.isRunning():
-                self.view_uninstaller.scan_worker.quit()
-                self.view_uninstaller.scan_worker.wait(300)
             if hasattr(self, 'auto_clean_worker') and self.auto_clean_worker and self.auto_clean_worker.isRunning():
                 self.auto_clean_worker.quit()
                 self.auto_clean_worker.wait(300)
-            if hasattr(self, 'view_hardware_health') and hasattr(self.view_hardware_health, 'scan_worker') and self.view_hardware_health.scan_worker and self.view_hardware_health.scan_worker.isRunning():
-                self.view_hardware_health.scan_worker.quit()
-                self.view_hardware_health.scan_worker.wait(300)
-            if hasattr(self, 'view_network') and hasattr(self.view_network, 'speed_worker') and self.view_network.speed_worker and self.view_network.speed_worker.isRunning():
-                self.view_network.speed_worker.cancel()
-                self.view_network.speed_worker.quit()
-                self.view_network.speed_worker.wait(500)
-            if hasattr(self, 'view_network') and hasattr(self.view_network, 'meta_worker') and self.view_network.meta_worker and self.view_network.meta_worker.isRunning():
-                self.view_network.meta_worker.quit()
-                self.view_network.meta_worker.wait(300)
+
+            # 4. Stop all subview workers
+            for view_attr, worker_attrs in [
+                ('view_dashboard', ['scan_worker', 'fix_worker', 'game_mode_worker']),
+                ('view_junk', ['scan_thread', 'clean_thread']),
+                ('view_registry', ['scan_thread', 'fix_thread']),
+                ('view_memory', ['loader_worker']),
+                ('view_uninstaller', ['scan_worker', 'uninstall_worker']),
+                ('view_hardware_health', ['scan_worker']),
+                ('view_battery', ['worker']),
+                ('view_disk', ['scan_thread']),
+                ('view_privacy', ['bloatware_worker', 'telemetry_worker', 'cookie_worker']),
+                ('view_rescue', ['restore_worker']),
+                ('view_network', ['speed_worker', 'meta_worker', 'dns_worker', 'repair_worker']),
+                ('view_settings', ['check_thread', 'download_thread', 'auto_clean_worker']),
+            ]:
+                if hasattr(self, view_attr):
+                    view_obj = getattr(self, view_attr)
+                    for w_name in worker_attrs:
+                        if hasattr(view_obj, w_name):
+                            w = getattr(view_obj, w_name)
+                            if w and getattr(w, 'isRunning', lambda: False)():
+                                if hasattr(w, 'cancel'):
+                                    w.cancel()
+                                w.quit()
+                                w.wait(300)
+
+            # 5. Stop game watcher
             if hasattr(self, 'auto_game_watcher') and self.auto_game_watcher:
                 if getattr(self.auto_game_watcher, '_auto_activated', False) and hasattr(self.auto_game_watcher, 'game_booster') and self.auto_game_watcher.game_booster.is_active():
                     self.auto_game_watcher.game_booster.deactivate()
@@ -626,7 +653,9 @@ class MainWindow(QMainWindow):
                     self.auto_game_watcher.stop()
                     self.auto_game_watcher.quit()
                     self.auto_game_watcher.wait(1000)
-            if hasattr(self.view_dashboard, 'overlay_widget') and self.view_dashboard.overlay_widget:
+
+            # 6. Close overlay widget
+            if hasattr(self, 'view_dashboard') and hasattr(self.view_dashboard, 'overlay_widget') and self.view_dashboard.overlay_widget:
                 self.view_dashboard.overlay_widget.close()
         except Exception:
             pass

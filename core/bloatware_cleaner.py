@@ -94,17 +94,16 @@ class BloatwareCleaner:
     def scan_installed_bloatware(self) -> list[BloatwareItem]:
         """
         Scans for pre-installed bloatware packages from the known list.
-        Optimized by filtering target names directly in PowerShell query (<0.4s).
+        Optimized by querying AppxPackage and matching against KNOWN_BLOATWARE.
         """
         installed_map = {}
         try:
             flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-            pkg_names = ",".join(f"'{item.package_name}'" for item in KNOWN_BLOATWARE)
             cmd = [
                 "powershell", "-NoProfile", "-Command",
-                f"Get-AppxPackage -Name {pkg_names} -ErrorAction SilentlyContinue | Select-Object -Property Name, PackageFullName | ConvertTo-Json -Compress"
+                "Get-AppxPackage | Select-Object -Property Name, PackageFullName | ConvertTo-Json -Compress"
             ]
-            p = subprocess.run(cmd, capture_output=True, text=True, timeout=8, creationflags=flags)
+            p = subprocess.run(cmd, capture_output=True, text=True, timeout=15, creationflags=flags)
             if p.returncode == 0 and p.stdout.strip():
                 try:
                     data = json.loads(p.stdout)
@@ -144,7 +143,11 @@ class BloatwareCleaner:
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         try:
             ps_cmd = (
-                f"Get-AppxPackage -Name '{package_name}' -AllUsers -ErrorAction SilentlyContinue | Remove-AppxPackage -ErrorAction SilentlyContinue; "
+                f"$pkg = Get-AppxPackage -Name '{package_name}' -ErrorAction SilentlyContinue; "
+                f"if ($pkg) {{ "
+                f"  Remove-AppxPackage -Package $pkg.PackageFullName -AllUsers -ErrorAction SilentlyContinue; "
+                f"  if (-not $?) {{ Remove-AppxPackage -Package $pkg.PackageFullName -ErrorAction SilentlyContinue }} "
+                f"}}; "
                 f"Get-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue | Where-Object DisplayName -eq '{package_name}' | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue"
             )
             p = subprocess.run(["powershell", "-NoProfile", "-Command", ps_cmd], capture_output=True, text=True, timeout=30, creationflags=flags)

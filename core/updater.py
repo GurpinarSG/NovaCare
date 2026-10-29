@@ -315,6 +315,10 @@ class GitHubUpdater:
             # Standalone exe payload
             source_dir = temp_dir
             if os.path.exists(zip_path):
+                with open(zip_path, 'rb') as f:
+                    magic = f.read(2)
+                if magic != b'MZ':
+                    raise ValueError("İndirilen güncelleme dosyası geçerli bir Windows yürütülebilir dosyası veya ZIP arşivi değil.")
                 dest_direct_exe = os.path.join(temp_dir, "NovaCare.exe")
                 shutil.copy2(zip_path, dest_direct_exe)
 

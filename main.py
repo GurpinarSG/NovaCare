@@ -238,7 +238,19 @@ def perform_self_uninstall(silent: bool = False):
     except Exception:
         pass
 
-    # 5. Schedule directory deletion after exit
+    if not silent:
+        info_box = QMessageBox()
+        info_box.setWindowTitle("Kaldırma Tamamlandı")
+        info_box.setText("<h3>Başarılı</h3>NovaCare sisteminizden tamamen kaldırıldı.")
+        info_box.setIcon(QMessageBox.Information)
+        info_box.setStyleSheet("""
+            QMessageBox { background-color: #0A0F1D; }
+            QLabel { color: #FFFFFF; font-size: 13px; font-family: 'Segoe UI', sans-serif; }
+            QPushButton { background-color: #1E293B; border: 1px solid #334155; border-radius: 6px; padding: 6px 18px; color: #F8FAFC; }
+        """)
+        info_box.exec_()
+
+    # 5. Schedule directory deletion right before process exits
     if getattr(sys, 'frozen', False):
         install_dir = os.path.dirname(sys.executable)
     else:
@@ -254,18 +266,6 @@ def perform_self_uninstall(silent: bool = False):
             subprocess.Popen(del_cmd, shell=True, creationflags=flags)
         except Exception:
             pass
-
-    if not silent:
-        info_box = QMessageBox()
-        info_box.setWindowTitle("Kaldırma Tamamlandı")
-        info_box.setText("<h3>Başarılı</h3>NovaCare sisteminizden tamamen kaldırıldı.")
-        info_box.setIcon(QMessageBox.Information)
-        info_box.setStyleSheet("""
-            QMessageBox { background-color: #0A0F1D; }
-            QLabel { color: #FFFFFF; font-size: 13px; font-family: 'Segoe UI', sans-serif; }
-            QPushButton { background-color: #1E293B; border: 1px solid #334155; border-radius: 6px; padding: 6px 18px; color: #F8FAFC; }
-        """)
-        info_box.exec_()
 
     sys.exit(0)
 

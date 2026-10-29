@@ -39,6 +39,8 @@ class SpeedTestWorker(QThread):
         except Exception as e:
             log_debug(f"SpeedTestWorker error: {e}")
             self.finished.emit(None)
+        finally:
+            self.tester.close()
 
     def cancel(self):
         self.tester.cancel()
@@ -47,12 +49,14 @@ class MetaFetchWorker(QThread):
     finished = pyqtSignal(str, str)
 
     def run(self):
+        tester = SpeedTester()
         try:
-            tester = SpeedTester()
             ip, loc = tester.get_network_meta()
             self.finished.emit(ip, loc)
         except Exception:
             self.finished.emit("Otomatik", "Türkiye / Avrupa Edge Sunucusu")
+        finally:
+            tester.close()
 
 class DNSBenchmarkWorker(QThread):
     finished = pyqtSignal(list)

@@ -5,10 +5,20 @@ Tüm önemli değişiklikler, yeni özellikler, hata düzeltmeleri ve optimizasy
 ## 🚀 [v1.2.4] - 2026-10-29
 
 ### 🛡️ Kapsamlı Kod Denetimi ve Bütünlük Doğrulaması
+* **Kritik Bloatware Tarama & Kaldırma Düzeltmesi (`core/bloatware_cleaner.py`):**
+  * PowerShell `Get-AppxPackage -Name` komutunun dizi parametre bağlama hatası (`ParameterBindingException`) giderildi; yüklü bloatware paketleri eksiksiz tespit edilir hale getirildi. Kaldırma işlemi admin ve kullanıcı yetkileri için çift katmanlı güvenli yapıya kavuşturuldu.
+* **Kayıt Defteri Yedek Geri Yükleme ve Sözdizimi Düzeltmesi (`core/backup_manager.py` & `core/registry_cleaner.py`):**
+  * JSON kayıt defteri yedekleri geri yüklenirken `REG_DWORD`, `REG_QWORD` ve `REG_BINARY` tiplerinin tip dönüştürme uyumsuzluğu giderildi.
+  * Standart `.reg` dosyası oluşturulurken varsayılan anahtarlar `@=` ve DWORD değerleri `dword:hex` formatına uygun hale getirildi.
+* **Uygulama Yaşam Döngüsü ve Kaynak Temizliği (`ui/main_window.py` & `ui/views/network_view.py`):**
+  * Uygulama kapatıldığında `HardwareMonitor` arka plan izleme iş parçacığı, pano ve görünüm zamanlayıcıları ile tüm aktif tarama/onarım iş parçacıklarının eksiksiz sonlandırılması sağlandı.
+  * Hız testi ve ağ meta verisi çalışanlarında açık kalan TCP oturumları ve soket havuzları `finally` bloklarıyla kapatıldı.
+* **Kaldırma Sihirbazı Yarış Durumu (Race Condition) Giderimi (`main.py`):**
+  * NovaCare kendi kendini kaldırırken gecikmeli dizin silme komutunun bilgilendirme penceresi kapanmadan önce tetiklenmesi ve dosya kilidi nedeniyle başarısız olması engellendi.
+* **Güncelleme Güvenliği ve Doğrulaması (`core/updater.py`):**
+  * Doğrudan indirilen tekil çalıştırılabilir dosya güncellemelerinde PE başlık (`b'MZ'`) doğrulaması eklenerek hatalı veya bozuk dosyaların hedef yürütülebilirin üzerine yazılması engellendi.
 * **Sıfır Pyflakes Uyarısı ve Sıfır Derleme Hatası:**
   * `core`, `ui`, `scripts` ve ana giriş noktalarındaki tüm Python dosyaları baştan sona denetlendi; statik analiz ve baytkod derleme testlerinden kusursuz (0 hata) geçti.
-* **Temiz Kaynak ve Bellek Yönetimi:**
-  * Açık kalan ağ soketleri, requests oturumları, WMI/CIM COM nesneleri ve PySide/PyQt arka plan çalışanlarının yaşam döngüleri incelendi; uygulama kapatıldığında veya arka plana alındığında tüm kaynakların eksiksiz temizlenmesi garanti altına alındı.
 * **Headless (Ekransız) Yürütme ve CLI Desteği:**
   * GUI arayüzü olmadan (`--boost-ram`, `--quick-scan`, `--check-update`) ve `QT_QPA_PLATFORM=offscreen` modunda uçtan uca otomatik entegrasyon testleri başarıyla doğrulandı.
 * **Sürüm ve Dağıtım Senkronizasyonu:**

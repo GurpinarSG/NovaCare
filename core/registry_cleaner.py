@@ -301,9 +301,17 @@ class RegistryCleaner:
                 rf.write("Windows Registry Editor Version 5.00\r\n\r\n")
                 for issue in issues_to_backup:
                     rf.write(f"[{issue.root_name}\\{issue.sub_key}]\r\n")
-                    escaped_val = issue.value_name.replace('"', '\\"') if issue.value_name else '@'
+                    escaped_val = issue.value_name.replace('"', '\\"')
+                    val_prefix = f'"{escaped_val}"' if issue.value_name else '@'
                     escaped_data = issue.value_data.replace('\\', '\\\\').replace('"', '\\"')
-                    rf.write(f'"{escaped_val}"="{escaped_data}"\r\n\r\n')
+                    if issue.value_type in (winreg.REG_DWORD, getattr(winreg, 'REG_DWORD_LITTLE_ENDIAN', 4)):
+                        try:
+                            val_int = int(issue.value_data, 16) if str(issue.value_data).startswith("0x") else int(issue.value_data)
+                            rf.write(f'{val_prefix}=dword:{val_int:08x}\r\n\r\n')
+                        except (ValueError, TypeError):
+                            rf.write(f'{val_prefix}="{escaped_data}"\r\n\r\n')
+                    else:
+                        rf.write(f'{val_prefix}="{escaped_data}"\r\n\r\n')
         except Exception:
             pass
 
