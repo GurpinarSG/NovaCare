@@ -4,21 +4,16 @@ Allows users to manage game profiles, enable automatic game detection,
 launch games with 1-click optimization, and scan installed libraries.
 """
 import os
-import subprocess
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QTableWidget, QTableWidgetItem, QHeaderView, QCheckBox,
     QFrame, QMessageBox, QFileDialog, QAbstractItemView, QWidget
 )
-from PyQt5.QtCore import Qt, QTimer
-from PyQt5.QtGui import QIcon, QFont
-from core.game_booster import GameBooster, GameProfileManager, POPULAR_GAMES_DATABASE
+from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal
+from PyQt5.QtGui import QFont
+from core.game_booster import GameBooster, GameProfileManager
 from core.config import ConfigManager
-from ui.styles import (
-    BG_CARD, BORDER_COLOR, COLOR_ACCENT, COLOR_SUCCESS,
-    COLOR_WARNING, COLOR_DANGER, TEXT_PRIMARY, TEXT_SECONDARY
-)
-from PyQt5.QtCore import QThread, pyqtSignal
+from ui.styles import TEXT_SECONDARY
 
 class GameScanWorker(QThread):
     finished = pyqtSignal(list)

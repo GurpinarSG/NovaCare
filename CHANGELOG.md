@@ -2,6 +2,20 @@
 
 Tüm önemli değişiklikler, yeni özellikler, hata düzeltmeleri ve optimizasyonlar bu belgede kronolojik olarak kayıt altına alınmaktadır.
 
+## 🚀 [v1.2.4] - 2026-10-29
+
+### 🛡️ Kapsamlı Kod Denetimi ve Bütünlük Doğrulaması
+* **Sıfır Pyflakes Uyarısı ve Sıfır Derleme Hatası:**
+  * `core`, `ui`, `scripts` ve ana giriş noktalarındaki tüm Python dosyaları baştan sona denetlendi; statik analiz ve baytkod derleme testlerinden kusursuz (0 hata) geçti.
+* **Temiz Kaynak ve Bellek Yönetimi:**
+  * Açık kalan ağ soketleri, requests oturumları, WMI/CIM COM nesneleri ve PySide/PyQt arka plan çalışanlarının yaşam döngüleri incelendi; uygulama kapatıldığında veya arka plana alındığında tüm kaynakların eksiksiz temizlenmesi garanti altına alındı.
+* **Headless (Ekransız) Yürütme ve CLI Desteği:**
+  * GUI arayüzü olmadan (`--boost-ram`, `--quick-scan`, `--check-update`) ve `QT_QPA_PLATFORM=offscreen` modunda uçtan uca otomatik entegrasyon testleri başarıyla doğrulandı.
+* **Sürüm ve Dağıtım Senkronizasyonu:**
+  * Uygulama çekirdeği (`core/config.py`), Windows uygulama bildirimi (`app.manifest`), kurulum sihirbazı (`scripts/installer_wizard.py`) ve derleyici betikleri v1.2.4 sürümüne güncellendi.
+
+---
+
 ## 🚀 [v1.2.3] - 2026-10-28
 
 ### ⚡ Kapsamlı Python Performans ve Mimari Optimizasyonu

@@ -8,10 +8,7 @@ import glob
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 from core.utils import (
-    format_bytes,
-    get_folder_size,
     safe_remove_file,
-    safe_remove_directory,
     query_recycle_bin,
     empty_recycle_bin,
     log_debug
@@ -260,7 +257,6 @@ class JunkCleaner:
         Returns: (freed_bytes, cleaned_files_count, failed_files_count)
         """
         import time
-        from core.utils import log_debug
 
         total_freed = 0
         cleaned_count = 0

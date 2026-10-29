@@ -9,7 +9,7 @@ import sqlite3
 import subprocess
 import psutil
 from dataclasses import dataclass
-from typing import Optional, Union, Iterable
+from typing import Optional, Union
 from core.config import ConfigManager
 from core.utils import log_debug
 

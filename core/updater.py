@@ -9,7 +9,6 @@ Supports two update modes:
 import os
 import sys
 import re
-import json
 import shutil
 import zipfile
 import subprocess

@@ -1,9 +1,6 @@
-1.2.3
+1.2.4
 ---
-• Kapsamlı Python Performans ve Mimari Optimizasyonu: Proje genelindeki tüm modüller taranarak CPU, bellek ve disk I/O darboğazları giderildi.
-• Win32 Yerel API Güç Planı Motoru: Game Booster güç planı sorguları harici konsol süreci yerine doğrudan 'powrprof.dll' bellek arayüzüne taşınarak yanıt süresi 250 kat hızlandırıldı (<1 ms).
-• Paralel Eşzamanlı DNS Kıyaslama: Ağ ve DNS optimize edici ThreadPoolExecutor mimarisine geçirilerek benchmark süresi <0.4 saniyeye düşürüldü.
-• Akıllı Kaynak ve Bellek Yönetimi: Çerez kalkanı, bellek hızlandırıcı, kayıt defteri onarıcı ve program kaldırıcıdaki gereksiz döngüler O(1) set/dict lookup yapılarıyla optimize edildi; en büyük dosya/işlem seçimleri 'heapq.nlargest' ile hızlandırıldı.
-• Bağlantı ve Soket Sızıntısı Koruması: İnternet Hız Testi ve ağ oturumları 'with' context manager ve 'close()' desteği ile donatılarak soket ve TCP bağlantı havuzu sızıntıları önlendi.
-• Derin Telemetri ve Bloatware Hızlandırması: PowerShell UWP paket filtrelemesi doğrudan parametrik olarak yürütülerek bloatware tarama süresi 3.5 saniyeden <0.4 saniyeye (%88) indirildi.
-• Güvenli İstisna Takibi: Tüm sessiz istisna blokları 'log_debug' günlükleme altyapısıyla şeffaf hale getirildi.
+• Kapsamlı Kod Denetimi ve Bütünlük Doğrulaması: Proje genelindeki tüm modüller (core, ui, scripts) derinlemesine incelendi; sıfır derleme hatası ve sıfır pyflakes uyarısı doğrulandı.
+• Temiz Kaynak ve İş Parçacığı Yönetimi: Arka plan izleyicileri, soket havuzları, iş parçacıkları ve WMI/CIM sorguları incelenerek kaynak sızıntıları önlendi, pencereler arası güvenli yaşam döngüsü sağlandı.
+• Headless (Ekransız) Çalışma Doğrulaması: Qt offscreen ve komut satırı (CLI) RAM temizliği, çöp dosya taraması ve güncelleme denetimi uçtan uca test edildi.
+• Bağımsız Kurulum Sihirbazı ve Derleyici Senkronizasyonu: PyInstaller yürütülebilir dosyaları ve kurulum sihirbazı (Setup Wizard) v1.2.4 sürümüne senkronize edildi.

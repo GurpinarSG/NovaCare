@@ -89,8 +89,8 @@ class SpeedTester:
                 city = AIRPORT_COLO_MAP.get(colo, colo)
                 loc_str = f"{city} ({colo}), {loc} (Cloudflare Edge)" if colo else f"{loc} (Cloudflare Edge)"
                 return ip, loc_str
-        except Exception:
-            pass
+        except Exception as e:
+            log_debug(f"SpeedTester.get_network_meta failed: {e}")
         return "Otomatik Tespit", "Türkiye / Avrupa Edge Sunucusu"
 
     def run_ping_and_jitter(self, count: int = 5) -> tuple[float, float]:
@@ -216,7 +216,8 @@ class SpeedTester:
             if progress_callback:
                 progress_callback(round(up_mbps, 1), 100)
             return round(up_mbps, 1)
-        except Exception:
+        except Exception as e:
+            log_debug(f"SpeedTester.run_upload_test failed: {e}")
             return 0.0
 
     @staticmethod

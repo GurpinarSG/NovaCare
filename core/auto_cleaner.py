@@ -3,8 +3,6 @@ NovaCare System Suite - Automated Cleaning & Smart Maintenance Engine
 Executes background system cleanups based on schedule triggers (startup, daily, weekly)
 or size/RAM thresholds, keeping the system clean and fast automatically.
 """
-import os
-import time
 from datetime import datetime, timedelta
 from core.config import ConfigManager
 from core.junk_cleaner import JunkCleaner

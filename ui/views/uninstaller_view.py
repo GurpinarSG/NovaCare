@@ -3,8 +3,6 @@ NovaCare System Suite - App Uninstaller & Leftover Cleaner View
 Lists installed programs, supports multi-selection & batch sequential uninstallation,
 and scans/cleans residual leftovers (registry & filesystem remnants).
 """
-import os
-import subprocess
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit,
     QTableWidget, QTableWidgetItem, QHeaderView, QMessageBox, QFrame,
@@ -16,8 +14,8 @@ from PyQt5.QtGui import QColor
 from core.uninstaller import AppUninstaller, InstalledApp, LeftoverItem
 from core.utils import format_bytes, log_debug
 from ui.styles import (
-    BG_CARD, BORDER_COLOR, COLOR_ACCENT, COLOR_SUCCESS, COLOR_WARNING, COLOR_DANGER,
-    TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED
+    COLOR_ACCENT, COLOR_SUCCESS, COLOR_DANGER,
+    TEXT_PRIMARY, TEXT_SECONDARY
 )
 
 class AppScanWorker(QThread):

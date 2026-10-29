@@ -10,10 +10,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from core.backup_manager import BackupManager, BackupEntry
 from core.utils import log_debug
-from ui.styles import (
-    BG_CARD, BORDER_COLOR, COLOR_ACCENT, COLOR_SUCCESS, COLOR_DANGER,
-    TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED
-)
+from ui.styles import TEXT_SECONDARY
 
 class RestorePointWorker(QThread):
     finished = pyqtSignal(bool)

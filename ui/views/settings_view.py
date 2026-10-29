@@ -8,17 +8,16 @@ import sys
 import time
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QProgressBar,
-    QLineEdit, QCheckBox, QRadioButton, QButtonGroup, QTextEdit, QMessageBox, QFrame, QScrollArea, QComboBox
+    QCheckBox, QRadioButton, QButtonGroup, QTextEdit, QMessageBox, QFrame, QScrollArea, QComboBox
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from core.config import ConfigManager, CURRENT_VERSION
 from core.updater import GitHubUpdater, UpdateInfo
 from core.auto_cleaner import AutoCleaner
 from core.utils import format_bytes, is_admin, restart_as_admin, log_debug
-from core.security import mask_token
 from core.autostart import is_autostart_enabled, set_autostart
 from ui.styles import (
-    BG_CARD, BORDER_COLOR, COLOR_ACCENT, COLOR_SUCCESS, COLOR_WARNING, COLOR_DANGER,
+    COLOR_ACCENT, COLOR_SUCCESS, COLOR_WARNING, COLOR_DANGER,
     TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED
 )
 

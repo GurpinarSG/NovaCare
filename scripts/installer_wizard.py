@@ -24,7 +24,7 @@ from PyQt5.QtWidgets import (
     QStackedWidget, QMessageBox, QDialogButtonBox, QTextBrowser
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
-from PyQt5.QtGui import QIcon, QPixmap, QFont, QColor, QPainter
+from PyQt5.QtGui import QIcon, QPixmap
 
 def get_base_dir():
     if getattr(sys, 'frozen', False):
@@ -45,7 +45,7 @@ def _load_app_version():
                 return f.readline().strip().lstrip("vV")
     except Exception:
         pass
-    return "1.2.3"
+    return "1.2.4"
 
 # Version & Product Info
 APP_NAME = "NovaCare"

@@ -9,14 +9,9 @@ from PyQt5.QtWidgets import (
     QLabel, QStackedWidget, QButtonGroup, QFrame, QSystemTrayIcon,
     QMenu, QAction, QApplication, QMessageBox
 )
-from PyQt5.QtCore import Qt, QSize, QTimer, QThread, pyqtSignal
+from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal
 from PyQt5.QtGui import QIcon, QPixmap, QPainter, QColor, QFont
-from ui.styles import (
-    get_stylesheet, get_active_theme_colors, apply_native_titlebar_theme, MAIN_STYLESHEET,
-    BG_SIDEBAR, BORDER_COLOR, COLOR_ACCENT, COLOR_SUCCESS,
-    COLOR_WARNING, COLOR_DANGER,
-    TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED
-)
+from ui.styles import get_stylesheet, get_active_theme_colors, apply_native_titlebar_theme
 from ui.views import (
     DashboardView,
     JunkView,
@@ -27,8 +22,6 @@ from ui.views import (
     DiskView,
     PrivacyView,
     NetworkView,
-    BatteryView,
-    HardwareHealthView,
     GeneralHealthView,
     RescueView,
     SettingsView

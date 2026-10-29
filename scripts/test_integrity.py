@@ -124,20 +124,28 @@ dw = ui.desktop_widget.DesktopPerformanceWidget()
 dw.update_stats(stats)
 print("✓ DesktopPerformanceWidget instantiated and updated successfully.")
 
+# Test Version Consistency
+from core.config import load_base_version, CURRENT_VERSION
+from scripts.installer_wizard import _load_app_version
+
+base_v = load_base_version()
+assert base_v == "1.2.4", f"Expected version 1.2.4, got {base_v}"
+assert CURRENT_VERSION == "1.2.4", f"Expected CURRENT_VERSION 1.2.4, got {CURRENT_VERSION}"
+wizard_v = _load_app_version()
+assert wizard_v == "1.2.4", f"Expected wizard version 1.2.4, got {wizard_v}"
+print(f"✓ Version consistency verified across modules: v{base_v}")
+
 # Test MainWindow instantiation and teardown
 mw = ui.main_window.MainWindow()
 print(f"✓ MainWindow instantiated with {len(mw.nav_buttons)} nav buttons and {mw.stack.count()} views.")
-# Teardown workers cleanly for test exit
-if hasattr(mw, 'auto_clean_timer'):
-    mw.auto_clean_timer.stop()
-if hasattr(mw, 'auto_game_watcher') and mw.auto_game_watcher:
-    mw.auto_game_watcher.stop()
-    mw.auto_game_watcher.wait(200)
-if hasattr(mw.view_dashboard, 'overlay_widget') and mw.view_dashboard.overlay_widget:
-    mw.view_dashboard.overlay_widget.timer.stop()
-if hasattr(mw.view_hardware_health, 'timer'):
-    mw.view_hardware_health.timer.stop()
 
+# Test all tab transitions
+for idx in range(mw.stack.count()):
+    mw._on_nav_clicked(idx)
+print(f"✓ All {mw.stack.count()} views navigated and rendered successfully.")
+
+# Teardown workers cleanly for test exit
+mw.cleanup_workers()
 mw.close()
 app.processEvents()
 

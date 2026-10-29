@@ -6,10 +6,8 @@ file system and registry for residual leftovers.
 import os
 import winreg
 import subprocess
-import shlex
-from dataclasses import dataclass, field
-from typing import Optional
-from core.utils import format_bytes, safe_remove_directory, safe_remove_file, delete_registry_key_tree, log_debug
+from dataclasses import dataclass
+from core.utils import safe_remove_directory, safe_remove_file, delete_registry_key_tree, log_debug
 
 _NAME_EXCLUSIONS = frozenset({'microsoft', 'windows', 'the', 'for', 'corporation', 'setup', 'edition', 'suite'})
 _DIR_EXCLUSIONS = frozenset({'system32', 'syswow64', 'common files', 'microsoft', 'windows'})
@@ -260,7 +258,8 @@ class AppUninstaller:
                             cleaned += 1
                         else:
                             failed += 1
-            except Exception:
+            except Exception as e:
+                log_debug(f"clean_leftovers failed for {item.path}: {e}")
                 failed += 1
 
         return cleaned, failed

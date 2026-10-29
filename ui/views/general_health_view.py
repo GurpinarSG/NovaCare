@@ -4,11 +4,9 @@ Unified view combining Physical Disk S.M.A.R.T. diagnostics, hardware sensors,
 and battery wear & power telemetry into a single comprehensive health category.
 """
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QTabWidget, QLabel
-from PyQt5.QtCore import Qt
 from core.battery_reporter import is_battery_present
 from ui.views.hardware_health_view import HardwareHealthView
 from ui.views.battery_view import BatteryView
-from ui.styles import get_active_theme_colors
 
 class GeneralHealthView(QWidget):
     def __init__(self, parent=None):

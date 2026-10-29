@@ -11,10 +11,7 @@ from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QColor
 from core.startup_manager import StartupManager, StartupItem
 from core.utils import log_debug
-from ui.styles import (
-    BG_CARD, BORDER_COLOR, COLOR_ACCENT, COLOR_SUCCESS, COLOR_WARNING, COLOR_DANGER,
-    TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED
-)
+from ui.styles import COLOR_ACCENT, COLOR_SUCCESS, COLOR_WARNING, COLOR_DANGER
 
 class StartupScanWorker(QThread):
     finished = pyqtSignal(list)

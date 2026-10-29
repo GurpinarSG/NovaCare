@@ -11,8 +11,7 @@ from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from core.junk_cleaner import JunkCleaner, CleanerCategory
 from core.utils import format_bytes, is_admin, log_debug
 from ui.styles import (
-    BG_CARD, BORDER_COLOR, COLOR_ACCENT, COLOR_SUCCESS, COLOR_WARNING, COLOR_DANGER,
-    TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED
+    COLOR_ACCENT, COLOR_SUCCESS, COLOR_WARNING, TEXT_SECONDARY
 )
 
 class JunkScanThread(QThread):

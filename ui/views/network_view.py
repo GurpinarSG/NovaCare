@@ -10,14 +10,14 @@ from PyQt5.QtWidgets import (
     QAbstractItemView, QSizePolicy, QProgressBar
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
-from PyQt5.QtGui import QColor, QFont
+from PyQt5.QtGui import QColor
 from core.network_optimizer import NetworkOptimizer, DNSServerInfo, DNS_CATALOG
 from core.speed_tester import SpeedTester, SpeedTestResult
 from core.utils import log_debug
 from ui.components import StatCard
 from ui.styles import (
-    get_active_theme_colors, TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED,
-    COLOR_ACCENT, COLOR_SUCCESS, COLOR_WARNING, COLOR_DANGER
+    get_active_theme_colors, TEXT_PRIMARY, TEXT_SECONDARY,
+    COLOR_ACCENT, COLOR_SUCCESS, COLOR_DANGER
 )
 
 class SpeedTestWorker(QThread):

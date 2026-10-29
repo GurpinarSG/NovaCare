@@ -3,12 +3,10 @@ NovaCare System Suite - Bloatware Cleaner & Deep Telemetry Shield
 Detects and uninstalls pre-installed Windows bloatware packages and shuts down
 deep Windows telemetry services and background tracking.
 """
-import os
 import json
 import subprocess
 import winreg
 from dataclasses import dataclass
-from typing import Callable, Optional
 from core.utils import log_debug
 
 @dataclass

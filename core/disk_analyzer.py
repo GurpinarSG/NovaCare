@@ -7,7 +7,7 @@ import psutil
 from dataclasses import dataclass
 from typing import Callable, Optional
 import heapq
-from core.utils import format_bytes, safe_remove_file, log_debug
+from core.utils import format_bytes, safe_remove_file
 
 @dataclass
 class PartitionInfo:

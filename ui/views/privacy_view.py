@@ -6,7 +6,7 @@ cross-site tracking cookies while protecting essential user login sessions.
 """
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QCheckBox,
-    QMessageBox, QFrame, QScrollArea, QProgressBar, QDialog,
+    QMessageBox, QFrame, QScrollArea, QDialog,
     QTableWidget, QTableWidgetItem, QHeaderView, QLineEdit, QListWidget,
     QAbstractItemView, QTabWidget, QSizePolicy
 )
@@ -14,12 +14,9 @@ from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QColor
 from core.privacy_tweaker import PrivacyTweaker, PrivacyTraceItem, SystemTweak
 from core.bloatware_cleaner import BloatwareCleaner, BloatwareItem
-from core.cookie_shield import CookieShield, CookieDomainItem, DEFAULT_WHITELIST
+from core.cookie_shield import CookieShield, CookieDomainItem
 from core.utils import is_admin, log_debug
-from ui.styles import (
-    get_active_theme_colors, BORDER_COLOR, COLOR_ACCENT, COLOR_SUCCESS, COLOR_DANGER, COLOR_WARNING,
-    TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED
-)
+from ui.styles import get_active_theme_colors
 
 class BloatwareScanWorker(QThread):
     finished = pyqtSignal(list)

@@ -24,13 +24,13 @@ def parse_version_content(content: str) -> tuple[str, str]:
     """
     lines = content.strip().splitlines()
     if not lines:
-        return "0.0.1", ""
+        return "1.2.4", ""
     first_line = lines[0].strip()
     m = re.search(r'(\d+\.\d+(?:\.\d+)?)', first_line)
     if m:
         ver = m.group(1)
     else:
-        ver = first_line.lstrip("vV").strip() or "0.0.1"
+        ver = first_line.lstrip("vV").strip() or "1.2.4"
 
     notes_lines = lines[1:]
     while notes_lines and notes_lines[0].strip() in ('---', '===', '***', '###', ''):
@@ -50,14 +50,15 @@ def load_version_and_notes() -> tuple[str, str]:
                 return parse_version_content(vf.read())
     except Exception:
         pass
-    return "0.0.1", ""
+    return "1.2.4", ""
 
 def load_base_version() -> str:
-    """Reads clean base version string from VERSION file (e.g. '0.0.1')."""
+    """Reads clean base version string from VERSION file (e.g. '1.2.4')."""
     ver, _ = load_version_and_notes()
     return ver
 
-CURRENT_VERSION = load_base_version()
+VERSION = "1.2.4"
+CURRENT_VERSION = load_base_version() or VERSION
 DEFAULT_GITHUB_REPO = "GurpinarSG/NovaCare"
 DEFAULT_GITHUB_TOKEN = "" # NEVER hardcode tokens in distributed code
 DEFAULT_BRANCH = "main"
@@ -98,7 +99,7 @@ class ConfigManager:
                 self._save(self.settings)
             return base_file_ver
         stored_ver = self.settings.get("version", "").lstrip("vV").strip()
-        return stored_ver or "0.0.1"
+        return stored_ver or "1.2.4"
 
     def get_display_version(self) -> str:
         """Returns formatted version string for UI display, e.g. 'v1.0.0 (Derleme: c77c7b8)'."""

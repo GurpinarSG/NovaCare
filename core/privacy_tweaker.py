@@ -7,7 +7,6 @@ import os
 import winreg
 import ctypes
 from dataclasses import dataclass
-from typing import Callable, Optional
 from core.utils import safe_remove_file, log_debug
 
 @dataclass

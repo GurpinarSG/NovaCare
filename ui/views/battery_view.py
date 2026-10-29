@@ -8,13 +8,12 @@ from PyQt5.QtWidgets import (
     QFrame, QScrollArea, QMessageBox, QGridLayout
 )
 from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal
-from PyQt5.QtGui import QFont, QColor
 from core.battery_reporter import BatteryReporter, BatteryInfo, is_battery_present
 from core.utils import log_debug
 from ui.components import StatCard
 from ui.styles import (
-    BG_CARD, BORDER_COLOR, COLOR_ACCENT, COLOR_SUCCESS, COLOR_WARNING, COLOR_DANGER,
-    TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED
+    COLOR_ACCENT, COLOR_SUCCESS, COLOR_WARNING, COLOR_DANGER,
+    TEXT_PRIMARY, TEXT_SECONDARY
 )
 
 class BatteryHardwareWorker(QThread):

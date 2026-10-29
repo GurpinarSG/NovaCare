@@ -6,7 +6,6 @@ and publishes official GitHub Releases with setup installer, portable zip, and u
 import os
 import sys
 import base64
-import json
 import zipfile
 import hashlib
 import requests
@@ -116,7 +115,7 @@ def push_files_to_github(commit_msg: Optional[str] = None):
 
     # Create Commit
     version = get_current_version()
-    msg = commit_msg or f"NovaCare v{version}: Setup wizard overhaul, uninstaller, responsive layout & bugfixes"
+    msg = commit_msg or f"NovaCare v{version}: Codebase audit, zero warnings, clean resource management & release overhaul"
     print(f"[*] Commit oluşturuluyor: '{msg}'...")
     commit_url = f"https://api.github.com/repos/{REPO}/git/commits"
     commit_payload = {
@@ -229,6 +228,7 @@ def create_release(tag_name: str, release_title: Optional[str] = None, changelog
     rel_url = f"https://api.github.com/repos/{REPO}/releases"
     payload = {
         "tag_name": tag_name,
+        "target_commitish": BRANCH,
         "name": title,
         "body": body,
         "draft": False,

@@ -4,7 +4,6 @@ Inspects, toggles (enable/disable), adds and removes Windows startup entries.
 """
 import os
 import winreg
-import glob
 from dataclasses import dataclass
 from typing import Optional
 from core.utils import log_debug
@@ -244,7 +243,8 @@ class StartupManager:
                 item.boot_impact = self._estimate_impact(item.name, item.command)
                 return True
 
-        except Exception:
+        except Exception as e:
+            log_debug(f"StartupManager.toggle_item failed for {item.name}: {e}")
             return False
         return False
 
@@ -264,6 +264,7 @@ class StartupManager:
                 with winreg.OpenKey(winreg.HKEY_CURRENT_USER, self.DISABLED_KEY, 0, winreg.KEY_SET_VALUE) as dis_key:
                     winreg.DeleteValue(dis_key, item.name)
                 return True
-        except Exception:
+        except Exception as e:
+            log_debug(f"StartupManager.delete_item failed for {item.name}: {e}")
             return False
         return False

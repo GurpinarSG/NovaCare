@@ -4,9 +4,9 @@ Includes Circular Health Gauge, Stat Cards, and Styled Category Items.
 Theme-aware dynamic rendering with seamless dark/light contrast support.
 """
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QSizePolicy, QPushButton
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QSizePolicy
 )
-from PyQt5.QtCore import Qt, QRectF, pyqtProperty, pyqtSignal
+from PyQt5.QtCore import Qt, QRectF, pyqtProperty
 from PyQt5.QtGui import QPainter, QColor, QPen, QFont, QFontMetrics
 from ui.styles import get_active_theme_colors
 

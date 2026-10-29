@@ -3,13 +3,12 @@ NovaCare System Suite - Desktop Performance Widget
 Translucent, draggable desktop mini performance dock featuring real-time
 CPU %, RAM %, Network Speed telemetry, and 1-Click RAM optimization.
 """
-import time
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame, QMenu, QAction, QApplication
 )
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QPoint
-from PyQt5.QtGui import QCursor, QFont
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal
+from PyQt5.QtGui import QCursor
 from core.hardware_monitor import HardwareMonitor
 from core.memory_booster import MemoryBooster
 from core.config import ConfigManager

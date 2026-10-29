@@ -6,19 +6,17 @@ temperature telemetry, power-on hours, bad sector detection, and battery wear.
 from typing import Optional
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QProgressBar,
-    QFrame, QScrollArea, QGridLayout, QSizePolicy
+    QFrame, QScrollArea, QGridLayout
 )
 from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal
-from PyQt5.QtGui import QFont, QColor
 from core.smart_reporter import SmartReporter, DiskHealthInfo
 from core.hardware_monitor import HardwareMonitor
 from core.battery_reporter import BatteryReporter, BatteryInfo, is_battery_present
 from core.utils import log_debug
 from ui.components import StatCard
 from ui.styles import (
-    get_active_theme_colors, BG_CARD, BORDER_COLOR, COLOR_ACCENT,
-    COLOR_SUCCESS, COLOR_WARNING, COLOR_DANGER,
-    TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED
+    get_active_theme_colors, COLOR_ACCENT,
+    TEXT_SECONDARY, TEXT_MUTED
 )
 
 class SmartScanWorker(QThread):

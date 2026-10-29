@@ -11,8 +11,8 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
 from ui.components import CircularHealthGauge, StatCard, HardwareOverlayWidget
 from ui.styles import (
-    get_active_theme_colors, BG_CARD, BORDER_COLOR, COLOR_ACCENT, COLOR_SUCCESS, COLOR_WARNING, COLOR_DANGER,
-    TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED
+    get_active_theme_colors, COLOR_ACCENT, COLOR_SUCCESS,
+    TEXT_PRIMARY, TEXT_SECONDARY
 )
 from core.utils import format_bytes, is_admin
 from core.junk_cleaner import JunkCleaner

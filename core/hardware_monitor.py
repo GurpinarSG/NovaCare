@@ -91,10 +91,12 @@ class HardwareMonitor:
                 consecutive_failures += 1
 
             # Smart backoff: If ACPI thermal zones aren't exposed by BIOS, avoid frequent powershell spawns
-            if consecutive_failures >= 2:
-                time.sleep(60.0)
-            else:
-                time.sleep(5.0)
+            sleep_target = 60.0 if consecutive_failures >= 2 else 5.0
+            steps = int(sleep_target)
+            for _ in range(steps):
+                if not self._running:
+                    break
+                time.sleep(1.0)
 
     def get_hardware_stats(self) -> dict:
         """

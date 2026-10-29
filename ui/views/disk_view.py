@@ -7,15 +7,12 @@ import subprocess
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QProgressBar,
     QTableWidget, QTableWidgetItem, QHeaderView, QComboBox, QMessageBox,
-    QFrame, QFileDialog, QAbstractItemView
+    QFrame, QAbstractItemView
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
-from core.disk_analyzer import DiskAnalyzer, PartitionInfo, LargeFileInfo
+from core.disk_analyzer import DiskAnalyzer, LargeFileInfo
 from core.utils import log_debug
-from ui.styles import (
-    BG_CARD, BORDER_COLOR, COLOR_ACCENT, COLOR_SUCCESS, COLOR_DANGER,
-    TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED
-)
+from ui.styles import BG_CARD, BORDER_COLOR, COLOR_ACCENT, TEXT_SECONDARY
 
 class LargeFileScanThread(QThread):
     progress = pyqtSignal(str, int)

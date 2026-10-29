@@ -94,11 +94,7 @@ def build_executable(onefile: bool = True):
                 except Exception as e:
                     print(f"  [!] Yüklü uygulama güncellenemedi: {e}")
 
-            # Sync shortcuts without invalid arguments
-            try:
-                import win32com.client # optional or use PowerShell
-            except ImportError:
-                pass
+            # Sync shortcuts via PowerShell WScript.Shell
             ps_script = f"""
             $wsh = New-Object -ComObject WScript.Shell
             $root_dir = '{ROOT_DIR}'

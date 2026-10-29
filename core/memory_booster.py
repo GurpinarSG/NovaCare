@@ -7,7 +7,6 @@ import os
 import heapq
 import psutil
 from dataclasses import dataclass
-from typing import Optional
 from core.utils import format_bytes, log_debug
 
 # Known protected Windows system processes to skip

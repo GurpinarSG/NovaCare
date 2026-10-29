@@ -3,8 +3,6 @@ NovaCare System Suite - Disk S.M.A.R.T. & Hardware Health Diagnostics Engine
 Queries physical SSD/HDD health, wear percentage, power-on hours, operational status,
 temperatures, and bad sector / failure prediction counters via Storage CIM and WMI.
 """
-import os
-import sys
 import json
 import subprocess
 import psutil

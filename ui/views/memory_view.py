@@ -11,10 +11,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal
 from core.memory_booster import MemoryBooster, ProcessInfo
 from core.utils import format_bytes
-from ui.styles import (
-    BG_CARD, BORDER_COLOR, COLOR_ACCENT, COLOR_SUCCESS, COLOR_DANGER,
-    TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED
-)
+from ui.styles import COLOR_ACCENT, TEXT_SECONDARY
 
 class ProcessLoaderWorker(QThread):
     finished = pyqtSignal(list)

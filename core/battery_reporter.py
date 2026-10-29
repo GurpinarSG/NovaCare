@@ -5,7 +5,6 @@ and generates official Windows HTML Battery Diagnostic Reports.
 Optimized with memory caching and non-blocking sensor querying.
 """
 import os
-import sys
 import subprocess
 import tempfile
 import xml.etree.ElementTree as ET
