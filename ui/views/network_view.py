@@ -22,7 +22,8 @@ from ui.styles import (
 
 class SpeedTestWorker(QThread):
     phase_changed = pyqtSignal(str, str) # phase, msg
-    speed_progress = pyqtSignal(float, int) # mbps, percent
+    speed_progress = pyqtSignal(str, float, int) # phase, mbps, percent
+    stats_updated = pyqtSignal(str, float) # metric, val
     finished = pyqtSignal(object) # SpeedTestResult
 
     def __init__(self):
@@ -33,7 +34,8 @@ class SpeedTestWorker(QThread):
         try:
             res = self.tester.run_full_test(
                 phase_callback=lambda p, m: self.phase_changed.emit(p, m),
-                progress_callback=lambda s, pct: self.speed_progress.emit(s, pct)
+                progress_callback=lambda p, s, pct: self.speed_progress.emit(p, s, pct),
+                stats_callback=lambda k, v: self.stats_updated.emit(k, v)
             )
             self.finished.emit(res)
         except Exception as e:
@@ -430,8 +432,8 @@ class NetworkView(QWidget):
         self.lbl_live_speed.setText("⚡ Test Başlatılıyor...")
         self.frame_grade.setVisible(False)
 
-        # Reset stat cards
-        self.card_dl.set_value("-- Mbps", "Ölçülüyor...")
+        # Reset stat cards cleanly
+        self.card_dl.set_value("-- Mbps", "Bekleniyor...")
         self.card_ul.set_value("-- Mbps", "Bekleniyor...")
         self.card_ping.set_value("-- ms", "Bekleniyor...")
         self.card_jitter.set_value("-- ms", "Bekleniyor...")
@@ -439,6 +441,7 @@ class NetworkView(QWidget):
         self.speed_worker = SpeedTestWorker()
         self.speed_worker.phase_changed.connect(self._on_speed_phase_changed)
         self.speed_worker.speed_progress.connect(self._on_speed_progress)
+        self.speed_worker.stats_updated.connect(self._on_speed_stats_updated)
         self.speed_worker.finished.connect(self._on_speed_finished)
         self.speed_worker.start()
 
@@ -449,29 +452,49 @@ class NetworkView(QWidget):
             self.btn_cancel_speed.setEnabled(False)
 
     def _on_speed_phase_changed(self, phase: str, msg: str):
+        if phase == "server_info":
+            self.lbl_server_info.setText(msg)
+            return
+
         self.lbl_speed_status.setText(msg)
         if phase == "meta":
-            self.speed_pbar.setValue(10)
+            self.speed_pbar.setValue(8)
         elif phase == "ping":
-            self.speed_pbar.setValue(20)
+            self.speed_pbar.setValue(15)
             self.lbl_live_speed.setText("⚡ Gecikme Ölçülüyor...")
+            self.card_ping.set_value("Ölçülüyor...", "Gecikme (Ping)")
+            self.card_jitter.set_value("Ölçülüyor...", "Dalgalanma (Jitter)")
         elif phase == "download":
-            self.speed_pbar.setValue(35)
-            self.card_dl.set_value("Ölçülüyor...", "Veri çekiliyor")
+            self.speed_pbar.setValue(20)
+            self.lbl_live_speed.setText("⬇️ İndirme Başlatılıyor...")
+            self.card_dl.set_value("0.0 Mbps", "Canlı İndirme Hızı")
         elif phase == "upload":
-            self.speed_pbar.setValue(65)
-            self.card_ul.set_value("Ölçülüyor...", "Veri gönderiliyor")
+            self.speed_pbar.setValue(60)
+            self.lbl_live_speed.setText("⬆️ Yükleme Başlatılıyor...")
+            self.card_ul.set_value("0.0 Mbps", "Canlı Yükleme Hızı")
 
-    def _on_speed_progress(self, mbps: float, pct: int):
-        self.speed_pbar.setValue(pct)
+    def _on_speed_progress(self, phase: str, mbps: float, pct: int):
         if self.speed_worker and getattr(self.speed_worker.tester, '_cancelled', False):
             return
-        if pct < 60:
+        self.speed_pbar.setValue(pct)
+        if phase == "download":
             self.lbl_live_speed.setText(f"⬇️ İndirme: {mbps:.1f} Mbps")
             self.card_dl.set_value(f"{mbps:.1f} Mbps", "Canlı İndirme Hızı")
-        else:
+        elif phase == "upload":
             self.lbl_live_speed.setText(f"⬆️ Yükleme: {mbps:.1f} Mbps")
             self.card_ul.set_value(f"{mbps:.1f} Mbps", "Canlı Yükleme Hızı")
+
+    def _on_speed_stats_updated(self, metric: str, val: float):
+        if self.speed_worker and getattr(self.speed_worker.tester, '_cancelled', False):
+            return
+        if metric == "ping":
+            self.card_ping.set_value(f"{val:.1f} ms", "Gecikme (Ping)")
+        elif metric == "jitter":
+            self.card_jitter.set_value(f"{val:.1f} ms", "Dalgalanma (Jitter)")
+        elif metric == "download":
+            self.card_dl.set_value(f"{val:.1f} Mbps", "İndirme Hızı")
+        elif metric == "upload":
+            self.card_ul.set_value(f"{val:.1f} Mbps", "Yükleme Hızı")
 
     def _on_speed_finished(self, res: SpeedTestResult | None):
         self.btn_start_speed.setEnabled(True)
@@ -481,6 +504,27 @@ class NetworkView(QWidget):
             self.lbl_speed_status.setText("Hız testi kullanıcı tarafından durduruldu.")
             self.lbl_live_speed.setText("⏹️ Test Durduruldu")
             self.speed_pbar.setValue(0)
+            if "Canlı" in self.card_dl.sub_lbl.text() or self.card_dl.value_lbl.text() == "-- Mbps":
+                self.card_dl.set_value("-- Mbps", "İptal Edildi")
+            if "Canlı" in self.card_ul.sub_lbl.text() or self.card_ul.value_lbl.text() == "-- Mbps":
+                self.card_ul.set_value("-- Mbps", "İptal Edildi")
+            if "Ölçülüyor" in self.card_ping.value_lbl.text():
+                self.card_ping.set_value("-- ms", "İptal Edildi")
+            if "Ölçülüyor" in self.card_jitter.value_lbl.text():
+                self.card_jitter.set_value("-- ms", "İptal Edildi")
+            return
+
+        if res.grade == "Bağlantı Yok / Test Edilemedi":
+            self.speed_pbar.setValue(100)
+            self.lbl_speed_status.setText("İnternet bağlantısı tespit edilemedi veya sunucuya ulaşılamadı.")
+            self.lbl_live_speed.setText("❌ Bağlantı Yok / Test Edilemedi")
+            self.card_dl.set_value("0.0 Mbps", "İndirme Hızı")
+            self.card_ul.set_value("0.0 Mbps", "Yükleme Hızı")
+            self.card_ping.set_value(f"{res.ping_ms:.1f} ms", "Gecikme (Ping)")
+            self.card_jitter.set_value(f"{res.jitter_ms:.1f} ms", "Dalgalanma (Jitter)")
+            self.lbl_grade_title.setText(f"⚠️ {res.grade}")
+            self.lbl_grade_desc.setText(res.grade_description)
+            self.frame_grade.setVisible(True)
             return
 
         self.speed_pbar.setValue(100)
