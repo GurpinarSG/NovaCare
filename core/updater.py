@@ -31,7 +31,11 @@ class UpdateInfo:
     new_commit_sha: str = ""
 
 def parse_version_tuple(v_str: str) -> tuple[int, ...]:
-    cleaned = re.sub(r'^[vV]', '', v_str.strip())
+    cleaned = re.sub(r'^[vV]', '', str(v_str).strip())
+    # Match the leading version number segment like "1.2.4"
+    m = re.match(r'^(\d+(?:\.\d+)*)', cleaned)
+    if m:
+        return tuple(int(p) for p in m.group(1).split('.'))
     parts = re.findall(r'\d+', cleaned)
     if not parts:
         return (0, 0, 0)
@@ -55,7 +59,9 @@ class GitHubUpdater:
     ):
         self.config = ConfigManager()
         self.repo = repo or self.config.get("github_repo", "GurpinarSG/NovaCare")
-        self.token = token or self.config.get_secure_token()
+        # In a public repository, updates are completely unauthenticated by default.
+        # Token is only used if explicitly provided or configured locally for private forks/dev.
+        self.token = token if token is not None else self.config.get_secure_token()
         self.branch = branch or self.config.get("target_branch", "main")
         self.current_version = current_version
 
@@ -84,19 +90,19 @@ class GitHubUpdater:
             urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
             return requests.get(url, headers=headers, timeout=timeout, stream=stream, verify=False)
 
-    def _get_headers(self, accept: str = "application/vnd.github.v3+json") -> dict:
+    def _get_headers(self, accept: str = "application/vnd.github.v3+json", include_auth: bool = True) -> dict:
         headers = {
             "User-Agent": "NovaCare-SystemCare-Suite",
             "Accept": accept
         }
-        if self.token:
+        if include_auth and self.token:
             headers["Authorization"] = f"Bearer {self.token}"
         return headers
 
     def verify_token(self) -> tuple[bool, str]:
         """Verifies if the configured token is valid with GitHub API."""
         if not self.token:
-            return False, "Token tanımlanmadı."
+            return True, "Genel Erişim (Token gerekmez)"
         try:
             r = self._safe_request_get("https://api.github.com/user", headers=self._get_headers(), timeout=8)
             if r.status_code == 200:
@@ -115,26 +121,30 @@ class GitHubUpdater:
         Raw source code zipballs only contain .py scripts and cannot update a frozen PyInstaller binary!
         """
         if getattr(sys, 'frozen', False):
-            return self._check_releases()
+            return self._check_releases(allow_fallback=False)
 
         current_mode = mode or self.config.get("update_mode", "release")
         if current_mode == "release":
-            return self._check_releases()
+            return self._check_releases(allow_fallback=True)
         else:
-            return self._check_branch_commits()
+            return self._check_branch_commits(allow_fallback=True)
 
-    def _check_branch_commits(self) -> UpdateInfo:
+    def _check_branch_commits(self, allow_fallback: bool = True) -> UpdateInfo:
         """
         Inspects the latest commit on the repository branch (e.g. 'main') for source development mode.
         """
         if getattr(sys, 'frozen', False):
-            return self._check_releases()
+            return self._check_releases(allow_fallback=False)
 
         commits_url = f"https://api.github.com/repos/{self.repo}/commits/{self.branch}"
         local_sha = self.config.get("local_commit_sha", "")
 
         try:
             resp = self._safe_request_get(commits_url, headers=self._get_headers(), timeout=10)
+            if resp.status_code == 401 and self.token:
+                # If an invalid/expired token was present, retry unauthenticated for public repos
+                resp = self._safe_request_get(commits_url, headers=self._get_headers(include_auth=False), timeout=10)
+
             if resp.status_code == 200:
                 data = resp.json()
                 remote_sha = data.get("sha", "")
@@ -150,10 +160,10 @@ class GitHubUpdater:
 
                 available = bool(remote_sha) and not remote_sha.startswith(local_sha) and not local_sha.startswith(remote_sha)
 
-                download_url = f"https://api.github.com/repos/{self.repo}/zipball/{self.branch}"
+                download_url = f"https://github.com/{self.repo}/archive/refs/heads/{self.branch}.zip"
 
-                cur_display = self.config.get_display_version()
-                cur_base = self.config.get_version()
+                cur_display = f"v{self.current_version}" if self.current_version else self.config.get_display_version()
+                cur_base = self.current_version or self.config.get_version()
 
                 if available:
                     title = f"NovaCare Sistem Güncellemesi ({short_sha})"
@@ -182,8 +192,12 @@ class GitHubUpdater:
                     new_commit_sha=remote_sha
                 )
             elif resp.status_code == 404:
-                # If branch not found, fallback to releases
-                return self._check_releases()
+                # If branch not found, fallback to releases only if allowed
+                if allow_fallback:
+                    return self._check_releases(allow_fallback=False)
+                raise RuntimeError(f"GitHub üzerinde '{self.repo}' deposunun '{self.branch}' dalı bulunamadı (404).")
+            elif resp.status_code == 403 and "rate limit" in resp.text.lower():
+                raise RuntimeError("GitHub API istek sınırı aşıldı. Lütfen daha sonra tekrar deneyin.")
             elif resp.status_code == 401:
                 raise RuntimeError("Güncelleme sunucusu yetkilendirme hatası.")
             else:
@@ -191,11 +205,15 @@ class GitHubUpdater:
         except requests.RequestException:
             raise RuntimeError("Güncelleme sunucusuna bağlanılamadı. Lütfen internet bağlantınızı kontrol edin.")
 
-    def _check_releases(self) -> UpdateInfo:
+    def _check_releases(self, allow_fallback: bool = True) -> UpdateInfo:
         """Traditional GitHub Release tag inspector."""
         api_url = f"https://api.github.com/repos/{self.repo}/releases/latest"
         try:
             resp = self._safe_request_get(api_url, headers=self._get_headers(), timeout=10)
+            if resp.status_code == 401 and self.token:
+                # If an invalid/expired token was present, retry unauthenticated for public repos
+                resp = self._safe_request_get(api_url, headers=self._get_headers(include_auth=False), timeout=10)
+
             if resp.status_code == 200:
                 data = resp.json()
                 tag_name = data.get("tag_name", "0.0.0")
@@ -227,17 +245,17 @@ class GitHubUpdater:
 
                 chosen_asset = update_zip or portable_zip or other_zip or exe_asset
                 if chosen_asset:
-                    if self.token and chosen_asset.get("url"):
-                        download_url = chosen_asset.get("url")
-                    else:
-                        download_url = chosen_asset.get("browser_download_url") or chosen_asset.get("url")
+                    # In a public repository, browser_download_url is CDN-cached, unauthenticated,
+                    # and does not consume API rate limits. Fall back to asset API url only if missing.
+                    download_url = chosen_asset.get("browser_download_url") or chosen_asset.get("url") or ""
                     download_size = chosen_asset.get("size", 0)
 
                 if not download_url:
-                    download_url = data.get("zipball_url", "")
+                    # Fallback to direct public CDN archive URL (bypasses API rate limit)
+                    download_url = f"https://github.com/{self.repo}/archive/refs/tags/{tag_name}.zip" if tag_name else f"https://github.com/{self.repo}/archive/refs/heads/{self.branch}.zip"
 
-                cur_display = self.config.get_display_version()
-                cur_base = self.config.get_version()
+                cur_display = f"v{self.current_version}" if self.current_version else self.config.get_display_version()
+                cur_base = self.current_version or self.config.get_version()
 
                 available = is_newer_version(clean_version, cur_base)
 
@@ -253,7 +271,13 @@ class GitHubUpdater:
                     is_prerelease=is_pre
                 )
             elif resp.status_code == 404:
-                return self._check_branch_commits()
+                if allow_fallback and not getattr(sys, 'frozen', False):
+                    return self._check_branch_commits(allow_fallback=False)
+                raise RuntimeError(f"GitHub üzerinde '{self.repo}' için yayınlanmış bir sürüm (Release) bulunamadı (404).")
+            elif resp.status_code == 403 and "rate limit" in resp.text.lower():
+                raise RuntimeError("GitHub API istek sınırı aşıldı. Lütfen daha sonra tekrar deneyin.")
+            elif resp.status_code == 401:
+                raise RuntimeError("Güncelleme sunucusu yetkilendirme hatası.")
             else:
                 raise RuntimeError(f"Güncelleme sunucusu yanıt vermedi ({resp.status_code})")
         except requests.RequestException:
@@ -279,11 +303,19 @@ class GitHubUpdater:
         extracted_dir = os.path.join(temp_dir, 'extracted')
         os.makedirs(extracted_dir, exist_ok=True)
 
-        headers = self._get_headers()
-        if "api.github.com/repos/" in download_url and "/releases/assets/" in download_url:
-            headers["Accept"] = "application/octet-stream"
+        is_api_asset = "api.github.com/repos/" in download_url and "/releases/assets/" in download_url
+        headers = {
+            "User-Agent": "NovaCare-SystemCare-Suite",
+            "Accept": "application/octet-stream" if is_api_asset else "*/*"
+        }
+        if is_api_asset and self.token:
+            headers["Authorization"] = f"Bearer {self.token}"
 
         resp = self._safe_request_get(download_url, headers=headers, stream=True, timeout=30)
+        if resp.status_code == 401 and "Authorization" in headers:
+            headers.pop("Authorization", None)
+            resp = self._safe_request_get(download_url, headers=headers, stream=True, timeout=30)
+
         resp.raise_for_status()
 
         total_size = int(resp.headers.get('content-length', 0))
@@ -324,20 +356,23 @@ class GitHubUpdater:
 
         # 1. Determine target version (DO NOT prematurely save to settings.json before copy succeeds!)
         clean_ver_num = ""
-        v_file = os.path.join(source_dir, "VERSION")
-        if os.path.exists(v_file):
-            try:
-                with open(v_file, "r", encoding="utf-8") as vf:
-                    from core.config import parse_version_content
-                    extracted_ver, _ = parse_version_content(vf.read())
-                    if extracted_ver:
-                        clean_ver_num = extracted_ver
-            except Exception:
-                pass
-        elif new_version:
+        if new_version:
             from core.config import parse_version_content
             clean_nv, _ = parse_version_content(new_version)
-            clean_ver_num = clean_nv
+            if clean_nv:
+                clean_ver_num = clean_nv
+
+        if not clean_ver_num:
+            v_file = os.path.join(source_dir, "VERSION")
+            if os.path.exists(v_file):
+                try:
+                    with open(v_file, "r", encoding="utf-8") as vf:
+                        from core.config import parse_version_content
+                        extracted_ver, _ = parse_version_content(vf.read())
+                        if extracted_ver:
+                            clean_ver_num = extracted_ver
+                except Exception:
+                    pass
 
         if not clean_ver_num:
             clean_ver_num = self.config.get_version()
@@ -353,6 +388,13 @@ class GitHubUpdater:
             launcher_target = os.path.join(app_root, "NovaCare.bat")
         main_py = os.path.join(app_root, "main.py")
 
+        ps_source_dir = source_dir.replace("'", "''")
+        ps_app_root = app_root.replace("'", "''")
+        ps_launcher = launcher_target.replace("'", "''")
+        ps_main_py = main_py.replace("'", "''")
+        ps_version = clean_ver_num.replace("'", "''")
+        ps_sha = new_commit_sha.replace("'", "''")
+
         # =====================================================================
         # 2. Generate apply_update.ps1 (Ultra-robust PowerShell script)
         # =====================================================================
@@ -360,12 +402,13 @@ class GitHubUpdater:
         with open(ps1_path, "w", encoding="utf-8") as pf:
             pf.write(f"""# NovaCare System Suite - Robust In-Place PowerShell Updater
 $ErrorActionPreference = 'SilentlyContinue'
-$sourceDir = '{source_dir}'
-$appRoot = '{app_root}'
-$launcher = '{launcher_target}'
+$sourceDir = '{ps_source_dir}'
+$appRoot = '{ps_app_root}'
+$launcher = '{ps_launcher}'
+$mainPy = '{ps_main_py}'
 $parentPid = {current_pid}
-$version = '{clean_ver_num}'
-$commitSha = '{new_commit_sha}'
+$version = '{ps_version}'
+$commitSha = '{ps_sha}'
 
 # 1. Terminate current NovaCare process and any tree processes
 if ($parentPid -gt 0) {{
@@ -397,7 +440,7 @@ if (Test-Path $srcExe) {{
     $copied = $false
     for ($attempt = 1; $attempt -le 10; $attempt++) {{
         Copy-Item -Path $srcExe -Destination $destExe -Force -ErrorAction SilentlyContinue
-        if ((Test-Path $destExe) -and ((Get-Item $destExe).Length -gt 1000000)) {{
+        if ((Test-Path $destExe) -and ((Get-Item $destExe).Length -gt 0) -and ((Get-Item $destExe).Length -eq (Get-Item $srcExe).Length)) {{
             $copied = $true
             break
         }}
@@ -409,7 +452,9 @@ if (Test-Path $srcExe) {{
         if (Test-Path $oldExe) {{
             Move-Item -Path $oldExe -Destination $destExe -Force -ErrorAction SilentlyContinue
         }}
-        Start-Process $launcher
+        if (Test-Path $launcher) {{
+            Start-Process -FilePath $launcher
+        }}
         exit 1
     }}
     if (Test-Path $oldExe) {{ Remove-Item $oldExe -Force -ErrorAction SilentlyContinue }}
@@ -418,7 +463,7 @@ if (Test-Path $srcExe) {{
 # 3. Synchronize all updated assets and files
 Get-ChildItem -Path $sourceDir | ForEach-Object {{
     if ($_.Name -ne 'NovaCare.exe') {{
-        Copy-Item -Path $_.FullName -Destination $appRoot -Recurse -Force -ErrorAction SilentlyContinue
+        Copy-Item -Path ($_.FullName) -Destination $appRoot -Recurse -Force -ErrorAction SilentlyContinue
     }}
 }}
 
@@ -429,19 +474,29 @@ if ($version) {{
 }}
 
 # 5. Persist new version to settings.json ONLY after copy has succeeded
-$cfgPath = Join-Path $env:LOCALAPPDATA 'NovaCare\\settings.json'
-if (Test-Path $cfgPath) {{
-    try {{
-        $json = Get-Content $cfgPath -Raw -Encoding UTF8 | ConvertFrom-Json
-        if ($version) {{ $json.version = $version }}
-        if ($commitSha) {{ $json.local_commit_sha = $commitSha }}
-        $json | ConvertTo-Json -Depth 10 | Set-Content $cfgPath -Encoding UTF8
-    }} catch {{}}
+$cfgDir = Join-Path $env:LOCALAPPDATA 'NovaCare'
+if (-not (Test-Path $cfgDir)) {{
+    New-Item -ItemType Directory -Path $cfgDir -Force -ErrorAction SilentlyContinue | Out-Null
 }}
+$cfgPath = Join-Path $cfgDir 'settings.json'
+try {{
+    if (Test-Path $cfgPath) {{
+        $json = Get-Content $cfgPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    }} else {{
+        $json = [PSCustomObject]@{{}}
+    }}
+    if ($version) {{ $json.version = $version }}
+    if ($commitSha) {{ $json.local_commit_sha = $commitSha }}
+    $json | ConvertTo-Json -Depth 10 | Set-Content $cfgPath -Encoding UTF8
+}} catch {{}}
 
 # 6. Relaunch updated NovaCare
 Start-Sleep -Milliseconds 500
-Start-Process $launcher
+if (Test-Path $launcher) {{
+    Start-Process -FilePath $launcher
+}} elseif (Test-Path (Join-Path $appRoot 'main.py')) {{
+    Start-Process -FilePath 'pythonw.exe' -ArgumentList (Join-Path $appRoot 'main.py') -ErrorAction SilentlyContinue
+}}
 exit 0
 """)
 

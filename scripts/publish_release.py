@@ -30,10 +30,20 @@ REPO = cfg.get("github_repo", "GurpinarSG/NovaCare")
 BRANCH = cfg.get("target_branch", "main")
 
 HEADERS = {
-    "Authorization": f"Bearer {TOKEN}" if TOKEN else "",
     "Accept": "application/vnd.github.v3+json",
     "User-Agent": "NovaCare-Publisher"
 }
+if TOKEN:
+    HEADERS["Authorization"] = f"Bearer {TOKEN}"
+
+def set_active_token(token: str):
+    """Sets active GitHub token and refreshes HTTP authorization headers."""
+    global TOKEN
+    TOKEN = token.strip() if token else ""
+    if TOKEN:
+        HEADERS["Authorization"] = f"Bearer {TOKEN}"
+    else:
+        HEADERS.pop("Authorization", None)
 
 def get_current_version() -> str:
     from core.config import load_base_version
@@ -57,7 +67,11 @@ def upload_blob(file_path: str) -> str:
 
 def push_files_to_github(commit_msg: Optional[str] = None):
     if not TOKEN:
-        print("[X] HATA: GitHub tokeni tanımlanmamış. Lütfen ayarlar sekmesinden tokeninizi kaydedin.")
+        print("[X] HATA: GitHub yayınlama işlemi için yetki tokeni bulunamadı.")
+        print("    Çözüm Seçenekleri:")
+        print("    1. GITHUB_TOKEN veya GH_TOKEN ortam değişkenini ayarlayın.")
+        print("    2. Komuta --token <token> parametresi ekleyin.")
+        print("    3. Tokeni yerel kasaya kaydetmek için: python scripts/publish_release.py --save-token <token>")
         return False
 
     print("=" * 65)
@@ -81,9 +95,9 @@ def push_files_to_github(commit_msg: Optional[str] = None):
         # Exclude ignored directories, hidden directories, or any github_release_* folders
         dirs[:] = [d for d in dirs if d not in ignore_dirs and not d.startswith('github_release_') and not d.startswith('.')]
         for f in files:
-            if f.endswith(('.pyc', '.pyo', '.tmp', '.zip', '.tar.gz', '.exe', '.lnk', '.log', '.spec')):
+            if f.startswith(('.env', '.git')) or f.endswith(('.token', '.pyc', '.pyo', '.tmp', '.zip', '.tar.gz', '.exe', '.lnk', '.log', '.spec', '.bak')):
                 continue
-            if f in ('err.txt', 'out.txt', 'config.json', 'startup.log'):
+            if f in ('err.txt', 'out.txt', 'config.json', 'settings.json', 'startup.log'):
                 continue
             full_p = os.path.join(root, f)
             rel_p = os.path.relpath(full_p, ROOT_DIR).replace('\\', '/')
@@ -212,7 +226,11 @@ def upload_release_asset(upload_url: str, file_path: str, asset_name: str, conte
 
 def create_release(tag_name: str, release_title: Optional[str] = None, changelog: Optional[str] = None):
     if not TOKEN:
-        print("[X] HATA: GitHub tokeni tanımlanmamış.")
+        print("[X] HATA: GitHub sürümü oluşturmak için yetki tokeni bulunamadı.")
+        print("    Çözüm Seçenekleri:")
+        print("    1. GITHUB_TOKEN veya GH_TOKEN ortam değişkenini ayarlayın.")
+        print("    2. Komuta --token <token> parametresi ekleyin.")
+        print("    3. Tokeni yerel kasaya kaydetmek için: python scripts/publish_release.py --save-token <token>")
         return False
 
     clean_tag = tag_name.lstrip("vV")
@@ -415,7 +433,17 @@ if __name__ == "__main__":
     parser.add_argument("--set-version", type=str, help="Sürüm numarasını günceller (Örn: 1.0.1)")
     parser.add_argument("--release", type=str, help="GitHub Sürümü yayınlar (Örn: v1.0.1)")
     parser.add_argument("--message", type=str, help="Özel commit mesajı")
+    parser.add_argument("--token", type=str, help="GitHub Personal Access Token (anlık kullanım)")
+    parser.add_argument("--save-token", type=str, help="Tokeni yerel Windows DPAPI kasasına güvenli olarak kaydeder")
     args = parser.parse_args()
+
+    if args.save_token:
+        cfg.set_secure_token(args.save_token)
+        set_active_token(args.save_token)
+        print("[✔] Token yerel Windows DPAPI kasasına başarıyla kaydedildi.")
+
+    if args.token:
+        set_active_token(args.token)
 
     if args.set_version:
         v_clean = args.set_version.lstrip("vV").strip()

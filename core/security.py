@@ -8,63 +8,25 @@ Protects sensitive credentials and API tokens using multi-layered cryptography:
 """
 import ctypes
 from ctypes import wintypes
-import hashlib
-import hmac
+import os
 
 # ==============================================================================
-# 1. Obfuscated In-Memory Cryptographic Vault
-# Multi-stage key derivation with dispersed byte seeds and HMAC-SHA256 keystream.
-# Prevents strings extraction, memory dumping, and disassembly leakage.
+# 1. Environment & Safe Embedded Token Accessor
+# In open-source / public distribution, no hardcoded tokens exist in source code.
 # ==============================================================================
-
-_SEED_A = bytes([0x6e ^ 0x20, 0x6f ^ 0x20, 0x76 ^ 0x20, 0x61 ^ 0x20, 0x63 ^ 0x20, 0x61 ^ 0x20, 0x72 ^ 0x20, 0x65 ^ 0x20])
-_SEED_B = bytes([0x5f ^ 0x33, 0x61 ^ 0x33, 0x75 ^ 0x33, 0x74 ^ 0x33, 0x68 ^ 0x33, 0x32 ^ 0x33, 0x30 ^ 0x33, 0x32 ^ 0x33, 0x36 ^ 0x33])
-_VAULT_SALT = bytes([209, 143, 66, 155, 119, 28, 165, 62, 96, 184, 41, 250, 78, 5, 129, 156])
-
-# High-entropy encrypted ciphertext payload (No plaintext token in source or binary strings)
-_CIPHER_PAYLOAD = bytes([
-    184, 37, 109, 171, 48, 233, 235, 152, 147, 176, 23, 130, 227, 233, 63, 119,
-    186, 9, 158, 91, 44, 156, 214, 168, 246, 11, 254, 255, 70, 197, 48, 170,
-    1, 180, 132, 236, 193, 68, 74, 233
-])
-
-# Cryptographic HMAC-SHA256 authentication tag
-_AUTH_TAG = bytes([
-    188, 131, 68, 112, 174, 158, 246, 90, 143, 185, 196, 70, 228, 13, 243, 147,
-    136, 34, 130, 42, 223, 14, 146, 22, 38, 189, 32, 246, 66, 20, 106, 5
-])
-
-def _derive_vault_keystream(dk: bytes, length: int) -> bytes:
-    """Generates deterministic cryptographic keystream using HMAC-SHA256 in counter mode."""
-    stream = bytearray()
-    counter = 0
-    while len(stream) < length:
-        h = hmac.new(dk, counter.to_bytes(4, 'big'), hashlib.sha256).digest()
-        stream.extend(h)
-        counter += 1
-    return bytes(stream[:length])
 
 def get_embedded_token() -> str:
     """
-    Decrypts the built-in repository access token in-memory using PBKDF2-HMAC-SHA256.
-    The token is never stored in plaintext on disk, in configs, or in binary strings.
-    Validates cryptographic authenticity tag before returning.
+    Returns GitHub token from environment variables if defined (e.g. CI/CD or local developer env).
+    Returns empty string for public open-source end-user distributions.
     """
-    try:
-        # 1. Reassemble dispersed key seeds with inverse bitwise operations
-        k_seed = bytes([b ^ 0x20 for b in _SEED_A]) + bytes([b ^ 0x33 for b in _SEED_B])
-        # 2. Derive 256-bit encryption key using 50,000 PBKDF2 iterations
-        dk = hashlib.pbkdf2_hmac('sha256', k_seed, _VAULT_SALT, iterations=50000, dklen=32)
-        # 3. Verify HMAC authentication tag
-        expected_tag = hmac.new(dk, _CIPHER_PAYLOAD, hashlib.sha256).digest()
-        if not hmac.compare_digest(expected_tag, _AUTH_TAG):
-            return ""
-        # 4. Decrypt via keystream XOR
-        ks = _derive_vault_keystream(dk, len(_CIPHER_PAYLOAD))
-        plain_bytes = bytes([c ^ k for c, k in zip(_CIPHER_PAYLOAD, ks)])
-        return plain_bytes.decode('utf-8')
-    except Exception:
-        return ""
+    return (
+        os.environ.get("GITHUB_TOKEN") or
+        os.environ.get("GH_TOKEN") or
+        os.environ.get("NOVACARE_GITHUB_TOKEN") or
+        ""
+    ).strip()
+
 
 
 # ==============================================================================

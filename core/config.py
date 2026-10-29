@@ -157,10 +157,6 @@ class ConfigManager:
                 for k, v in defaults.items():
                     if k not in data:
                         data[k] = v
-                # Migrate legacy branch update_mode to release
-                if data.get("update_mode") == "branch":
-                    data["update_mode"] = "release"
-                    self._save(data)
                 # Remove any plaintext token legacy leak if present
                 if "github_token" in data:
                     data.pop("github_token", None)
@@ -187,32 +183,42 @@ class ConfigManager:
 
     def get_secure_token(self) -> str:
         """
-        Returns the decrypted GitHub token for repository synchronization.
-        Prioritizes user override (DPAPI) if defined, otherwise securely unpacks
-        the in-memory cryptographic vault. Never exposes token in settings or logs.
+        Returns the decrypted GitHub token for repository synchronization or release publishing.
+        In public mode, end users do not require any token and this returns an empty string.
+        Prioritizes environment variables, then custom local user override (DPAPI encrypted).
         """
-        # 1. Custom local user override (DPAPI encrypted)
+        # 1. Environment variables (CI/CD or local developer environment)
+        env_token = (
+            os.environ.get("GITHUB_TOKEN") or
+            os.environ.get("GH_TOKEN") or
+            os.environ.get("NOVACARE_GITHUB_TOKEN")
+        )
+        if env_token and env_token.strip():
+            return env_token.strip()
+
+        # 2. Custom local user override (DPAPI encrypted)
         enc_token = self.settings.get("github_token_encrypted")
         if enc_token:
             dec = decrypt_string(enc_token)
-            if dec:
-                return dec
+            if dec and dec.strip():
+                return dec.strip()
 
-        # 2. Cryptographic in-memory vault (AES/HMAC keystream, cross-machine safe)
+        # 3. Fallback to get_embedded_token
         vault_token = get_embedded_token()
-        if vault_token:
-            return vault_token
+        if vault_token and vault_token.strip():
+            return vault_token.strip()
 
         return ""
 
     def set_secure_token(self, token: str):
         """Encrypts and stores a custom user token securely using Windows DPAPI."""
-        embedded = get_embedded_token()
-        if token and token.strip() and token.strip() != embedded:
+        if token and token.strip():
             enc = encrypt_string(token.strip())
-            self.settings["github_token_encrypted"] = enc
+            if enc:
+                self.settings["github_token_encrypted"] = enc
+            else:
+                self.settings.pop("github_token_encrypted", None)
         else:
-            # If empty or matching default embedded vault, clean up settings.json
             self.settings.pop("github_token_encrypted", None)
         self.settings.pop("github_token", None)
         self._save(self.settings)
