@@ -1,0 +1,3 @@
+## 2025-02-12 - File traversal optimization in Windows environment
+**Learning:** `os.walk` iterates through directory structures recursively and requires explicit `os.stat` / `os.path.join` calls for size checks. This increases system call overhead and memory allocations. Iterative traversal using a stack combined with `os.scandir` accesses the OS level stat caches inherently avoiding duplicate lookups.
+**Action:** Prefer utilizing an iterative approach combined with `os.scandir` mapping for performance improvements on deep or highly populated directory scans over recursive `os.scandir` or `os.walk` to prevent `RecursionError` and enhance metadata-fetching speed.
