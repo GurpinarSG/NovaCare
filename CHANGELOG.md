@@ -2,6 +2,13 @@
 
 Tüm önemli değişiklikler, yeni özellikler, hata düzeltmeleri ve optimizasyonlar bu belgede kronolojik olarak kayıt altına alınmaktadır.
 
+## 🚀 [v1.2.8] - 2026-10-29
+
+### 🌐 Ağ ve Hız Testi İyileştirmeleri
+Küçük hata düzeltmeleri başarıyla uygulandı. 
+
+---
+
 ## 🚀 [v1.2.7] - 2026-10-29
 
 ### 🌐 Ağ ve Hız Testi İyileştirmeleri
