@@ -1,0 +1,3 @@
+## 2024-05-18 - os.walk and os.stat Anti-pattern on Windows
+**Learning:** `os.walk` forces a secondary `os.stat` call on each file to retrieve size since it only yields filenames. On Windows, `os.scandir` caches file attributes (like size) for free. Thus, `os.walk` plus `os.stat` inside the loop is an anti-pattern for disk scanning performance. Also, using recursive `os.scandir` may lead to `RecursionError` for deeply nested directory structures.
+**Action:** Use an iterative stack-based `os.scandir` approach to leverage cached `DirEntry.stat()` properties and avoid deep recursion crashes for all file scanning modules in the future.
