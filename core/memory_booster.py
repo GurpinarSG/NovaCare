@@ -12,7 +12,8 @@ from core.utils import format_bytes, log_debug
 # Known protected Windows system processes to skip
 PROTECTED_SYSTEM_PROCESSES = frozenset({
     "system", "system idle process", "registry", "smss.exe", "csrss.exe",
-    "wininit.exe", "services.exe", "lsass.exe", "winlogon.exe"
+    "wininit.exe", "services.exe", "lsass.exe", "winlogon.exe",
+    "svchost.exe", "fontdrvhost.exe", "dwm.exe", "ntoskrnl.exe"
 })
 
 @dataclass
@@ -84,9 +85,17 @@ class MemoryBooster:
         return procs
 
     def kill_process(self, pid: int, force: bool = False) -> bool:
-        """Terminate or kill a process by PID."""
+        """Terminate or kill a process by PID with system protection."""
+        if pid <= 4 or pid == os.getpid():
+            log_debug(f"MemoryBooster: Refusing to kill protected PID {pid}")
+            return False
         try:
             p = psutil.Process(pid)
+            raw_name = (p.name() or '').lower().strip()
+            p_name = raw_name if raw_name.endswith('.exe') else f"{raw_name}.exe"
+            if raw_name in PROTECTED_SYSTEM_PROCESSES or p_name in PROTECTED_SYSTEM_PROCESSES:
+                log_debug(f"MemoryBooster: Refusing to kill protected system process '{raw_name}' (PID {pid})")
+                return False
             if force:
                 p.kill()
             else:
@@ -124,8 +133,9 @@ class MemoryBooster:
                     if pid <= 4 or pid == current_pid:
                         continue
 
-                    p_name = (info.get('name') or '').lower()
-                    if p_name in PROTECTED_SYSTEM_PROCESSES:
+                    raw_p = (info.get('name') or '').lower().strip()
+                    p_name = raw_p if raw_p.endswith('.exe') else f"{raw_p}.exe"
+                    if raw_p in PROTECTED_SYSTEM_PROCESSES or p_name in PROTECTED_SYSTEM_PROCESSES:
                         continue
 
                     handle = ctypes.windll.kernel32.OpenProcess(

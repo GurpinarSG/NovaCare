@@ -59,12 +59,14 @@ class DownloadUpdateThread(QThread):
     progress = pyqtSignal(int, int) # downloaded, total
     finished = pyqtSignal(str)      # batch_path or error
 
-    def __init__(self, updater: GitHubUpdater, download_url: str, new_commit_sha: str = "", new_version: str = ""):
+    def __init__(self, updater: GitHubUpdater, download_url: str, new_commit_sha: str = "", new_version: str = "", expected_sha256: str = "", sha256sums_url: str = ""):
         super().__init__()
         self.updater = updater
         self.download_url = download_url
         self.new_commit_sha = new_commit_sha
         self.new_version = new_version
+        self.expected_sha256 = expected_sha256
+        self.sha256sums_url = sha256sums_url
 
     def run(self):
         try:
@@ -72,6 +74,8 @@ class DownloadUpdateThread(QThread):
                 self.download_url,
                 new_commit_sha=self.new_commit_sha,
                 new_version=self.new_version,
+                expected_sha256=self.expected_sha256,
+                sha256sums_url=self.sha256sums_url,
                 progress_callback=lambda d, t: self.progress.emit(d, t)
             )
             self.finished.emit(batch_path)
@@ -688,7 +692,9 @@ class SettingsView(QWidget):
             self.updater,
             self.latest_update_info.download_url,
             new_commit_sha=new_sha,
-            new_version=new_ver
+            new_version=new_ver,
+            expected_sha256=getattr(self.latest_update_info, 'sha256', ''),
+            sha256sums_url=getattr(self.latest_update_info, 'sha256sums_url', '')
         )
         self.download_thread.progress.connect(self._on_download_progress)
         self.download_thread.finished.connect(self._on_download_finished)

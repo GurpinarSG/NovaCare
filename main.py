@@ -252,18 +252,42 @@ def perform_self_uninstall(silent: bool = False):
 
     # 5. Schedule directory deletion right before process exits
     if getattr(sys, 'frozen', False):
-        install_dir = os.path.dirname(sys.executable)
+        install_dir = os.path.normpath(os.path.abspath(os.path.dirname(sys.executable)))
     else:
-        install_dir = os.path.dirname(os.path.abspath(__file__))
+        install_dir = os.path.normpath(os.path.abspath(os.path.dirname(__file__)))
 
-    if "AppData" in install_dir or "Programs" in install_dir or "NovaCare" in install_dir:
+    forbidden_roots = {
+        os.path.normpath(os.environ.get('SYSTEMROOT', r'C:\Windows')).lower(),
+        os.path.normpath(os.environ.get('ProgramFiles', r'C:\Program Files')).lower(),
+        os.path.normpath(os.environ.get('ProgramFiles(x86)', r'C:\Program Files (x86)')).lower(),
+        os.path.normpath(os.environ.get('USERPROFILE', r'C:\Users')).lower(),
+        os.path.normpath(os.environ.get('APPDATA', '')).lower(),
+        os.path.normpath(os.environ.get('LOCALAPPDATA', '')).lower(),
+        os.path.normpath(os.environ.get('ALLUSERSPROFILE', r'C:\ProgramData')).lower(),
+        os.path.normpath(os.path.splitdrive(install_dir)[0] + "\\").lower()
+    }
+
+    base_name = os.path.basename(install_dir).lower()
+    is_safe_novacare_dir = (
+        base_name == "novacare"
+        and install_dir.lower() not in forbidden_roots
+        and os.path.dirname(install_dir) != install_dir
+        and len(install_dir.split(os.sep)) >= 3
+    )
+
+    if is_safe_novacare_dir:
         flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0) | getattr(subprocess, 'DETACHED_PROCESS', 0x00000008)
-        local_cfg = os.path.join(os.environ.get('LOCALAPPDATA', ''), 'NovaCare')
-        del_cmd = f'cmd.exe /c timeout /t 2 /nobreak > nul & rmdir /s /q "{install_dir}"'
-        if os.path.exists(local_cfg) and os.path.abspath(local_cfg) != os.path.abspath(install_dir):
+        local_cfg = os.path.normpath(os.path.abspath(os.path.join(os.environ.get('LOCALAPPDATA', ''), 'NovaCare')))
+        del_cmd = f'timeout /t 2 /nobreak > nul & rmdir /s /q "{install_dir}"'
+        if (
+            os.path.exists(local_cfg)
+            and local_cfg.lower() != install_dir.lower()
+            and os.path.basename(local_cfg).lower() == "novacare"
+            and local_cfg.lower() not in forbidden_roots
+        ):
             del_cmd += f' & rmdir /s /q "{local_cfg}"'
         try:
-            subprocess.Popen(del_cmd, shell=True, creationflags=flags)
+            subprocess.Popen(["cmd.exe", "/c", del_cmd], shell=False, creationflags=flags)
         except Exception:
             pass
 

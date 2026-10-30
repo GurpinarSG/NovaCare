@@ -23,13 +23,14 @@ def restart_as_admin() -> bool:
     if sys.platform != 'win32':
         return False
     try:
+        import subprocess
         if getattr(sys, 'frozen', False):
             executable = sys.executable
-            params = " ".join([f'"{arg}"' for arg in sys.argv[1:]])
+            params = subprocess.list2cmdline(sys.argv[1:])
         else:
             executable = sys.executable
             script = os.path.abspath(sys.argv[0])
-            params = f'"{script}" ' + " ".join([f'"{arg}"' for arg in sys.argv[1:]])
+            params = subprocess.list2cmdline([script] + sys.argv[1:])
 
         ret = ctypes.windll.shell32.ShellExecuteW(None, "runas", executable, params, None, 1)
         if ret > 32:

@@ -33,7 +33,7 @@ class LeftoverItem:
     item_type: str   # "file", "folder", "registry"
     path: str
     details: str
-    selected: bool = True
+    selected: bool = False
 
 class AppUninstaller:
     def __init__(self):
@@ -127,8 +127,80 @@ class AppUninstaller:
         self.apps.sort(key=lambda a: a.name.lower())
         return self.apps
 
+    @staticmethod
+    def _parse_uninstall_tokens(cmd: str) -> list[str]:
+        """
+        Robustly parses uninstaller command lines using shlex.split(posix=False).
+        Properly handles unquoted executables with spaces, missing closing quotes, and flags.
+        """
+        import shlex
+        cmd = cmd.strip()
+        if not cmd:
+            return []
+
+        # If executable is quoted, handle potential unclosed trailing quotes
+        if cmd.startswith('"'):
+            end_q = cmd.find('"', 1)
+            if end_q == -1:
+                # Close unbalanced quote before the first flag or at the end
+                first_flag = -1
+                for flag_prefix in (' /', ' -'):
+                    idx = cmd.find(flag_prefix, 1)
+                    if idx != -1 and (first_flag == -1 or idx < first_flag):
+                        first_flag = idx
+                if first_flag != -1:
+                    cmd = cmd[:first_flag] + '"' + cmd[first_flag:]
+                else:
+                    cmd = cmd + '"'
+            try:
+                return [t.strip('"') for t in shlex.split(cmd, posix=False) if t.strip()]
+            except ValueError:
+                pass
+
+        # If unquoted, test whether candidate token sequences resolve to an existing executable
+        tokens = cmd.split()
+        if not tokens:
+            return []
+
+        found_exe = None
+        arg_start_idx = 0
+        # 1. Greedy check if a file exists on disk
+        for i in range(len(tokens), 0, -1):
+            cand = " ".join(tokens[:i]).strip('"')
+            if cand and os.path.isfile(cand):
+                found_exe = cand
+                arg_start_idx = i
+                break
+
+        # 2. Check for common executable extension boundaries (.exe, .bat, .cmd, .msi)
+        if not found_exe:
+            KNOWN_EXTS = ('.exe', '.bat', '.cmd', '.msi')
+            for i, tok in enumerate(tokens):
+                clean_tok = tok.strip('"').lower()
+                if any(clean_tok.endswith(ext) or (ext + '"') in clean_tok for ext in KNOWN_EXTS):
+                    found_exe = " ".join(tokens[:i + 1]).strip('"')
+                    arg_start_idx = i + 1
+                    break
+
+        if found_exe and arg_start_idx > 0:
+            exe_part = found_exe
+            rest = " ".join(tokens[arg_start_idx:]).strip()
+            if rest:
+                try:
+                    args = [t.strip('"') for t in shlex.split(rest, posix=False) if t.strip()]
+                except ValueError:
+                    args = [t.strip('"') for t in rest.split() if t.strip()]
+                return [exe_part] + args
+            return [exe_part]
+
+        # Standard shlex.split with quote balancing fallback
+        try:
+            return [t.strip('"') for t in shlex.split(cmd, posix=False) if t.strip()]
+        except ValueError:
+            return [t.strip('"') for t in cmd.replace('"', '').split() if t.strip()]
+
     def launch_uninstaller(self, app: InstalledApp, quiet: bool = False) -> subprocess.Popen:
-        """Launches the standard or quiet uninstaller in background."""
+        """Launches the standard or quiet uninstaller in background without shell=True."""
         cmd = app.quiet_uninstall_string if (quiet and app.quiet_uninstall_string) else app.uninstall_string
         if not cmd:
             raise ValueError("Kaldırma komutu mevcut değil.")
@@ -139,15 +211,34 @@ class AppUninstaller:
             import re
             expanded = re.sub(r'(?i)/i\s*', '/X ', expanded)
 
+        tokens = self._parse_uninstall_tokens(expanded)
+        if not tokens:
+            raise ValueError("Kaldırma komutu çözümlenemedi.")
+
         try:
-            return subprocess.Popen(expanded, shell=True)
+            return subprocess.Popen(tokens)
         except OSError as e:
             if getattr(e, 'winerror', None) == 740 or '740' in str(e) or 'elevation' in str(e).lower():
-                # UAC Elevation required - launch elevated via PowerShell Start-Process
+                # UAC Elevation required - launch elevated via PowerShell Start-Process safely without parameter injection
+                import base64
+                exe = tokens[0]
+                args = tokens[1:]
+                ps_exe = exe.replace("'", "''")
+                cmd_line = subprocess.list2cmdline(args)
+                ps_cmd_line = cmd_line.replace("'", "''")
+                if ps_cmd_line:
+                    ps_script = f"Start-Process -FilePath '{ps_exe}' -ArgumentList '{ps_cmd_line}' -Verb RunAs -Wait"
+                else:
+                    ps_script = f"Start-Process -FilePath '{ps_exe}' -Verb RunAs -Wait"
+
+                encoded_ps = base64.b64encode(ps_script.encode('utf-16le')).decode('ascii')
+                ps_tokens = ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded_ps]
                 flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-                ps_cmd = f"Start-Process cmd.exe -ArgumentList '/c', '{expanded}' -Verb RunAs"
-                return subprocess.Popen(["powershell", "-NoProfile", "-Command", ps_cmd], creationflags=flags)
+                return subprocess.Popen(ps_tokens, creationflags=flags)
             raise e
+
+    # Alias for task consistency
+    run_uninstaller = launch_uninstaller
 
     def scan_multiple_leftovers(self, apps: list[InstalledApp]) -> list[LeftoverItem]:
         """Scans remnants for multiple apps and removes duplicates."""
@@ -163,19 +254,69 @@ class AppUninstaller:
         return all_leftovers
 
     def scan_leftovers(self, app: InstalledApp) -> list[LeftoverItem]:
-        """Scans filesystem and registry for remnants related to this app."""
+        """Scans filesystem and registry for remnants related to this app using safe full name / install path matching."""
         leftovers: list[LeftoverItem] = []
-        app_name_parts = [p.lower() for p in app.name.split() if len(p) >= 3 and p.lower() not in _NAME_EXCLUSIONS]
-        if not app_name_parts:
-            app_name_parts = [app.name.lower()]
+        import re
+
+        norm_name = app.name.strip().lower()
+        clean_name = re.sub(r'\b(v?\d+(\.\d+)*|64-bit|32-bit|x64|x86)\b', '', norm_name, flags=re.IGNORECASE).strip(' -_')
+
+        # Critical system root path checker
+        def is_critical_system_folder(path: str) -> bool:
+            if not path or not isinstance(path, str):
+                return True
+            norm = os.path.normpath(os.path.abspath(path)).lower()
+            if os.path.dirname(norm) == norm:
+                return True
+            system_roots = {
+                os.path.normpath(os.environ.get('SYSTEMROOT', r'C:\Windows')).lower(),
+                os.path.normpath(os.environ.get('ProgramFiles', r'C:\Program Files')).lower(),
+                os.path.normpath(os.environ.get('ProgramFiles(x86)', r'C:\Program Files (x86)')).lower(),
+                os.path.normpath(os.environ.get('USERPROFILE', r'C:\Users')).lower(),
+                os.path.normpath(os.environ.get('APPDATA', '')).lower(),
+                os.path.normpath(os.environ.get('LOCALAPPDATA', '')).lower(),
+                os.path.normpath(os.environ.get('ALLUSERSPROFILE', r'C:\ProgramData')).lower(),
+            }
+            return norm in system_roots or len(norm.split(os.sep)) < 3
 
         # 1. Check InstallLocation
+        loc_name = ""
         if app.install_location and os.path.exists(app.install_location):
-            leftovers.append(LeftoverItem(
-                item_type="folder",
-                path=app.install_location,
-                details=f"Kurulum Klasörü ({app.install_location})"
-            ))
+            if not is_critical_system_folder(app.install_location):
+                leftovers.append(LeftoverItem(
+                    item_type="folder",
+                    path=os.path.normpath(app.install_location),
+                    details=f"Kurulum Klasörü ({app.install_location})",
+                    selected=False
+                ))
+                cand_loc = os.path.basename(os.path.normpath(app.install_location)).lower()
+                if cand_loc and len(cand_loc) >= 3 and cand_loc not in _NAME_EXCLUSIONS:
+                    loc_name = cand_loc
+
+        # Target candidate names for safe folder and registry key matching
+        candidate_names = set()
+        if clean_name and len(clean_name) >= 3 and clean_name not in _NAME_EXCLUSIONS:
+            candidate_names.add(clean_name)
+        if norm_name and len(norm_name) >= 3 and norm_name not in _NAME_EXCLUSIONS:
+            candidate_names.add(norm_name)
+        if loc_name:
+            candidate_names.add(loc_name)
+
+        if not candidate_names:
+            return leftovers
+
+        publisher_name = app.publisher.strip().lower() if (app.publisher and app.publisher.lower() not in ('bilinmiyor', 'unknown', 'microsoft corporation', 'microsoft')) else ""
+
+        def matches_app(entry_lower: str) -> bool:
+            if entry_lower in _DIR_EXCLUSIONS or entry_lower in _REG_EXCLUSIONS:
+                return False
+            for cand in candidate_names:
+                if entry_lower == cand:
+                    return True
+                # Bounded matching with space or hyphen (e.g. "Google Chrome - Dev")
+                if len(cand) >= 4 and (entry_lower.startswith(cand + " ") or entry_lower.startswith(cand + "-")):
+                    return True
+            return False
 
         # 2. Check standard program directories
         dirs_to_check = [
@@ -194,15 +335,29 @@ class AppUninstaller:
                     for entry in it:
                         if entry.is_dir():
                             dname = entry.name.lower()
-                            # Match if matches app's prominent words
-                            if any(part in dname for part in app_name_parts):
-                                # Avoid false positives with common system folders
-                                if dname not in _DIR_EXCLUSIONS:
+                            if matches_app(dname):
+                                if not is_critical_system_folder(entry.path):
                                     leftovers.append(LeftoverItem(
                                         item_type="folder",
                                         path=entry.path,
-                                        details=f"Kalan Uygulama Verisi ({entry.name})"
+                                        details=f"Kalan Uygulama Verisi ({entry.name})",
+                                        selected=False
                                     ))
+                            elif publisher_name and dname == publisher_name:
+                                # Inspect subdirectories under the publisher folder
+                                try:
+                                    with os.scandir(entry.path) as sub_it:
+                                        for sub_entry in sub_it:
+                                            if sub_entry.is_dir() and matches_app(sub_entry.name.lower()):
+                                                if not is_critical_system_folder(sub_entry.path):
+                                                    leftovers.append(LeftoverItem(
+                                                        item_type="folder",
+                                                        path=sub_entry.path,
+                                                        details=f"Kalan Uygulama Verisi ({entry.name}\\{sub_entry.name})",
+                                                        selected=False
+                                                    ))
+                                except (PermissionError, OSError):
+                                    pass
             except (PermissionError, OSError):
                 continue
 
@@ -216,13 +371,28 @@ class AppUninstaller:
                         try:
                             sub_k = winreg.EnumKey(k, i)
                             low_sub = sub_k.lower()
-                            if any(part in low_sub for part in app_name_parts):
-                                if low_sub not in _REG_EXCLUSIONS:
-                                    leftovers.append(LeftoverItem(
-                                        item_type="registry",
-                                        path=f"{rname}\\Software\\{sub_k}",
-                                        details="Kayıt Defteri Anahtarı"
-                                    ))
+                            if matches_app(low_sub):
+                                leftovers.append(LeftoverItem(
+                                    item_type="registry",
+                                    path=f"{rname}\\Software\\{sub_k}",
+                                    details="Kayıt Defteri Anahtarı",
+                                    selected=False
+                                ))
+                            elif publisher_name and low_sub == publisher_name:
+                                try:
+                                    with winreg.OpenKey(root, f"Software\\{sub_k}", 0, winreg.KEY_READ) as pub_k:
+                                        pub_count, _, _ = winreg.QueryInfoKey(pub_k)
+                                        for pi in range(pub_count):
+                                            pub_sub = winreg.EnumKey(pub_k, pi)
+                                            if matches_app(pub_sub.lower()):
+                                                leftovers.append(LeftoverItem(
+                                                    item_type="registry",
+                                                    path=f"{rname}\\Software\\{sub_k}\\{pub_sub}",
+                                                    details="Kayıt Defteri Anahtarı",
+                                                    selected=False
+                                                ))
+                                except OSError:
+                                    pass
                         except OSError:
                             continue
             except OSError:

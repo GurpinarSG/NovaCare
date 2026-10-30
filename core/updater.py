@@ -30,6 +30,8 @@ class UpdateInfo:
     published_at: str
     is_prerelease: bool = False
     new_commit_sha: str = ""
+    sha256: str = ""
+    sha256sums_url: str = ""
 
 def parse_version_tuple(v_str: str) -> tuple[int, ...]:
     cleaned = re.sub(r'^[vV]', '', str(v_str).strip())
@@ -78,18 +80,12 @@ class GitHubUpdater:
         try:
             return requests.get(url, headers=headers, timeout=timeout, stream=stream, verify=verify)
         except requests.exceptions.SSLError:
-            # Re-ensure persistent CA bundle and retry
+            # Re-ensure persistent CA bundle and retry strictly with verified CA
             from core.utils import ensure_ssl_ca_bundle
             fresh_ca = ensure_ssl_ca_bundle()
             if fresh_ca and os.path.exists(fresh_ca) and fresh_ca != verify:
-                try:
-                    return requests.get(url, headers=headers, timeout=timeout, stream=stream, verify=fresh_ca)
-                except requests.exceptions.SSLError:
-                    pass
-            # Secure fallback with warning suppressed in case local cert bundle path was removed
-            import urllib3
-            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-            return requests.get(url, headers=headers, timeout=timeout, stream=stream, verify=False)
+                return requests.get(url, headers=headers, timeout=timeout, stream=stream, verify=fresh_ca)
+            raise
 
     def _get_headers(self, accept: str = "application/vnd.github.v3+json", include_auth: bool = True) -> dict:
         headers = {
@@ -232,10 +228,13 @@ class GitHubUpdater:
                 portable_zip = None
                 other_zip = None
                 exe_asset = None
+                sha256sums_url = ""
 
                 for asset in assets:
                     aname = asset.get("name", "").lower()
-                    if "update" in aname and aname.endswith(".zip"):
+                    if aname == "sha256sums.txt":
+                        sha256sums_url = asset.get("browser_download_url") or asset.get("url") or ""
+                    elif "update" in aname and aname.endswith(".zip"):
                         update_zip = asset
                     elif "portable" in aname and aname.endswith(".zip"):
                         portable_zip = asset
@@ -269,7 +268,8 @@ class GitHubUpdater:
                     download_url=download_url,
                     download_size=download_size,
                     published_at=published,
-                    is_prerelease=is_pre
+                    is_prerelease=is_pre,
+                    sha256sums_url=sha256sums_url
                 )
             elif resp.status_code == 404:
                 if allow_fallback and not getattr(sys, 'frozen', False):
@@ -313,10 +313,13 @@ class GitHubUpdater:
         download_url: str,
         new_commit_sha: str = "",
         new_version: str = "",
+        expected_sha256: str = "",
+        sha256sums_url: str = "",
         progress_callback: Optional[Callable[[int, int], None]] = None
     ) -> str:
         """
-        Downloads update zip to temp folder, extracts it, and generates apply_update.bat.
+        Downloads update zip to temp folder, verifies SHA-256 integrity, extracts safely,
+        and generates apply_update.bat.
         Returns the path to apply_update.bat ready to execute.
         """
         temp_dir = os.path.join(os.environ.get('TEMP', os.path.expanduser('~')), 'NovaCare_Update')
@@ -355,11 +358,65 @@ class GitHubUpdater:
                     if progress_callback and total_size > 0:
                         progress_callback(downloaded, total_size)
 
-        # Extract zip or handle direct executable
+        # 0. SHA-256 integrity verification
+        import hashlib
+        hasher = hashlib.sha256()
+        with open(zip_path, 'rb') as f:
+            while chunk := f.read(65536):
+                hasher.update(chunk)
+        downloaded_hash = hasher.hexdigest().lower()
+
+        if expected_sha256:
+            if downloaded_hash != expected_sha256.strip().lower():
+                raise ValueError(
+                    f"SHA-256 bütünlük doğrulaması başarısız oldu!\n"
+                    f"Beklenen: {expected_sha256.strip().lower()}\n"
+                    f"İndirilen: {downloaded_hash}"
+                )
+        elif sha256sums_url:
+            try:
+                sums_resp = self._safe_request_get(sha256sums_url, headers=self._get_headers(include_auth=False), timeout=15)
+                if sums_resp.status_code == 200:
+                    target_fn = download_url.split("?")[0].rstrip("/").split("/")[-1].lower()
+                    expected_from_sums = None
+                    candidate_matches = []
+                    for line in sums_resp.text.splitlines():
+                        parts = line.strip().split()
+                        if len(parts) >= 2:
+                            h, fn = parts[0], parts[1].lstrip("*")
+                            base_fn = os.path.basename(fn).lower()
+                            if base_fn == target_fn:
+                                expected_from_sums = h.lower()
+                                break
+                            elif base_fn in ("novacare_update.zip", "novacare.zip") or base_fn.endswith(".zip"):
+                                candidate_matches.append(h.lower())
+                    if not expected_from_sums and len(candidate_matches) == 1:
+                        expected_from_sums = candidate_matches[0]
+
+                    if expected_from_sums and downloaded_hash != expected_from_sums:
+                        raise ValueError(
+                            f"SHA256SUMS.txt bütünlük doğrulaması başarısız oldu!\n"
+                            f"Beklenen: {expected_from_sums}\n"
+                            f"İndirilen: {downloaded_hash}"
+                        )
+            except requests.RequestException:
+                pass
+
+        # Extract zip with strict Zip Slip canonical path checking or handle direct executable
         is_zip = zip_path.lower().endswith('.zip') and zipfile.is_zipfile(zip_path)
         if is_zip:
+            canonical_extracted = os.path.realpath(os.path.abspath(extracted_dir))
             with zipfile.ZipFile(zip_path, 'r') as zf:
-                zf.extractall(extracted_dir)
+                for member in zf.infolist():
+                    clean_name = os.path.splitdrive(member.filename)[1].lstrip('\\/')
+                    target_path = os.path.realpath(os.path.abspath(os.path.join(canonical_extracted, clean_name)))
+                    try:
+                        is_within = (os.path.commonpath([canonical_extracted, target_path]) == canonical_extracted)
+                    except ValueError:
+                        is_within = False
+                    if not is_within:
+                        raise ValueError(f"Güvenlik Uyarısı (Zip Slip): Zararlı arşiv üyesi tespit edildi: {member.filename}")
+                    zf.extract(member, canonical_extracted)
 
             # Handle zipball inner root directory
             source_dir = extracted_dir

@@ -11,6 +11,7 @@ from functools import lru_cache
 from dataclasses import dataclass, asdict
 from typing import Callable, Optional
 from core.utils import log_debug
+from core.backup_manager import compute_backup_hmac
 
 @dataclass
 class RegistryIssue:
@@ -44,7 +45,7 @@ class RegistryCleaner:
     @staticmethod
     @lru_cache(maxsize=1024)
     def _clean_path_string(raw_cmd: str) -> str:
-        """Extract clean file path from command line arguments with LRU caching."""
+        """Extract clean file path from command line arguments with greedy token joining and LRU caching."""
         cmd = raw_cmd.strip()
         if not cmd:
             return ""
@@ -53,8 +54,43 @@ class RegistryCleaner:
             if end_quote != -1:
                 return cmd[1:end_quote].strip()
             return cmd.strip('"')
-        parts = cmd.split(' ', 1)
-        return parts[0].strip()
+
+        # Check if entire unquoted string is an existing file
+        if os.path.exists(cmd):
+            return cmd
+
+        tokens = cmd.split()
+        if not tokens:
+            return ""
+
+        # 1. Greedy check: join tokens from longest to shortest and check if a matching file exists on disk
+        for i in range(len(tokens), 0, -1):
+            candidate = " ".join(tokens[:i]).strip('"')
+            if candidate and os.path.isfile(candidate):
+                return candidate
+
+        # 2. If file does not exist, look for common executable/library extensions
+        # to find the boundary of the unquoted program path before arguments
+        KNOWN_EXTS = ('.exe', '.dll', '.bat', '.cmd', '.vbs', '.cpl', '.scr', '.msi', '.com', '.ps1', '.msc', '.jar')
+        for i, token in enumerate(tokens):
+            clean_tok = token.strip('"').lower()
+            for ext in KNOWN_EXTS:
+                if clean_tok.endswith(ext) or (ext + '"') in clean_tok:
+                    return " ".join(tokens[:i + 1]).strip('"')
+                if (ext + ',') in clean_tok:
+                    tok_part = token.split(',')[0].strip('"')
+                    return " ".join(tokens[:i] + [tok_part]).strip('"')
+                if (ext + '/') in clean_tok:
+                    tok_part = token.split('/')[0].strip('"')
+                    return " ".join(tokens[:i] + [tok_part]).strip('"')
+
+        # 3. If no file or extension found, check if directory exists (longest directory match)
+        for i in range(len(tokens), 0, -1):
+            candidate = " ".join(tokens[:i]).strip('"')
+            if candidate and os.path.isdir(candidate):
+                return candidate
+
+        return tokens[0].strip('"')
 
     def scan_all(self, progress_callback: Optional[Callable[[str, int, int], None]] = None) -> list[RegistryIssue]:
         """
@@ -290,10 +326,17 @@ class RegistryCleaner:
         backup_file = os.path.join(self.backup_dir, f"Registry_Backup_{timestamp}.json")
         reg_file = os.path.join(self.backup_dir, f"Registry_Backup_{timestamp}.reg")
 
-        # 1. JSON Backup
+        # 1. JSON Backup with HMAC-SHA256 signature
         data = [asdict(issue) for issue in issues_to_backup]
+        hmac_sig = compute_backup_hmac(data)
+        payload = {
+            "version": 1,
+            "timestamp": timestamp,
+            "hmac": hmac_sig,
+            "items": data
+        }
         with open(backup_file, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
+            json.dump(payload, f, indent=2, ensure_ascii=False)
 
         # 2. Windows .reg File
         try:

@@ -45,7 +45,7 @@ def _load_app_version():
                 return f.readline().strip().lstrip("vV")
     except Exception:
         pass
-    return "1.2.4"
+    return "1.2.6"
 
 # Version & Product Info
 APP_NAME = "NovaCare"
@@ -190,7 +190,12 @@ reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v "NovaCare" /f
 reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\NovaCare" /f > nul 2>&1
 reg delete "HKLM\Software\Microsoft\Windows\CurrentVersion\Uninstall\NovaCare" /f > nul 2>&1
 
-powershell -NoProfile -ExecutionPolicy Bypass -Command "Remove-Item -Path '$([Environment]::GetFolderPath(''Desktop''))\NovaCare.lnk' -Force -ErrorAction SilentlyContinue; Remove-Item -Path '$([Environment]::GetFolderPath(''Programs''))\NovaCare' -Recurse -Force -ErrorAction SilentlyContinue" > nul 2>&1
+del /f /q "%USERPROFILE%\Desktop\NovaCare.lnk" > nul 2>&1
+del /f /q "%PUBLIC%\Desktop\NovaCare.lnk" > nul 2>&1
+rd /s /q "%APPDATA%\Microsoft\Windows\Start Menu\Programs\NovaCare" > nul 2>&1
+rd /s /q "%ALLUSERSPROFILE%\Microsoft\Windows\Start Menu\Programs\NovaCare" > nul 2>&1
+
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Remove-Item (Join-Path ([Environment]::GetFolderPath('Desktop')) 'NovaCare.lnk') -Force -ErrorAction SilentlyContinue; Remove-Item (Join-Path ([Environment]::GetFolderPath('Programs')) 'NovaCare') -Recurse -Force -ErrorAction SilentlyContinue" > nul 2>&1
 
 set "TARGET_DIR=%~dp0"
 if "%TARGET_DIR:~-1%"=="\" set "TARGET_DIR=%TARGET_DIR:~0,-1%"
@@ -209,16 +214,20 @@ exit
     def _create_shortcuts(self, dest_exe: str):
         icon_path = os.path.join(self.target_dir, "assets", "icon.ico")
         ps_commands = []
+        ps_dest_exe = dest_exe.replace("'", "''")
+        ps_target_dir = self.target_dir.replace("'", "''")
+        ps_icon_path = icon_path.replace("'", "''")
+        ps_app_display = APP_DISPLAY_NAME.replace("'", "''")
 
         if self.create_desktop_lnk:
             ps_commands.append(f"""
             $desktop = [Environment]::GetFolderPath('Desktop')
             $s = $wsh.CreateShortcut((Join-Path $desktop 'NovaCare.lnk'))
-            $s.TargetPath = '{dest_exe}'
-            $s.WorkingDirectory = '{self.target_dir}'
+            $s.TargetPath = '{ps_dest_exe}'
+            $s.WorkingDirectory = '{ps_target_dir}'
             $s.Arguments = ''
-            $s.IconLocation = '{icon_path},0'
-            $s.Description = '{APP_DISPLAY_NAME}'
+            $s.IconLocation = '{ps_icon_path},0'
+            $s.Description = '{ps_app_display}'
             $s.Save()
             """)
 
@@ -228,26 +237,28 @@ exit
             $folder = Join-Path $programs 'NovaCare'
             if (-not (Test-Path $folder)) {{ New-Item -ItemType Directory -Path $folder -Force | Out-Null }}
             $s1 = $wsh.CreateShortcut((Join-Path $folder 'NovaCare.lnk'))
-            $s1.TargetPath = '{dest_exe}'
-            $s1.WorkingDirectory = '{self.target_dir}'
+            $s1.TargetPath = '{ps_dest_exe}'
+            $s1.WorkingDirectory = '{ps_target_dir}'
             $s1.Arguments = ''
-            $s1.IconLocation = '{icon_path},0'
-            $s1.Description = '{APP_DISPLAY_NAME}'
+            $s1.IconLocation = '{ps_icon_path},0'
+            $s1.Description = '{ps_app_display}'
             $s1.Save()
 
             $s2 = $wsh.CreateShortcut((Join-Path $folder 'NovaCare Kaldır.lnk'))
-            $s2.TargetPath = '{dest_exe}'
+            $s2.TargetPath = '{ps_dest_exe}'
             $s2.Arguments = '--uninstall'
-            $s2.WorkingDirectory = '{self.target_dir}'
+            $s2.WorkingDirectory = '{ps_target_dir}'
             $s2.IconLocation = 'shell32.dll,31'
             $s2.Description = 'NovaCare Uygulamasını Kaldır'
             $s2.Save()
             """)
 
         if ps_commands:
+            import base64
             script = "$wsh = New-Object -ComObject WScript.Shell\n" + "\n".join(ps_commands)
+            encoded_ps = base64.b64encode(script.encode('utf-16le')).decode('ascii')
             flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
-            subprocess.run(["powershell", "-NoProfile", "-Command", script], creationflags=flags)
+            subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded_ps], creationflags=flags)
 
     def _register_uninstaller(self, dest_exe: str):
         key_path = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\NovaCare"
@@ -277,8 +288,9 @@ exit
             # Fallback to HKCU if HKLM write fails (e.g. non-admin environment),
             # using an elevated wrapper in UninstallString to prevent Error 740
             try:
-                elevated_uninstall = f'powershell.exe -NoProfile -WindowStyle Hidden -Command "Start-Process -FilePath \'{dest_exe}\' -ArgumentList \'--uninstall\' -Verb RunAs"'
-                elevated_quiet = f'powershell.exe -NoProfile -WindowStyle Hidden -Command "Start-Process -FilePath \'{dest_exe}\' -ArgumentList \'--uninstall --silent\' -Verb RunAs"'
+                ps_dest_exe = dest_exe.replace("'", "''")
+                elevated_uninstall = f'powershell.exe -NoProfile -WindowStyle Hidden -Command "Start-Process -FilePath \'{ps_dest_exe}\' -ArgumentList \'--uninstall\' -Verb RunAs"'
+                elevated_quiet = f'powershell.exe -NoProfile -WindowStyle Hidden -Command "Start-Process -FilePath \'{ps_dest_exe}\' -ArgumentList \'--uninstall --silent\' -Verb RunAs"'
                 with winreg.CreateKey(winreg.HKEY_CURRENT_USER, key_path) as key:
                     winreg.SetValueEx(key, "DisplayName", 0, winreg.REG_SZ, APP_DISPLAY_NAME)
                     winreg.SetValueEx(key, "DisplayVersion", 0, winreg.REG_SZ, APP_VERSION)
@@ -295,15 +307,18 @@ exit
 
     def _register_autostart(self, dest_exe: str):
         flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+        ps_dest_exe = dest_exe.replace("'", "''")
         try:
+            import base64
             ps_script = f"""
-            $action = New-ScheduledTaskAction -Execute '{dest_exe}' -Argument '--autostart'
+            $action = New-ScheduledTaskAction -Execute '{ps_dest_exe}' -Argument '--autostart'
             $trigger = New-ScheduledTaskTrigger -AtLogOn
             $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Highest
             $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Days 0)
             Register-ScheduledTask -TaskName 'NovaCare_Autostart' -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
             """
-            subprocess.run(["powershell", "-NoProfile", "-Command", ps_script], creationflags=flags, timeout=8)
+            encoded_ps = base64.b64encode(ps_script.encode('utf-16le')).decode('ascii')
+            subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded_ps], creationflags=flags, timeout=8)
         except Exception:
             try:
                 cmd_str = f'"{dest_exe}" --autostart'

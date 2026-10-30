@@ -295,17 +295,17 @@ def test_web_redirect_rate_limit_fallback():
         # Even with API 403 rate limit, web fallback retrieves latest release info
         info = updater.check_for_updates(mode="release")
         assert info.available == True
-        assert info.latest_version in ("v1.2.4", "v1.2.5")
+        assert info.latest_version in ("v1.2.4", "v1.2.5", "v1.2.6")
         assert "NovaCare_Update.zip" in info.download_url
         print(f"  [✔] Rate limit fallback detected {info.latest_version} via web redirect successfully.")
 
 def test_live_release_update_readiness():
-    print("[6/10] Testing live GitHub release v1.2.5 check & download readiness...")
+    print("[6/10] Testing live GitHub release check & download readiness...")
     updater = GitHubUpdater("GurpinarSG/NovaCare", token="", current_version="1.2.4")
     info = updater.check_for_updates(mode="release")
 
-    assert info.available == True, "Should detect v1.2.5 as newer than v1.2.4"
-    assert info.latest_version == "v1.2.5"
+    assert info.available == True, f"Should detect {info.latest_version} as newer than v1.2.4"
+    assert info.latest_version in ("v1.2.5", "v1.2.6")
     assert info.download_url.startswith("https://")
     print(f"  [✔] Live update check: {info.current_version} -> {info.latest_version}")
 

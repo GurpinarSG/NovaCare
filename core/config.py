@@ -75,7 +75,7 @@ def load_base_version() -> str:
         pass
     return ver
 
-VERSION = "1.2.4"
+VERSION = "1.2.6"
 CURRENT_VERSION = load_base_version() or VERSION
 DEFAULT_GITHUB_REPO = "GurpinarSG/NovaCare"
 DEFAULT_GITHUB_TOKEN = "" # NEVER hardcode tokens in distributed code

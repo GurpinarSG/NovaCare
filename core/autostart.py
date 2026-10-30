@@ -92,14 +92,19 @@ def set_autostart(enable: bool) -> bool:
         task_created = False
         # 1. Register in Windows Task Scheduler (Elevated - Highest Privileges)
         try:
+            import base64
+            ps_exe = exe.replace("'", "''")
+            ps_args = args.replace("'", "''")
+            ps_task = TASK_NAME.replace("'", "''")
             ps_script = f"""
-            $action = New-ScheduledTaskAction -Execute '{exe}' -Argument '{args}'
+            $action = New-ScheduledTaskAction -Execute '{ps_exe}' -Argument '{ps_args}'
             $trigger = New-ScheduledTaskTrigger -AtLogOn
             $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Highest
             $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Days 0)
-            Register-ScheduledTask -TaskName '{TASK_NAME}' -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
+            Register-ScheduledTask -TaskName '{ps_task}' -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
             """
-            r = subprocess.run(["powershell", "-NoProfile", "-Command", ps_script], creationflags=flags, timeout=8)
+            encoded_ps = base64.b64encode(ps_script.encode('utf-16le')).decode('ascii')
+            r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded_ps], creationflags=flags, timeout=8)
             task_created = (r.returncode == 0)
         except Exception as e:
             log_debug(f"Autostart: PowerShell task creation failed: {e}")

@@ -74,19 +74,23 @@ class AutoUpdateCheckThread(QThread):
 class SilentAutoInstallThread(QThread):
     finished = pyqtSignal(str) # batch_path or error
 
-    def __init__(self, updater: GitHubUpdater, download_url: str, new_commit_sha: str = "", new_version: str = ""):
+    def __init__(self, updater: GitHubUpdater, download_url: str, new_commit_sha: str = "", new_version: str = "", expected_sha256: str = "", sha256sums_url: str = ""):
         super().__init__()
         self.updater = updater
         self.download_url = download_url
         self.new_commit_sha = new_commit_sha
         self.new_version = new_version
+        self.expected_sha256 = expected_sha256
+        self.sha256sums_url = sha256sums_url
 
     def run(self):
         try:
             batch = self.updater.download_and_prepare_update(
                 self.download_url,
                 new_commit_sha=self.new_commit_sha,
-                new_version=self.new_version
+                new_version=self.new_version,
+                expected_sha256=self.expected_sha256,
+                sha256sums_url=self.sha256sums_url
             )
             self.finished.emit(batch)
         except Exception as e:
@@ -411,7 +415,9 @@ class MainWindow(QMainWindow):
                     updater,
                     result.download_url,
                     new_commit_sha=result.new_commit_sha,
-                    new_version=result.latest_version
+                    new_version=result.latest_version,
+                    expected_sha256=getattr(result, 'sha256', ''),
+                    sha256sums_url=getattr(result, 'sha256sums_url', '')
                 )
                 self.auto_install_thread.finished.connect(lambda batch: self._on_auto_install_finished(batch, result))
                 self.auto_install_thread.start()

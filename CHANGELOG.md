@@ -2,6 +2,31 @@
 
 Tüm önemli değişiklikler, yeni özellikler, hata düzeltmeleri ve optimizasyonlar bu belgede kronolojik olarak kayıt altına alınmaktadır.
 
+## 🚀 [v1.2.7] - 2026-10-29
+
+### 🌐 Ağ ve Hız Testi İyileştirmeleri
+Çoklu Akış (Multi-Stream): Fiber ve yüksek hızlı hatlarda tam bant genişliği doygunluğu sağlandı.
+429 Hız Limiti Koruması: Cloudflare kısıtlamalarına karşı yedek CDN rotaları eklendi.
+🔄 Otomatik Güncelleme Onarımları
+PowerShell settings.json yazımında oluşan UTF-8 BOM karakter bozulması çözüldü.
+Harici programların dosyayı kilitlediği durumlarda 15 saniyelik otomatik yeniden deneme döngüsü eklendi.
+
+---
+
+## 🚀 [v1.2.6] - 2026-10-29
+
+### 🛡️ Kapsamlı Kod Denetimi ve Bütünlük Doğrulaması
+* **Performans ve güvenlik güncelleştirmeleri uygulandı. 
+
+---
+
+## 🚀 [v1.2.5] - 2026-10-29
+
+### 🛡️ Kapsamlı Kod Denetimi ve Bütünlük Doğrulaması
+* **Kritik Bloatware Tarama & Kaldırma Düzeltmesi gerçekleştirildi. 
+
+---
+
 ## 🚀 [v1.2.4] - 2026-10-29
 
 ### 🛡️ Kapsamlı Kod Denetimi ve Bütünlük Doğrulaması
