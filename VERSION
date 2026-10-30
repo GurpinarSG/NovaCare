@@ -1,4 +1,4 @@
-1.2.4
+1.2.5
 ---
 • Kapsamlı Kod Denetimi ve Bütünlük Doğrulaması: Proje genelindeki tüm modüller (core, ui, scripts) derinlemesine incelendi; sıfır derleme hatası ve sıfır pyflakes uyarısı doğrulandı.
 • Temiz Kaynak ve İş Parçacığı Yönetimi: Arka plan izleyicileri, soket havuzları, iş parçacıkları ve WMI/CIM sorguları incelenerek kaynak sızıntıları önlendi, pencereler arası güvenli yaşam döngüsü sağlandı.

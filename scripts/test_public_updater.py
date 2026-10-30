@@ -83,8 +83,9 @@ def test_unauthenticated_release_check():
     updater = GitHubUpdater("GurpinarSG/NovaCare", token="", current_version="1.2.3")
     info = updater.check_for_updates(mode="release")
 
-    assert info.available == True, "Should detect v1.2.4 as newer than v1.2.3"
-    assert info.latest_version == "v1.2.4"
+    from core.updater import is_newer_version
+    assert info.available == True, "Should detect release as newer than v1.2.3"
+    assert is_newer_version(info.latest_version, "1.2.3") and info.latest_version in ("v1.2.4", "v1.2.5")
     assert "https://github.com/GurpinarSG/NovaCare/releases/download/" in info.download_url
     assert info.download_url.endswith(".zip")
     assert info.download_size > 0
@@ -104,8 +105,9 @@ def test_invalid_token_resilience():
     # Bad token should not crash; it must automatically fall back to unauthenticated public access
     updater = GitHubUpdater("GurpinarSG/NovaCare", token="ghp_REVOKED_TOKEN_XYZ", current_version="1.2.3")
     info = updater.check_for_updates(mode="release")
+    from core.updater import is_newer_version
     assert info.available == True
-    assert info.latest_version == "v1.2.4"
+    assert is_newer_version(info.latest_version, "1.2.3") and info.latest_version in ("v1.2.4", "v1.2.5")
     print("  [✔] Graceful 401 fallback to public unauthenticated access succeeded.")
 
 def test_unauthenticated_download_stream():

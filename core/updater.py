@@ -12,6 +12,7 @@ import re
 import shutil
 import zipfile
 import subprocess
+import ctypes
 import requests
 from dataclasses import dataclass
 from typing import Optional, Callable
@@ -275,6 +276,30 @@ class GitHubUpdater:
                     return self._check_branch_commits(allow_fallback=False)
                 raise RuntimeError(f"GitHub üzerinde '{self.repo}' için yayınlanmış bir sürüm (Release) bulunamadı (404).")
             elif resp.status_code == 403 and "rate limit" in resp.text.lower():
+                # Attempt public web redirect fallback which does not consume API rate limits
+                try:
+                    web_url = f"https://github.com/{self.repo}/releases/latest"
+                    head_resp = requests.get(web_url, headers={"User-Agent": "Mozilla/5.0"}, allow_redirects=False, timeout=8)
+                    loc = head_resp.headers.get("Location", "")
+                    if loc and "/releases/tag/" in loc:
+                        web_tag = loc.split("/releases/tag/")[-1].strip()
+                        clean_version = web_tag.lstrip("vV")
+                        cur_display = f"v{self.current_version}" if self.current_version else self.config.get_display_version()
+                        cur_base = self.current_version or self.config.get_version()
+                        available = is_newer_version(clean_version, cur_base)
+                        download_url = f"https://github.com/{self.repo}/releases/download/{web_tag}/NovaCare_Update.zip"
+                        return UpdateInfo(
+                            available=available,
+                            current_version=cur_display,
+                            latest_version=f"v{clean_version}",
+                            release_title=f"NovaCare System Care Suite v{clean_version}",
+                            changelog="NovaCare için yeni bir optimizasyon ve sürüm güncellemesi yayınlandı.",
+                            download_url=download_url,
+                            download_size=0,
+                            published_at=""
+                        )
+                except Exception:
+                    pass
                 raise RuntimeError("GitHub API istek sınırı aşıldı. Lütfen daha sonra tekrar deneyin.")
             elif resp.status_code == 401:
                 raise RuntimeError("Güncelleme sunucusu yetkilendirme hatası.")
@@ -338,20 +363,22 @@ class GitHubUpdater:
 
             # Handle zipball inner root directory
             source_dir = extracted_dir
-            items = os.listdir(extracted_dir)
-            if len(items) == 1 and os.path.isdir(os.path.join(extracted_dir, items[0])):
-                inner_dir = os.path.join(extracted_dir, items[0])
-                if any(os.path.exists(os.path.join(inner_dir, f)) for f in ('main.py', 'core', 'ui', 'VERSION', 'NovaCare.exe')):
-                    source_dir = inner_dir
+            markers = ('main.py', 'core', 'ui', 'VERSION', 'NovaCare.exe')
+            if not any(os.path.exists(os.path.join(source_dir, m)) for m in markers):
+                for item in os.listdir(extracted_dir):
+                    sub = os.path.join(extracted_dir, item)
+                    if os.path.isdir(sub) and any(os.path.exists(os.path.join(sub, m)) for m in markers):
+                        source_dir = sub
+                        break
         else:
-            # Standalone exe payload
-            source_dir = temp_dir
+            # Standalone exe payload (isolated in extracted_dir so temp_dir files don't leak)
+            source_dir = extracted_dir
             if os.path.exists(zip_path):
                 with open(zip_path, 'rb') as f:
                     magic = f.read(2)
                 if magic != b'MZ':
                     raise ValueError("İndirilen güncelleme dosyası geçerli bir Windows yürütülebilir dosyası veya ZIP arşivi değil.")
-                dest_direct_exe = os.path.join(temp_dir, "NovaCare.exe")
+                dest_direct_exe = os.path.join(extracted_dir, "NovaCare.exe")
                 shutil.copy2(zip_path, dest_direct_exe)
 
         # 1. Determine target version (DO NOT prematurely save to settings.json before copy succeeds!)
@@ -366,7 +393,7 @@ class GitHubUpdater:
             v_file = os.path.join(source_dir, "VERSION")
             if os.path.exists(v_file):
                 try:
-                    with open(v_file, "r", encoding="utf-8") as vf:
+                    with open(v_file, "r", encoding="utf-8-sig", errors="replace") as vf:
                         from core.config import parse_version_content
                         extracted_ver, _ = parse_version_content(vf.read())
                         if extracted_ver:
@@ -377,42 +404,92 @@ class GitHubUpdater:
         if not clean_ver_num:
             clean_ver_num = self.config.get_version()
 
+        # CRITICAL FIX: Ensure source_dir's VERSION file reflects the target version
+        # so that copying source_dir to appRoot deploys the updated version number!
+        if clean_ver_num:
+            v_file = os.path.join(source_dir, "VERSION")
+            try:
+                existing_notes = ""
+                if os.path.exists(v_file):
+                    with open(v_file, "r", encoding="utf-8-sig", errors="replace") as vf:
+                        from core.config import parse_version_content
+                        _, existing_notes = parse_version_content(vf.read())
+
+                v_content = clean_ver_num
+                if existing_notes:
+                    v_content += f"\n---\n{existing_notes}"
+                with open(v_file, "w", encoding="utf-8") as vf:
+                    vf.write(v_content)
+            except Exception:
+                pass
+
         current_pid = os.getpid()
 
-        # Determine app paths
+        # Determine app paths and exact python interpreter
         if getattr(sys, 'frozen', False):
             app_root = os.path.dirname(sys.executable)
             launcher_target = os.path.join(app_root, "NovaCare.exe")
+            python_exe = ""
         else:
             app_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             launcher_target = os.path.join(app_root, "NovaCare.bat")
+            python_exe = sys.executable
+            pw = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
+            if os.path.exists(pw):
+                python_exe = pw
+
         main_py = os.path.join(app_root, "main.py")
 
         ps_source_dir = source_dir.replace("'", "''")
         ps_app_root = app_root.replace("'", "''")
         ps_launcher = launcher_target.replace("'", "''")
         ps_main_py = main_py.replace("'", "''")
+        ps_python_exe = python_exe.replace("'", "''")
         ps_version = clean_ver_num.replace("'", "''")
         ps_sha = new_commit_sha.replace("'", "''")
 
         # =====================================================================
-        # 2. Generate apply_update.ps1 (Ultra-robust PowerShell script)
+        # 2. Generate apply_update.ps1 (Ultra-robust PowerShell script with UTF-8 BOM)
         # =====================================================================
         ps1_path = os.path.join(temp_dir, "apply_update.ps1")
-        with open(ps1_path, "w", encoding="utf-8") as pf:
+        with open(ps1_path, "w", encoding="utf-8-sig") as pf:
             pf.write(f"""# NovaCare System Suite - Robust In-Place PowerShell Updater
 $ErrorActionPreference = 'SilentlyContinue'
 $sourceDir = '{ps_source_dir}'
 $appRoot = '{ps_app_root}'
 $launcher = '{ps_launcher}'
+$pythonExe = '{ps_python_exe}'
 $mainPy = '{ps_main_py}'
 $parentPid = {current_pid}
 $version = '{ps_version}'
 $commitSha = '{ps_sha}'
 
+# 0. Check administrative permissions and self-elevate if required for $appRoot
+$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+$canWrite = $true
+$testWriteFile = Join-Path $appRoot ('.nc_write_test_' + [System.Guid]::NewGuid().ToString('N'))
+try {{
+    [System.IO.File]::WriteAllText($testWriteFile, 'test')
+    Remove-Item -LiteralPath $testWriteFile -Force -ErrorAction SilentlyContinue
+}} catch {{
+    $canWrite = $false
+}}
+
+if (-not $isAdmin -and -not $canWrite) {{
+    $proc = Start-Process powershell.exe -ArgumentList "-ExecutionPolicy Bypass -NoProfile -File `"$PSCommandPath`"" -Verb RunAs -PassThru -Wait
+    exit $proc.ExitCode
+}}
+
 # 1. Terminate current NovaCare process and any tree processes
 if ($parentPid -gt 0) {{
     Stop-Process -Id $parentPid -Force -ErrorAction SilentlyContinue
+    $pStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+    while ($pStopwatch.Elapsed.TotalSeconds -lt 10) {{
+        $pProc = Get-Process -Id $parentPid -ErrorAction SilentlyContinue
+        if (-not $pProc) {{ break }}
+        Stop-Process -Id $parentPid -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Milliseconds 300
+    }}
 }}
 Get-Process -Name 'NovaCare' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 
@@ -421,26 +498,42 @@ $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 while ($stopwatch.Elapsed.TotalSeconds -lt 15) {{
     $running = Get-Process -Name 'NovaCare' -ErrorAction SilentlyContinue
     if (-not $running) {{ break }}
-    Start-Sleep -Milliseconds 600
+    Start-Sleep -Milliseconds 500
 }}
-Start-Sleep -Milliseconds 800
+Start-Sleep -Milliseconds 500
 
-# 2. Atomic executable replacement
+# 2. Atomic executable replacement with retry loop against external file locks (antivirus, OneDrive)
 $srcExe = Join-Path $sourceDir 'NovaCare.exe'
 $destExe = Join-Path $appRoot 'NovaCare.exe'
-$oldExe = Join-Path $appRoot 'NovaCare.exe.old'
+$oldExe = Join-Path $appRoot ('NovaCare.exe.old.' + [System.Guid]::NewGuid().ToString('N').Substring(0, 8))
 
-if (Test-Path $srcExe) {{
-    if (Test-Path $oldExe) {{ Remove-Item $oldExe -Force -ErrorAction SilentlyContinue }}
-    if (Test-Path $destExe) {{
-        # In Windows NT, renaming an in-use / closing executable always succeeds
-        Move-Item -Path $destExe -Destination $oldExe -Force -ErrorAction SilentlyContinue
+if (Test-Path -LiteralPath $srcExe) {{
+    # Clear any old backup files from previous updates
+    Get-ChildItem -LiteralPath $appRoot -Filter 'NovaCare.exe.old*' -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+
+    $destCleared = $false
+    for ($mAttempt = 1; $mAttempt -le 15; $mAttempt++) {{
+        if (-not (Test-Path -LiteralPath $destExe)) {{
+            $destCleared = $true
+            break
+        }}
+        Move-Item -LiteralPath $destExe -Destination $oldExe -Force -ErrorAction SilentlyContinue
+        if (-not (Test-Path -LiteralPath $destExe)) {{
+            $destCleared = $true
+            break
+        }}
+        Remove-Item -LiteralPath $destExe -Force -ErrorAction SilentlyContinue
+        if (-not (Test-Path -LiteralPath $destExe)) {{
+            $destCleared = $true
+            break
+        }}
+        Start-Sleep -Milliseconds 1000
     }}
 
     $copied = $false
-    for ($attempt = 1; $attempt -le 10; $attempt++) {{
-        Copy-Item -Path $srcExe -Destination $destExe -Force -ErrorAction SilentlyContinue
-        if ((Test-Path $destExe) -and ((Get-Item $destExe).Length -gt 0) -and ((Get-Item $destExe).Length -eq (Get-Item $srcExe).Length)) {{
+    for ($attempt = 1; $attempt -le 15; $attempt++) {{
+        Copy-Item -LiteralPath $srcExe -Destination $destExe -Force -ErrorAction SilentlyContinue
+        if ((Test-Path -LiteralPath $destExe) -and ((Get-Item -LiteralPath $destExe).Length -gt 0) -and ((Get-Item -LiteralPath $destExe).Length -eq (Get-Item -LiteralPath $srcExe).Length)) {{
             $copied = $true
             break
         }}
@@ -449,22 +542,35 @@ if (Test-Path $srcExe) {{
 
     if (-not $copied) {{
         # Rollback original executable if copy failed
-        if (Test-Path $oldExe) {{
-            Move-Item -Path $oldExe -Destination $destExe -Force -ErrorAction SilentlyContinue
-        }}
-        if (Test-Path $launcher) {{
-            Start-Process -FilePath $launcher
+        if (Test-Path -LiteralPath $oldExe) {{
+            Move-Item -LiteralPath $oldExe -Destination $destExe -Force -ErrorAction SilentlyContinue
         }}
         exit 1
     }}
-    if (Test-Path $oldExe) {{ Remove-Item $oldExe -Force -ErrorAction SilentlyContinue }}
+    if (Test-Path -LiteralPath $oldExe) {{ Remove-Item -LiteralPath $oldExe -Force -ErrorAction SilentlyContinue }}
 }}
 
 # 3. Synchronize all updated assets and files
-Get-ChildItem -Path $sourceDir | ForEach-Object {{
+Get-ChildItem -LiteralPath $sourceDir -Force | ForEach-Object {{
     if ($_.Name -ne 'NovaCare.exe') {{
-        Copy-Item -Path ($_.FullName) -Destination $appRoot -Recurse -Force -ErrorAction SilentlyContinue
+        Copy-Item -LiteralPath ($_.FullName) -Destination $appRoot -Recurse -Force -ErrorAction SilentlyContinue
     }}
+}}
+
+# Explicitly ensure VERSION in appRoot is updated
+$destVFile = Join-Path $appRoot 'VERSION'
+$utf8NoBom = New-Object System.Text.UTF8Encoding $false
+if ($version) {{
+    try {{
+        $vNotes = ''
+        $srcVFile = Join-Path $sourceDir 'VERSION'
+        if (Test-Path -LiteralPath $srcVFile) {{
+            $vRaw = [System.IO.File]::ReadAllText($srcVFile, [System.Text.Encoding]::UTF8)
+            $parts = $vRaw -split '---', 2
+            if ($parts.Length -gt 1) {{ $vNotes = "`n---" + $parts[1] }}
+        }}
+        [System.IO.File]::WriteAllText($destVFile, ($version + $vNotes), $utf8NoBom)
+    }} catch {{}}
 }}
 
 # 4. Synchronize Registry DisplayVersion
@@ -473,29 +579,39 @@ if ($version) {{
     Set-ItemProperty -Path 'HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\NovaCare' -Name 'DisplayVersion' -Value $version -ErrorAction SilentlyContinue
 }}
 
-# 5. Persist new version to settings.json ONLY after copy has succeeded
+# 5. Persist new version to settings.json WITHOUT UTF-8 BOM (so Python json.load succeeds)
 $cfgDir = Join-Path $env:LOCALAPPDATA 'NovaCare'
-if (-not (Test-Path $cfgDir)) {{
+if (-not (Test-Path -LiteralPath $cfgDir)) {{
     New-Item -ItemType Directory -Path $cfgDir -Force -ErrorAction SilentlyContinue | Out-Null
 }}
 $cfgPath = Join-Path $cfgDir 'settings.json'
 try {{
-    if (Test-Path $cfgPath) {{
-        $json = Get-Content $cfgPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    if (Test-Path -LiteralPath $cfgPath) {{
+        $jsonRaw = [System.IO.File]::ReadAllText($cfgPath, [System.Text.Encoding]::UTF8)
+        $json = $jsonRaw | ConvertFrom-Json
     }} else {{
         $json = [PSCustomObject]@{{}}
     }}
     if ($version) {{ $json.version = $version }}
     if ($commitSha) {{ $json.local_commit_sha = $commitSha }}
-    $json | ConvertTo-Json -Depth 10 | Set-Content $cfgPath -Encoding UTF8
+    $jsonText = $json | ConvertTo-Json -Depth 10
+    [System.IO.File]::WriteAllText($cfgPath, $jsonText, $utf8NoBom)
 }} catch {{}}
 
 # 6. Relaunch updated NovaCare
 Start-Sleep -Milliseconds 500
-if (Test-Path $launcher) {{
-    Start-Process -FilePath $launcher
-}} elseif (Test-Path (Join-Path $appRoot 'main.py')) {{
-    Start-Process -FilePath 'pythonw.exe' -ArgumentList (Join-Path $appRoot 'main.py') -ErrorAction SilentlyContinue
+if (Test-Path -LiteralPath $launcher) {{
+    if ($launcher.EndsWith('.bat')) {{
+        Start-Process -FilePath 'cmd.exe' -ArgumentList "/c `"$launcher`"" -WorkingDirectory $appRoot
+    }} else {{
+        Start-Process -FilePath $launcher -WorkingDirectory $appRoot
+    }}
+}} elseif (Test-Path -LiteralPath $mainPy) {{
+    if ((Test-Path -LiteralPath $pythonExe) -and $pythonExe) {{
+        Start-Process -FilePath $pythonExe -ArgumentList "`"$mainPy`"" -WorkingDirectory $appRoot -ErrorAction SilentlyContinue
+    }} else {{
+        Start-Process -FilePath 'pythonw.exe' -ArgumentList "`"$mainPy`"" -WorkingDirectory $appRoot -ErrorAction SilentlyContinue
+    }}
 }}
 exit 0
 """)
@@ -527,8 +643,10 @@ if exist "%~dp0apply_update.ps1" (
 )
 
 :: 2. Fail-safe native CMD fallback in case PowerShell is disabled or restricted
-taskkill /f /t /pid {current_pid} > nul 2>&1
-taskkill /f /t /im NovaCare.exe > nul 2>&1
+if {current_pid} gtr 0 (
+    taskkill /f /pid {current_pid} > nul 2>&1
+)
+taskkill /f /im NovaCare.exe > nul 2>&1
 timeout /t 1 /nobreak > nul
 
 for /l %%i in (1,1,15) do (
@@ -536,20 +654,28 @@ for /l %%i in (1,1,15) do (
     if errorlevel 1 (
         goto ready_to_copy
     )
-    taskkill /f /t /im NovaCare.exe > nul 2>&1
+    taskkill /f /im NovaCare.exe > nul 2>&1
     timeout /t 1 /nobreak > nul
 )
 
 :ready_to_copy
 timeout /t 1 /nobreak > nul
 
-:: Atomic replacement via move/rename trick
+:: Clear destExe with retry loop against locks
 if exist "{source_dir}\\NovaCare.exe" (
     if exist "{app_root}\\NovaCare.exe.old" del /f /q "{app_root}\\NovaCare.exe.old" > nul 2>&1
-    move /y "{app_root}\\NovaCare.exe" "{app_root}\\NovaCare.exe.old" > nul 2>&1
-    for /l %%k in (1,1,10) do (
+    for /l %%m in (1,1,15) do (
+        if not exist "{app_root}\\NovaCare.exe" goto dest_cleared
+        move /y "{app_root}\\NovaCare.exe" "{app_root}\\NovaCare.exe.old" > nul 2>&1
+        if not exist "{app_root}\\NovaCare.exe" goto dest_cleared
+        del /f /q "{app_root}\\NovaCare.exe" > nul 2>&1
+        if not exist "{app_root}\\NovaCare.exe" goto dest_cleared
+        timeout /t 1 /nobreak > nul
+    )
+    :dest_cleared
+    for /l %%k in (1,1,15) do (
         copy /y "{source_dir}\\NovaCare.exe" "{app_root}\\NovaCare.exe" > nul 2>&1
-        if exist "{app_root}\\NovaCare.exe" goto exe_copied
+        if not errorlevel 1 if exist "{app_root}\\NovaCare.exe" goto exe_copied
         timeout /t 1 /nobreak > nul
     )
     :: Rollback if copy failed
@@ -560,8 +686,11 @@ if exist "{source_dir}\\NovaCare.exe" (
 :exe_copied
 if exist "{app_root}\\NovaCare.exe.old" del /f /q "{app_root}\\NovaCare.exe.old" > nul 2>&1
 
-:: Copy other assets
-xcopy /s /e /y /i /q "{source_dir}\\*" "{app_root}\\" > nul 2>&1
+:: Copy other assets (/r overwrites read-only, /h copies hidden)
+xcopy /s /e /y /i /q /r /h "{source_dir}\\*" "{app_root}\\" > nul 2>&1
+
+:: Explicitly copy VERSION file if exists
+if exist "{source_dir}\\VERSION" copy /y "{source_dir}\\VERSION" "{app_root}\\VERSION" > nul 2>&1
 
 :: Update registry DisplayVersion
 reg add "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\NovaCare" /v "DisplayVersion" /d "{clean_ver_num}" /f > nul 2>&1
@@ -577,13 +706,21 @@ set _PYI_APPLICATION_HOME_DIR=
 set _PYI_ARCHIVE_FILE=
 set _PYI_SPLASH_IPC=
 
+cd /d "{app_root}"
 if exist "{launcher_target}" (
     start "" "{launcher_target}"
-) else (
-    start "" pythonw "{main_py}"
+) else if exist "{main_py}" (
+    if exist "{python_exe}" (
+        start "" "{python_exe}" "{main_py}"
+    ) else (
+        start "" pythonw "{main_py}"
+    )
 )
 
 :cleanup_batch
+if exist "%~dp0apply_update.ps1" del /f /q "%~dp0apply_update.ps1" > nul 2>&1
+if exist "%~dp0update.zip" del /f /q "%~dp0update.zip" > nul 2>&1
+if exist "%~dp0extracted" rd /s /q "%~dp0extracted" > nul 2>&1
 del /f /q "%~f0" > nul 2>&1
 exit
 """)
@@ -597,17 +734,49 @@ exit
             if k.startswith('_PYI') or k.startswith('_MEI'):
                 clean_env.pop(k, None)
 
-        flags = getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0)
-        subprocess.Popen(["cmd.exe", "/c", batch_path], env=clean_env, creationflags=flags)
+        from core.utils import is_admin
+        spawned = False
+        if not is_admin() and sys.platform == 'win32':
+            # Request UAC elevation for updater so it can update files in Program Files and HKLM
+            try:
+                ret = ctypes.windll.shell32.ShellExecuteW(None, "runas", "cmd.exe", f'/c "{batch_path}"', None, 1)
+                if ret > 32:
+                    spawned = True
+            except Exception:
+                pass
+
+        if not spawned:
+            flags = getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0)
+            flags |= getattr(subprocess, 'CREATE_NEW_CONSOLE', 0)
+            subprocess.Popen(["cmd.exe", "/c", batch_path], env=clean_env, creationflags=flags)
 
         # Cleanly close all Qt windows to release file handles immediately
         try:
             from PyQt5.QtWidgets import QApplication
             app = QApplication.instance()
             if app:
+                for widget in app.topLevelWidgets():
+                    if hasattr(widget, '_force_exit'):
+                        widget._force_exit = True
+                    if hasattr(widget, 'cleanup_workers'):
+                        try:
+                            widget.cleanup_workers()
+                        except Exception:
+                            pass
+                    if hasattr(widget, 'tray_icon') and widget.tray_icon:
+                        try:
+                            widget.tray_icon.hide()
+                        except Exception:
+                            pass
                 app.closeAllWindows()
                 app.quit()
         except Exception:
             pass
+
+        import threading, time
+        def _hard_exit():
+            time.sleep(1.5)
+            os._exit(0)
+        threading.Thread(target=_hard_exit, daemon=True).start()
 
         sys.exit(0)

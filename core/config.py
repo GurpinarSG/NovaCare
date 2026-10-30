@@ -43,18 +43,36 @@ def load_version_and_notes() -> tuple[str, str]:
     try:
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         if getattr(sys, 'frozen', False):
-            base_dir = getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
+            # Prioritize external VERSION placed by updater next to executable
+            exe_dir = os.path.dirname(sys.executable)
+            if os.path.exists(os.path.join(exe_dir, "VERSION")):
+                base_dir = exe_dir
+            else:
+                base_dir = getattr(sys, '_MEIPASS', exe_dir)
         v_path = os.path.join(base_dir, "VERSION")
         if os.path.exists(v_path):
-            with open(v_path, "r", encoding="utf-8") as vf:
+            with open(v_path, "r", encoding="utf-8-sig", errors="replace") as vf:
                 return parse_version_content(vf.read())
     except Exception:
         pass
     return "1.2.4", ""
 
 def load_base_version() -> str:
-    """Reads clean base version string from VERSION file (e.g. '1.2.4')."""
+    """Reads clean base version string from VERSION file or settings.json."""
     ver, _ = load_version_and_notes()
+    try:
+        local_app = os.environ.get('LOCALAPPDATA', os.path.expanduser('~'))
+        cfg_file = os.path.join(local_app, 'NovaCare', 'settings.json')
+        if os.path.exists(cfg_file):
+            with open(cfg_file, 'r', encoding='utf-8-sig') as f:
+                data = json.load(f)
+                s_ver = data.get('version', '').lstrip('vV').strip()
+                if s_ver:
+                    from core.updater import is_newer_version
+                    if is_newer_version(s_ver, ver):
+                        return s_ver
+    except Exception:
+        pass
     return ver
 
 VERSION = "1.2.4"
@@ -93,12 +111,22 @@ class ConfigManager:
     def get_version(self) -> str:
         """Returns clean base version string like '0.0.1' from VERSION file."""
         base_file_ver = load_base_version()
+        stored_ver = self.settings.get("version", "").lstrip("vV").strip()
+        from core.updater import is_newer_version
+        if stored_ver and base_file_ver:
+            if is_newer_version(stored_ver, base_file_ver):
+                return stored_ver
+            if is_newer_version(base_file_ver, stored_ver):
+                self.settings["version"] = base_file_ver
+                self._save(self.settings)
+                return base_file_ver
+            return base_file_ver
+
         if base_file_ver:
             if self.settings.get("version") != base_file_ver:
                 self.settings["version"] = base_file_ver
                 self._save(self.settings)
             return base_file_ver
-        stored_ver = self.settings.get("version", "").lstrip("vV").strip()
         return stored_ver or "1.2.4"
 
     def get_display_version(self) -> str:
@@ -152,7 +180,7 @@ class ConfigManager:
             self._save(defaults)
             return defaults
         try:
-            with open(self.config_file, "r", encoding="utf-8") as f:
+            with open(self.config_file, "r", encoding="utf-8-sig") as f:
                 data = json.load(f)
                 for k, v in defaults.items():
                     if k not in data:
