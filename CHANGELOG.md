@@ -2,6 +2,13 @@
 
 Tüm önemli değişiklikler, yeni özellikler, hata düzeltmeleri ve optimizasyonlar bu belgede kronolojik olarak kayıt altına alınmaktadır.
 
+## 🚀 [v1.2.9] - 2026-10-29
+
+### 🌐 Performans Güncelleştirme
+Performans ve güvenlik güncelleştirmeleri uygulandı.
+
+---
+
 ## 🚀 [v1.2.8] - 2026-10-29
 
 ### 🌐 Ağ ve Hız Testi İyileştirmeleri
