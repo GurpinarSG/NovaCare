@@ -10,7 +10,7 @@ import time
 from functools import lru_cache
 from dataclasses import dataclass, asdict
 from typing import Callable, Optional
-from core.utils import log_debug
+from core.utils import log_debug, delete_registry_key_tree
 from core.backup_manager import compute_backup_hmac
 
 @dataclass
@@ -377,6 +377,7 @@ class RegistryCleaner:
         failed_count = 0
         total = len(issues)
 
+        successfully_fixed_ids = set()
         for idx, issue in enumerate(issues):
             if progress_callback:
                 progress_callback(issue.category, idx + 1, total)
@@ -387,13 +388,15 @@ class RegistryCleaner:
                     with winreg.OpenKey(root, issue.sub_key, 0, winreg.KEY_SET_VALUE) as key:
                         winreg.DeleteValue(key, issue.value_name)
                         fixed_count += 1
+                        successfully_fixed_ids.add(issue.id)
                 except Exception:
                     # If deleting default value failed and subkey is an empty orphaned container, delete key
                     if not issue.value_name and "\\" in issue.sub_key:
-                        parent_sub, child_name = issue.sub_key.rsplit("\\", 1)
-                        with winreg.OpenKey(root, parent_sub, 0, winreg.KEY_SET_VALUE) as pkey:
-                            winreg.DeleteKey(pkey, child_name)
+                        if delete_registry_key_tree(root, issue.sub_key):
                             fixed_count += 1
+                            successfully_fixed_ids.add(issue.id)
+                        else:
+                            raise OSError(f"Could not safely delete registry key tree: {issue.sub_key}")
                     else:
                         raise
             except Exception as e:
@@ -401,6 +404,5 @@ class RegistryCleaner:
                 failed_count += 1
 
         # Remove fixed items from issues using O(N+M) set lookup
-        fixed_ids = {i.id for i in issues}
-        self.issues = [i for i in self.issues if i.id not in fixed_ids]
+        self.issues = [i for i in self.issues if i.id not in successfully_fixed_ids]
         return fixed_count, failed_count, backup_path

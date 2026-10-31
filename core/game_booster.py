@@ -14,7 +14,7 @@ import ctypes
 import uuid
 from core.config import ConfigManager
 from core.memory_booster import MemoryBooster
-from core.utils import log_debug
+from core.utils import log_debug, get_system32_path, get_console_encoding
 
 # Non-essential services that can be safely suspended during gaming
 GAME_MODE_SERVICES = [
@@ -27,6 +27,8 @@ GAME_MODE_SERVICES = [
     ("XboxGipSvc", "Xbox Aksesuar Yönetim Servisi"),
     ("DiagTrack", "Bağlı Kullanıcı Deneyimleri ve Telemetri")
 ]
+
+ALLOWED_SERVICE_NAMES = frozenset(s[0] for s in GAME_MODE_SERVICES)
 
 class GameBooster:
     def __init__(self):
@@ -55,21 +57,25 @@ class GameBooster:
                 p_active = ctypes.c_void_p()
                 res = ctypes.windll.powrprof.PowerGetActiveScheme(None, ctypes.byref(p_active))
                 if res == 0 and p_active.value:
-                    guid_str = str(uuid.UUID(bytes_le=ctypes.string_at(p_active, 16)))
-                    buf_size = ctypes.c_ulong(512)
-                    buf = ctypes.create_unicode_buffer(512)
-                    name_res = ctypes.windll.powrprof.PowerReadFriendlyName(
-                        None, p_active, None, None, buf, ctypes.byref(buf_size)
-                    )
-                    friendly_name = buf.value if name_res == 0 and buf.value else "Windows Güç Planı"
-                    ctypes.windll.ole32.CoTaskMemFree(p_active)
-                    return guid_str, friendly_name
+                    try:
+                        guid_str = str(uuid.UUID(bytes_le=ctypes.string_at(p_active, 16)))
+                        buf_size = ctypes.c_ulong(512)
+                        buf = ctypes.create_unicode_buffer(512)
+                        name_res = ctypes.windll.powrprof.PowerReadFriendlyName(
+                            None, p_active, None, None, buf, ctypes.byref(buf_size)
+                        )
+                        friendly_name = buf.value if name_res == 0 and buf.value else "Windows Güç Planı"
+                        return guid_str, friendly_name
+                    finally:
+                        ctypes.windll.kernel32.LocalFree(p_active)
             except Exception as e:
                 log_debug(f"GameBooster: Native PowerGetActiveScheme error: {e}")
 
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        console_enc = get_console_encoding()
         try:
-            out = subprocess.check_output("powercfg /getactivescheme", shell=True, timeout=5, creationflags=flags).decode("cp1254", errors="ignore")
+            p = subprocess.run([get_system32_path("powercfg"), "/getactivescheme"], capture_output=True, text=True, encoding=console_enc, errors="replace", timeout=5, creationflags=flags)
+            out = p.stdout
             m = re.search(r"([a-f0-9\-]{36})\s+\((.*?)\)", out, re.I)
             if m:
                 return m.group(1), m.group(2)
@@ -80,8 +86,10 @@ class GameBooster:
     def ensure_ultimate_power_plan(self) -> str:
         """Finds or creates Windows Ultimate Performance power plan."""
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        console_enc = get_console_encoding()
         try:
-            out = subprocess.check_output("powercfg /list", shell=True, timeout=5, creationflags=flags).decode("cp1254", errors="ignore")
+            p = subprocess.run([get_system32_path("powercfg"), "/list"], capture_output=True, text=True, encoding=console_enc, errors="replace", timeout=5, creationflags=flags)
+            out = p.stdout
             # 1. Search for existing Ultimate / Nihai plan
             for line in out.splitlines():
                 if "nihai" in line.lower() or "ultimate" in line.lower():
@@ -90,12 +98,16 @@ class GameBooster:
                         return m.group(1)
 
             # 2. Try to duplicate standard Ultimate Performance scheme
-            dup_out = subprocess.check_output(
-                "powercfg -duplicatescheme e9a42b02-d5df-448d-aa00-03f14749eb61",
-                shell=True,
+            p_dup = subprocess.run(
+                [get_system32_path("powercfg"), "-duplicatescheme", "e9a42b02-d5df-448d-aa00-03f14749eb61"],
+                capture_output=True,
+                text=True,
+                encoding=console_enc,
+                errors="replace",
                 timeout=5,
                 creationflags=flags
-            ).decode("cp1254", errors="ignore")
+            )
+            dup_out = p_dup.stdout
             m = re.search(r"([a-f0-9\-]{36})", dup_out, re.I)
             if m:
                 return m.group(1)
@@ -128,7 +140,7 @@ class GameBooster:
                 s = psutil.win_service_get(svc_name)
                 if s.status() == "running":
                     # Stop service
-                    subprocess.run(["net", "stop", svc_name, "/y"], capture_output=True, timeout=5, creationflags=flags)
+                    subprocess.run([get_system32_path("net"), "stop", svc_name, "/y"], capture_output=True, timeout=5, creationflags=flags)
                     stopped_svcs.append(svc_name)
             except Exception:
                 continue
@@ -136,7 +148,7 @@ class GameBooster:
         # Switch power plan
         ultimate_guid = self.ensure_ultimate_power_plan()
         if ultimate_guid:
-            subprocess.run(["powercfg", "/setactive", ultimate_guid], capture_output=True, timeout=5, creationflags=flags)
+            subprocess.run([get_system32_path("powercfg"), "/setactive", ultimate_guid], capture_output=True, timeout=5, creationflags=flags)
 
         # Optimize RAM
         booster = MemoryBooster()
@@ -177,15 +189,17 @@ class GameBooster:
 
         # 1. Restore power scheme
         prev_guid = state.get("previous_power_guid")
-        if prev_guid:
-            subprocess.run(["powercfg", "/setactive", prev_guid], capture_output=True, timeout=5, creationflags=flags)
+        if prev_guid and isinstance(prev_guid, str) and re.match(r"^[a-fA-F0-9\-]{36}$", prev_guid.strip()):
+            subprocess.run([get_system32_path("powercfg"), "/setactive", prev_guid.strip()], capture_output=True, timeout=5, creationflags=flags)
 
         # 2. Restart previously stopped services
         stopped_svcs = state.get("stopped_services", [])
         restarted_count = 0
         for svc_name in stopped_svcs:
+            if not isinstance(svc_name, str) or svc_name not in ALLOWED_SERVICE_NAMES:
+                continue
             try:
-                subprocess.run(["net", "start", svc_name], capture_output=True, timeout=5, creationflags=flags)
+                subprocess.run([get_system32_path("net"), "start", svc_name], capture_output=True, timeout=5, creationflags=flags)
                 restarted_count += 1
             except Exception:
                 continue

@@ -69,9 +69,10 @@ class UploadChunkReader:
         self.sent = 0
         self.on_read = on_read
         self.chunk = b"0" * 32768
+        self.cancelled = False
 
     def read(self, amt: int = -1) -> bytes:
-        if self.sent >= self.size:
+        if self.cancelled or self.sent >= self.size:
             return b""
         to_read = min(len(self.chunk), self.size - self.sent)
         if amt > 0:
@@ -121,6 +122,7 @@ class SpeedTester:
         self._cancelled = False
         self._lock = threading.Lock()
         self._current_responses: list[requests.Response] = []
+        self._current_upload_readers: list[UploadChunkReader] = []
         self._current_upload_stream: Optional[TimedUploadStream] = None
         self.session: Optional[requests.Session] = None
         self._init_session()
@@ -154,6 +156,8 @@ class SpeedTester:
             self._current_upload_stream.cancelled = True
 
         with self._lock:
+            for reader in self._current_upload_readers:
+                reader.cancelled = True
             for r in self._current_responses:
                 try:
                     r.close()
@@ -283,33 +287,38 @@ class SpeedTester:
                     break
 
                 url = download_endpoints[ep_idx]
+                r = None
                 try:
-                    with self.session.get(url, stream=True, timeout=5) as r:
-                        with self._lock:
-                            if self._cancelled or stop_workers:
-                                r.close()
+                    r = self.session.get(url, stream=True, timeout=5)
+                    with self._lock:
+                        if self._cancelled or stop_workers:
+                            r.close()
+                            break
+                        self._current_responses.append(r)
+
+                    if r.status_code == 200:
+                        for chunk in r.iter_content(chunk_size=65536):
+                            if self._cancelled or stop_workers or (time.perf_counter() - t_start) >= duration:
                                 break
-                            self._current_responses.append(r)
-
-                        if r.status_code == 200:
-                            for chunk in r.iter_content(chunk_size=65536):
-                                if self._cancelled or stop_workers or (time.perf_counter() - t_start) >= duration:
-                                    break
-                                if chunk:
-                                    with bytes_lock:
-                                        total_bytes += len(chunk)
-                        elif r.status_code == 429:
-                            # Rate limit encountered: rotate endpoint and back off briefly
-                            ep_idx = (ep_idx + 1) % len(download_endpoints)
-                            time.sleep(0.1)
-
-                        r.close()
-                        with self._lock:
-                            if r in self._current_responses:
-                                self._current_responses.remove(r)
+                            if chunk:
+                                with bytes_lock:
+                                    total_bytes += len(chunk)
+                    elif r.status_code == 429:
+                        # Rate limit encountered: rotate endpoint and back off briefly
+                        ep_idx = (ep_idx + 1) % len(download_endpoints)
+                        time.sleep(0.1)
                 except Exception:
                     ep_idx = (ep_idx + 1) % len(download_endpoints)
                     time.sleep(0.08)
+                finally:
+                    if r is not None:
+                        try:
+                            r.close()
+                        except Exception:
+                            pass
+                        with self._lock:
+                            if r in self._current_responses:
+                                self._current_responses.remove(r)
 
         # Launch 3 concurrent streaming workers to saturate line capacity
         concurrency = 3
@@ -424,8 +433,14 @@ class SpeedTester:
                 if (now - t_start) >= duration:
                     break
 
+                r = None
+                reader = None
                 try:
                     reader = UploadChunkReader(size=1024 * 1024, on_read=on_chunk_read)
+                    with self._lock:
+                        if self._cancelled or stop_workers:
+                            break
+                        self._current_upload_readers.append(reader)
                     r = self.session.post(
                         "https://speed.cloudflare.com/__up",
                         data=reader,
@@ -433,15 +448,23 @@ class SpeedTester:
                     )
                     with self._lock:
                         if self._cancelled or stop_workers:
-                            r.close()
                             break
                         self._current_responses.append(r)
-                    r.close()
-                    with self._lock:
-                        if r in self._current_responses:
-                            self._current_responses.remove(r)
                 except Exception:
                     time.sleep(0.08)
+                finally:
+                    if reader is not None:
+                        with self._lock:
+                            if reader in self._current_upload_readers:
+                                self._current_upload_readers.remove(reader)
+                    if r is not None:
+                        try:
+                            r.close()
+                        except Exception:
+                            pass
+                        with self._lock:
+                            if r in self._current_responses:
+                                self._current_responses.remove(r)
 
         # Launch 2 concurrent upload streams
         concurrency = 2

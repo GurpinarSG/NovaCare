@@ -10,7 +10,7 @@ import winreg
 import subprocess
 from dataclasses import dataclass
 from typing import Optional
-from core.utils import format_bytes, log_debug
+from core.utils import format_bytes, log_debug, get_system32_path
 from core.security import encrypt_string, decrypt_string
 
 ALLOWED_SUBKEY_PREFIXES = (
@@ -261,10 +261,10 @@ class BackupManager:
             f"Checkpoint-Computer -Description '{safe_desc}' -RestorePointType 'MODIFY_SETTINGS'"
         )
         encoded_ps = base64.b64encode(ps_script.encode('utf-16le')).decode('ascii')
-        cmd = ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded_ps]
+        cmd = [get_system32_path("powershell"), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded_ps]
         try:
             flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
-            res = subprocess.run(cmd, shell=False, capture_output=True, text=True, timeout=50, creationflags=flags)
+            res = subprocess.run(cmd, shell=False, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=50, creationflags=flags)
             return res.returncode == 0
         except Exception as e:
             log_debug(f"BackupManager: create_system_restore_point error: {e}")
@@ -273,6 +273,6 @@ class BackupManager:
     def open_system_restore_ui(self):
         """Launches the Windows native System Restore wizard (rstrui.exe)."""
         try:
-            subprocess.Popen(["rstrui.exe"])
+            subprocess.Popen([get_system32_path("rstrui.exe")])
         except Exception:
             pass

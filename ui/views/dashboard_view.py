@@ -130,14 +130,19 @@ class DashboardFixWorker(QThread):
         # 1. Junk Files Cleaning (5% -> 55%)
         try:
             # Check if categories already contain scanned files
-            has_scanned = any(c.found_files or c.size > 0 or c.is_recycle_bin for c in self.junk_cleaner.categories)
+            has_scanned = any(c.found_files or c.size > 0 or c.file_count > 0 for c in self.junk_cleaner.categories)
             if not has_scanned:
                 self.progress.emit("Gereksiz dosyalar analiz ediliyor...", 10)
                 cats = self.junk_cleaner.scan_all()
             else:
                 cats = self.junk_cleaner.categories
 
-            cat_ids = {c.id for c in cats}
+            from core.config import ConfigManager
+            clean_recycle = ConfigManager().get("auto_clean_recycle_bin", False)
+            cat_ids = {
+                c.id for c in cats
+                if clean_recycle or (c.id != "recycle_bin" and not getattr(c, "is_recycle_bin", False))
+            }
 
             def _on_cat_prog(cname, cur_cat, tot_c):
                 pct = int(12 + (cur_cat / max(1, tot_c)) * 40)

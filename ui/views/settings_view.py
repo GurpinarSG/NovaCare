@@ -90,6 +90,7 @@ class SettingsView(QWidget):
         self.latest_update_info: UpdateInfo | None = None
         self.check_thread = None
         self.download_thread = None
+        self.manual_clean_worker = None
         self._init_ui()
 
     def _init_ui(self):
@@ -384,7 +385,7 @@ class SettingsView(QWidget):
         ac_opt_lay.addLayout(sch_row)
 
         # Categories
-        self.chk_ac_junk = QCheckBox("🗑️  Geçici dosyalar, Windows önbellekleri ve çöp kutusu (Junk Cleaner)")
+        self.chk_ac_junk = QCheckBox("🗑️  Geçici dosyalar ve Windows önbellekleri (Junk Cleaner)")
         self.chk_ac_junk.setChecked(self.config.get("auto_clean_junk", True))
         self.chk_ac_junk.stateChanged.connect(lambda s: self.config.set("auto_clean_junk", s == Qt.Checked))
         ac_opt_lay.addWidget(self.chk_ac_junk)
@@ -398,6 +399,11 @@ class SettingsView(QWidget):
         self.chk_ac_traces.setChecked(self.config.get("auto_clean_traces", False))
         self.chk_ac_traces.stateChanged.connect(lambda s: self.config.set("auto_clean_traces", s == Qt.Checked))
         ac_opt_lay.addWidget(self.chk_ac_traces)
+
+        self.chk_ac_recycle = QCheckBox("♻️  Geri Dönüşüm Kutusunu da otomatik temizle (Önerilmez, kalıcı siler)")
+        self.chk_ac_recycle.setChecked(self.config.get("auto_clean_recycle_bin", False))
+        self.chk_ac_recycle.stateChanged.connect(lambda s: self.config.set("auto_clean_recycle_bin", s == Qt.Checked))
+        ac_opt_lay.addWidget(self.chk_ac_recycle)
 
         self.chk_ac_notify = QCheckBox("🔔  Otomatik temizlik yapıldığında sistem tepsisinde bildirim göster")
         self.chk_ac_notify.setChecked(self.config.get("auto_clean_notify", True))

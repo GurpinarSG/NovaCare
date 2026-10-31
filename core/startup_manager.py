@@ -183,7 +183,7 @@ class StartupManager:
                 if item.enabled:
                     # Disable by appending .disabled
                     new_path = current_path + ".disabled"
-                    os.rename(current_path, new_path)
+                    os.replace(current_path, new_path)
                     item.source_key_or_path = new_path
                     item.enabled = False
                     item.boot_impact = "Devre Dışı"
@@ -191,7 +191,7 @@ class StartupManager:
                     # Enable by removing .disabled
                     if current_path.endswith('.disabled'):
                         new_path = current_path[:-9]
-                        os.rename(current_path, new_path)
+                        os.replace(current_path, new_path)
                         item.source_key_or_path = new_path
                     item.enabled = True
                     item.boot_impact = self._estimate_impact(item.name, item.command)

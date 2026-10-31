@@ -11,6 +11,7 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from typing import Optional
 import psutil
+from core.utils import get_system32_path, get_console_encoding
 
 @dataclass
 class BatteryInfo:
@@ -112,10 +113,10 @@ class BatteryReporter:
 
         # 2. Fallback to powercfg CLI
         try:
-            kwargs = {"capture_output": True, "text": True, "timeout": 2}
+            kwargs = {"capture_output": True, "text": True, "encoding": get_console_encoding(), "errors": "replace", "timeout": 2}
             if hasattr(subprocess, "CREATE_NO_WINDOW"):
                 kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
-            p = subprocess.run(["powercfg", "/getactivescheme"], **kwargs)
+            p = subprocess.run([get_system32_path("powercfg"), "/getactivescheme"], **kwargs)
             if p.returncode == 0 and p.stdout:
                 line = p.stdout.strip()
                 if "(" in line and ")" in line:
@@ -158,10 +159,10 @@ class BatteryReporter:
 
         tmp_xml = os.path.join(tempfile.gettempdir(), f"novacare_batt_{os.getpid()}.xml")
         try:
-            kwargs = {"capture_output": True, "text": True, "timeout": 4}
+            kwargs = {"capture_output": True, "text": True, "encoding": get_console_encoding(), "errors": "replace", "timeout": 4}
             if hasattr(subprocess, "CREATE_NO_WINDOW"):
                 kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
-            subprocess.run(["powercfg", "/batteryreport", "/xml", "/output", tmp_xml], **kwargs)
+            subprocess.run([get_system32_path("powercfg"), "/batteryreport", "/xml", "/output", tmp_xml], **kwargs)
 
             if os.path.exists(tmp_xml):
                 tree = ET.parse(tmp_xml)
@@ -197,13 +198,14 @@ class BatteryReporter:
                         cycle_count = int(_get_val("CycleCount", "0"))
                     except ValueError:
                         cycle_count = 0
-
+        except Exception:
+            pass
+        finally:
+            if os.path.exists(tmp_xml):
                 try:
                     os.remove(tmp_xml)
                 except Exception:
                     pass
-        except Exception:
-            pass
 
         hw_data = {
             "design_cap": design_cap,
@@ -318,11 +320,11 @@ class BatteryReporter:
         os.makedirs(report_dir, exist_ok=True)
         report_path = os.path.join(report_dir, "Windows_Battery_Report.html")
 
-        kwargs = {"capture_output": True, "text": True, "timeout": 8}
+        kwargs = {"capture_output": True, "text": True, "encoding": get_console_encoding(), "errors": "replace", "timeout": 8}
         if hasattr(subprocess, "CREATE_NO_WINDOW"):
             kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
 
-        subprocess.run(["powercfg", "/batteryreport", "/output", report_path], **kwargs)
+        subprocess.run([get_system32_path("powercfg"), "/batteryreport", "/output", report_path], **kwargs)
         if not os.path.exists(report_path):
             raise RuntimeError("Windows pil raporu oluşturulamadı.")
         return report_path

@@ -262,7 +262,7 @@ class DiskView(QWidget):
         fpath = self.large_files[row].path
         if os.path.exists(fpath):
             norm = os.path.normpath(fpath)
-            subprocess.Popen(["explorer.exe", f"/select,{norm}"])
+            subprocess.Popen(f'explorer.exe /select,"{norm}"')
         else:
             QMessageBox.warning(self, "Bulunamadı", "Dosya diskte mevcut değil.")
 

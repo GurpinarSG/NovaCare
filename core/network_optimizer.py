@@ -7,12 +7,13 @@ import socket
 import time
 import subprocess
 import re
+import ipaddress
 import concurrent.futures
 from dataclasses import dataclass
 from typing import Optional
 import psutil
 import winreg
-from core.utils import log_debug
+from core.utils import log_debug, get_system32_path, safe_decode_bytes, get_console_encoding
 
 @dataclass
 class DNSServerInfo:
@@ -92,7 +93,8 @@ class NetworkOptimizer:
         if not interfaces:
             flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
             try:
-                out = subprocess.check_output(["netsh", "interface", "show", "interface"], creationflags=flags).decode("cp1254", errors="ignore")
+                raw = subprocess.check_output([get_system32_path("netsh"), "interface", "show", "interface"], timeout=8, creationflags=flags)
+                out = safe_decode_bytes(raw)
                 for line in out.splitlines():
                     if "Enabled" in line or "Etkin" in line:
                         parts = re.split(r"\s{2,}", line.strip())
@@ -171,8 +173,9 @@ class NetworkOptimizer:
         # 2. Fallback to netsh if registry query yielded no servers
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         try:
-            cmd = ["netsh", "interface", "ipv4", "show", "dns", f"name={adapter_name}"]
-            out = subprocess.check_output(cmd, creationflags=flags).decode("cp1254", errors="ignore")
+            cmd = [get_system32_path("netsh"), "interface", "ipv4", "show", "dns", f"name={adapter_name}"]
+            raw = subprocess.check_output(cmd, timeout=8, creationflags=flags)
+            out = safe_decode_bytes(raw)
             ips = re.findall(r"\b(?:\d{1,3}\.){3}\d{1,3}\b", out)
             result["servers"] = ips
             if "DHCP" in out:
@@ -235,34 +238,62 @@ class NetworkOptimizer:
 
     def set_dns(self, adapter_name: str, primary: str, secondary: Optional[str] = None) -> tuple[bool, str]:
         """Sets static DNS servers on the designated adapter."""
+        if not adapter_name or not isinstance(adapter_name, str) or not adapter_name.strip():
+            return False, "Geçersiz ağ bağdaştırıcısı adı."
+        if not primary or not isinstance(primary, str) or not primary.strip():
+            return False, f"Geçersiz birincil DNS IP adresi: {primary}"
+
+        clean_primary = primary.strip()
+        try:
+            ipaddress.ip_address(clean_primary)
+        except (ValueError, Exception):
+            return False, f"Geçersiz birincil DNS IP adresi: {primary}"
+
+        clean_secondary = None
+        if secondary is not None:
+            if not isinstance(secondary, str) or not secondary.strip():
+                return False, f"Geçersiz ikincil DNS IP adresi: {secondary}"
+            clean_secondary = secondary.strip()
+            try:
+                ipaddress.ip_address(clean_secondary)
+            except (ValueError, Exception):
+                return False, f"Geçersiz ikincil DNS IP adresi: {secondary}"
+
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        clean_adapter = adapter_name.strip()
+        console_enc = get_console_encoding()
         try:
             # 1. Set Primary
-            cmd1 = ["netsh", "interface", "ipv4", "set", "dns", f"name={adapter_name}", "static", primary, "primary"]
-            p1 = subprocess.run(cmd1, capture_output=True, text=True, creationflags=flags)
+            cmd1 = [get_system32_path("netsh"), "interface", "ipv4", "set", "dns", f"name={clean_adapter}", "static", clean_primary, "primary"]
+            p1 = subprocess.run(cmd1, capture_output=True, text=True, encoding=console_enc, errors="replace", timeout=8, creationflags=flags)
             if p1.returncode != 0:
                 return False, f"Birincil DNS ayarlanamadı: {p1.stderr}"
 
             # 2. Add Secondary if provided
-            if secondary:
-                cmd2 = ["netsh", "interface", "ipv4", "add", "dns", f"name={adapter_name}", secondary, "index=2"]
-                subprocess.run(cmd2, capture_output=True, text=True, creationflags=flags)
+            if clean_secondary:
+                cmd2 = [get_system32_path("netsh"), "interface", "ipv4", "add", "dns", f"name={clean_adapter}", clean_secondary, "index=2"]
+                subprocess.run(cmd2, capture_output=True, text=True, encoding=console_enc, errors="replace", timeout=8, creationflags=flags)
 
             # Flush DNS cache after change
             self.flush_dns()
-            return True, f"{adapter_name} için DNS başarıyla ayarlandı ({primary}, {secondary or ''})."
+            return True, f"{clean_adapter} için DNS başarıyla ayarlandı ({clean_primary}, {clean_secondary or ''})."
         except Exception as e:
             return False, str(e)
 
     def reset_dns_to_dhcp(self, adapter_name: str) -> tuple[bool, str]:
         """Resets adapter DNS configuration back to automatic (DHCP)."""
+        if not adapter_name or not isinstance(adapter_name, str) or not adapter_name.strip():
+            return False, "Geçersiz ağ bağdaştırıcısı adı."
+
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        clean_adapter = adapter_name.strip()
+        console_enc = get_console_encoding()
         try:
-            cmd = ["netsh", "interface", "ipv4", "set", "dns", f"name={adapter_name}", "dhcp"]
-            p = subprocess.run(cmd, capture_output=True, text=True, creationflags=flags)
+            cmd = [get_system32_path("netsh"), "interface", "ipv4", "set", "dns", f"name={clean_adapter}", "dhcp"]
+            p = subprocess.run(cmd, capture_output=True, text=True, encoding=console_enc, errors="replace", timeout=8, creationflags=flags)
             if p.returncode == 0:
                 self.flush_dns()
-                return True, f"{adapter_name} DNS ayarları otomatik (DHCP) olarak sıfırlandı."
+                return True, f"{clean_adapter} DNS ayarları otomatik (DHCP) olarak sıfırlandı."
             return False, p.stderr or "İşlem başarısız oldu."
         except Exception as e:
             return False, str(e)
@@ -270,8 +301,9 @@ class NetworkOptimizer:
     def flush_dns(self) -> tuple[bool, str]:
         """Flushes the Windows DNS Resolver Cache (ipconfig /flushdns)."""
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        console_enc = get_console_encoding()
         try:
-            p = subprocess.run(["ipconfig", "/flushdns"], capture_output=True, text=True, creationflags=flags)
+            p = subprocess.run([get_system32_path("ipconfig"), "/flushdns"], capture_output=True, text=True, encoding=console_enc, errors="replace", timeout=8, creationflags=flags)
             if p.returncode == 0:
                 return True, "DNS çözümleyici önbelleği başarıyla temizlendi."
             return False, "DNS önbelleği temizlenirken hata oluştu."
@@ -285,10 +317,10 @@ class NetworkOptimizer:
         """
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         try:
-            subprocess.run(["netsh", "winsock", "reset"], capture_output=True, timeout=10, creationflags=flags)
-            subprocess.run(["netsh", "int", "ip", "reset"], capture_output=True, timeout=10, creationflags=flags)
-            subprocess.run(["ipconfig", "/flushdns"], capture_output=True, timeout=5, creationflags=flags)
-            subprocess.run(["ipconfig", "/renew"], capture_output=True, timeout=10, creationflags=flags)
+            subprocess.run([get_system32_path("netsh"), "winsock", "reset"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=8, creationflags=flags)
+            subprocess.run([get_system32_path("netsh"), "int", "ip", "reset"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=8, creationflags=flags)
+            subprocess.run([get_system32_path("ipconfig"), "/flushdns"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=8, creationflags=flags)
+            subprocess.run([get_system32_path("ipconfig"), "/renew"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=8, creationflags=flags)
             return True, "Winsock ve TCP/IP ağ yığını sıfırlandı. Ağ bağdaştırıcısı yenilendi."
         except Exception as e:
             return False, str(e)

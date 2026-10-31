@@ -18,6 +18,7 @@ if sys.platform == 'win32':
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
+from core.utils import get_system32_path
 
 def build_installer():
     print("=" * 65)
@@ -81,8 +82,20 @@ def build_installer():
     root_setup = os.path.join(ROOT_DIR, "NovaCare_Setup.exe")
 
     if os.path.exists(dist_setup):
-        # Copy to root as friendly NovaCare_Setup.exe
-        shutil.copy2(dist_setup, root_setup)
+        # Copy to root as friendly NovaCare_Setup.exe with lock retry
+        copied = False
+        for attempt in range(5):
+            try:
+                shutil.copy2(dist_setup, root_setup)
+                copied = True
+                break
+            except PermissionError:
+                subprocess.run([get_system32_path("taskkill"), "/f", "/im", "NovaCare_Setup.exe"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                import time
+                time.sleep(1.2)
+        if not copied:
+            print(f"[!] Uyarı: {root_setup} kullanımda olduğu için güncellenemedi, ancak {dist_setup} hazır.")
+
         size_mb = os.path.getsize(dist_setup) / (1024 * 1024)
 
         print("\n" + "=" * 65)

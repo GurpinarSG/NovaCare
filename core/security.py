@@ -39,6 +39,12 @@ class DATA_BLOB(ctypes.Structure):
         ('pbData', ctypes.POINTER(ctypes.c_byte))
     ]
 
+try:
+    ctypes.windll.kernel32.LocalFree.argtypes = [ctypes.c_void_p]
+    ctypes.windll.kernel32.LocalFree.restype = ctypes.c_void_p
+except Exception:
+    pass
+
 def encrypt_string(plain_text: str) -> str:
     """Encrypts plain text using Windows DPAPI. Returns hex string."""
     if not plain_text:
@@ -60,9 +66,12 @@ def encrypt_string(plain_text: str) -> str:
             0x01,
             ctypes.byref(out_blob)
         ):
-            res = ctypes.string_at(out_blob.pbData, out_blob.cbData).hex()
-            ctypes.windll.kernel32.LocalFree(out_blob.pbData)
-            return res
+            try:
+                res = ctypes.string_at(out_blob.pbData, out_blob.cbData).hex()
+                return res
+            finally:
+                if out_blob.pbData:
+                    ctypes.windll.kernel32.LocalFree(out_blob.pbData)
     except Exception:
         pass
     return ""
@@ -87,9 +96,12 @@ def decrypt_string(cipher_hex: str) -> str:
             0x01,
             ctypes.byref(out_blob)
         ):
-            res = ctypes.string_at(out_blob.pbData, out_blob.cbData).decode('utf-8')
-            ctypes.windll.kernel32.LocalFree(out_blob.pbData)
-            return res
+            try:
+                res = ctypes.string_at(out_blob.pbData, out_blob.cbData).decode('utf-8')
+                return res
+            finally:
+                if out_blob.pbData:
+                    ctypes.windll.kernel32.LocalFree(out_blob.pbData)
     except Exception:
         pass
     return ""

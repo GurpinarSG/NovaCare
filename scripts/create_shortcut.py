@@ -5,6 +5,8 @@ Ensures only clean 'NovaCare.lnk' shortcuts exist, removing old 'Başlat' varian
 import os
 import sys
 import subprocess
+import base64
+from core.utils import get_system32_path
 
 def create_shortcuts():
     app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -50,37 +52,48 @@ def create_shortcuts():
                 except Exception:
                     pass
 
+    def _ps_esc(s: str) -> str:
+        return str(s).replace("'", "''")
+
+    folder_lnk = os.path.join(app_dir, "NovaCare.lnk")
+    ps_folder_lnk = _ps_esc(folder_lnk)
+    ps_pythonw = _ps_esc(pythonw)
+    ps_main_py = _ps_esc(main_py)
+    ps_app_dir = _ps_esc(app_dir)
+    ps_ico = _ps_esc(ico)
+
     # Build PowerShell script to create only NovaCare.lnk
     ps_commands = ['$Wsh = New-Object -ComObject WScript.Shell;']
 
     # 1. Project folder shortcut
-    folder_lnk = os.path.join(app_dir, "NovaCare.lnk")
     ps_commands.extend([
-        f'$s = $Wsh.CreateShortcut("{folder_lnk}");',
-        f'$s.TargetPath = "{pythonw}";',
-        f'$s.Arguments = \'"{main_py}"\';',
-        f'$s.WorkingDirectory = "{app_dir}";',
-        f'$s.IconLocation = "{ico}";',
-        '$s.Description = "NovaCare System Care Suite 2026";',
-        '$s.Save();'
+        f"$s = $Wsh.CreateShortcut('{ps_folder_lnk}');",
+        f"$s.TargetPath = '{ps_pythonw}';",
+        f"$s.Arguments = '\"' + '{ps_main_py}' + '\"';",
+        f"$s.WorkingDirectory = '{ps_app_dir}';",
+        f"$s.IconLocation = '{ps_ico}';",
+        "$s.Description = 'NovaCare System Care Suite 2026';",
+        "$s.Save();"
     ])
 
     # 2. Desktop shortcuts
     for d in target_desktops:
         desk_lnk = os.path.join(d, "NovaCare.lnk")
+        ps_desk_lnk = _ps_esc(desk_lnk)
         ps_commands.extend([
-            f'$d = $Wsh.CreateShortcut("{desk_lnk}");',
-            f'$d.TargetPath = "{pythonw}";',
-            f'$d.Arguments = \'"{main_py}"\';',
-            f'$d.WorkingDirectory = "{app_dir}";',
-            f'$d.IconLocation = "{ico}";',
-            '$d.Description = "NovaCare System Care Suite 2026";',
-            '$d.Save();'
+            f"$d = $Wsh.CreateShortcut('{ps_desk_lnk}');",
+            f"$d.TargetPath = '{ps_pythonw}';",
+            f"$d.Arguments = '\"' + '{ps_main_py}' + '\"';",
+            f"$d.WorkingDirectory = '{ps_app_dir}';",
+            f"$d.IconLocation = '{ps_ico}';",
+            "$d.Description = 'NovaCare System Care Suite 2026';",
+            "$d.Save();"
         ])
 
     full_ps = " ".join(ps_commands)
+    encoded_cmd = base64.b64encode(full_ps.encode("utf-16le")).decode("ascii")
     flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
-    subprocess.run(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", full_ps], creationflags=flags, check=True)
+    subprocess.run([get_system32_path("powershell"), "-NoProfile", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded_cmd], creationflags=flags, check=True)
     print("NovaCare shortcut with icon created successfully!")
 
 if __name__ == "__main__":

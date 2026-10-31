@@ -7,9 +7,15 @@ import os
 import winreg
 import subprocess
 from dataclasses import dataclass
-from core.utils import safe_remove_directory, safe_remove_file, delete_registry_key_tree, log_debug
+from core.utils import safe_remove_directory, safe_remove_file, delete_registry_key_tree, log_debug, get_system32_path
 
-_NAME_EXCLUSIONS = frozenset({'microsoft', 'windows', 'the', 'for', 'corporation', 'setup', 'edition', 'suite'})
+_NAME_EXCLUSIONS = frozenset({
+    'microsoft', 'windows', 'the', 'for', 'corporation', 'setup', 'edition', 'suite',
+    'application', 'bin', 'client', 'core', 'app', 'common', 'dist', 'release',
+    'x64', 'x86', 'packages', 'program', 'programs', 'system', 'data', 'temp',
+    'cache', 'logs', 'tools', 'lib', 'include', 'share', 'plugins', 'desktop',
+    'documents', 'downloads', 'binaries', 'config', 'resources', 'assets', 'modules'
+})
 _DIR_EXCLUSIONS = frozenset({'system32', 'syswow64', 'common files', 'microsoft', 'windows'})
 _REG_EXCLUSIONS = frozenset({'microsoft', 'classes', 'registeredapplications', 'policies'})
 
@@ -215,6 +221,9 @@ class AppUninstaller:
         if not tokens:
             raise ValueError("Kaldırma komutu çözümlenemedi.")
 
+        if tokens and tokens[0].lower() in ("msiexec", "msiexec.exe"):
+            tokens[0] = get_system32_path("msiexec.exe")
+
         try:
             return subprocess.Popen(tokens)
         except OSError as e:
@@ -232,7 +241,7 @@ class AppUninstaller:
                     ps_script = f"Start-Process -FilePath '{ps_exe}' -Verb RunAs -Wait"
 
                 encoded_ps = base64.b64encode(ps_script.encode('utf-16le')).decode('ascii')
-                ps_tokens = ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded_ps]
+                ps_tokens = [get_system32_path("powershell"), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded_ps]
                 flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
                 return subprocess.Popen(ps_tokens, creationflags=flags)
             raise e
@@ -268,15 +277,20 @@ class AppUninstaller:
             norm = os.path.normpath(os.path.abspath(path)).lower()
             if os.path.dirname(norm) == norm:
                 return True
+            sys_root = os.path.normpath(os.environ.get('SYSTEMROOT', r'C:\Windows')).lower()
+            if norm == sys_root or norm.startswith(sys_root + os.sep):
+                return True
             system_roots = {
-                os.path.normpath(os.environ.get('SYSTEMROOT', r'C:\Windows')).lower(),
+                sys_root,
                 os.path.normpath(os.environ.get('ProgramFiles', r'C:\Program Files')).lower(),
                 os.path.normpath(os.environ.get('ProgramFiles(x86)', r'C:\Program Files (x86)')).lower(),
                 os.path.normpath(os.environ.get('USERPROFILE', r'C:\Users')).lower(),
-                os.path.normpath(os.environ.get('APPDATA', '')).lower(),
-                os.path.normpath(os.environ.get('LOCALAPPDATA', '')).lower(),
                 os.path.normpath(os.environ.get('ALLUSERSPROFILE', r'C:\ProgramData')).lower(),
             }
+            for env_var in ('APPDATA', 'LOCALAPPDATA', 'CommonProgramFiles', 'CommonProgramFiles(x86)'):
+                val = os.environ.get(env_var, '')
+                if val:
+                    system_roots.add(os.path.normpath(val).lower())
             return norm in system_roots or len(norm.split(os.sep)) < 3
 
         # 1. Check InstallLocation
@@ -308,7 +322,7 @@ class AppUninstaller:
         publisher_name = app.publisher.strip().lower() if (app.publisher and app.publisher.lower() not in ('bilinmiyor', 'unknown', 'microsoft corporation', 'microsoft')) else ""
 
         def matches_app(entry_lower: str) -> bool:
-            if entry_lower in _DIR_EXCLUSIONS or entry_lower in _REG_EXCLUSIONS:
+            if entry_lower in _DIR_EXCLUSIONS or entry_lower in _REG_EXCLUSIONS or entry_lower in _NAME_EXCLUSIONS:
                 return False
             for cand in candidate_names:
                 if entry_lower == cand:

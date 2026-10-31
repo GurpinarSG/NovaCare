@@ -6,6 +6,8 @@ Cryptographically protects GitHub tokens using Windows DPAPI.
 import os
 import sys
 import json
+import tempfile
+import threading
 from core.security import encrypt_string, decrypt_string, get_embedded_token
 
 import re
@@ -75,7 +77,7 @@ def load_base_version() -> str:
         pass
     return ver
 
-VERSION = "1.2.6"
+VERSION = "1.2.7"
 CURRENT_VERSION = load_base_version() or VERSION
 DEFAULT_GITHUB_REPO = "GurpinarSG/NovaCare"
 DEFAULT_GITHUB_TOKEN = "" # NEVER hardcode tokens in distributed code
@@ -84,6 +86,7 @@ DEFAULT_COMMIT_SHA = "c77c7b8"
 
 class ConfigManager:
     _instance = None
+    _save_lock = threading.RLock()
 
     def __new__(cls, config_dir: str | None = None):
         if config_dir is None:
@@ -166,6 +169,7 @@ class ConfigManager:
             "auto_clean_schedule": "daily",
             "auto_clean_threshold_mb": 1024,
             "auto_clean_junk": True,
+            "auto_clean_recycle_bin": False,
             "auto_clean_ram": True,
             "auto_clean_traces": False,
             "auto_clean_notify": True,
@@ -194,20 +198,31 @@ class ConfigManager:
             return defaults
 
     def _save(self, data: dict):
-        try:
-            # Ensure plaintext token is never written to disk
-            clean_data = {k: v for k, v in data.items() if k != "github_token"}
-            with open(self.config_file, "w", encoding="utf-8") as f:
-                json.dump(clean_data, f, indent=2, ensure_ascii=False)
-        except Exception:
-            pass
+        with self._save_lock:
+            temp_path = None
+            try:
+                # Ensure plaintext token is never written to disk
+                clean_data = {k: v for k, v in list(data.items()) if k != "github_token"}
+                temp_dir = self.config_dir
+                fd, temp_path = tempfile.mkstemp(dir=temp_dir, prefix="settings_", suffix=".tmp")
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    json.dump(clean_data, f, indent=2, ensure_ascii=False)
+                os.replace(temp_path, self.config_file)
+            except Exception:
+                if temp_path and os.path.exists(temp_path):
+                    try:
+                        os.remove(temp_path)
+                    except Exception:
+                        pass
 
     def get(self, key: str, default=None):
-        return self.settings.get(key, default)
+        with self._save_lock:
+            return self.settings.get(key, default)
 
     def set(self, key: str, value):
-        self.settings[key] = value
-        self._save(self.settings)
+        with self._save_lock:
+            self.settings[key] = value
+            self._save(self.settings)
 
     def get_secure_token(self) -> str:
         """
@@ -225,7 +240,8 @@ class ConfigManager:
             return env_token.strip()
 
         # 2. Custom local user override (DPAPI encrypted)
-        enc_token = self.settings.get("github_token_encrypted")
+        with self._save_lock:
+            enc_token = self.settings.get("github_token_encrypted")
         if enc_token:
             dec = decrypt_string(enc_token)
             if dec and dec.strip():
@@ -240,16 +256,18 @@ class ConfigManager:
 
     def set_secure_token(self, token: str):
         """Encrypts and stores a custom user token securely using Windows DPAPI."""
-        if token and token.strip():
-            enc = encrypt_string(token.strip())
-            if enc:
-                self.settings["github_token_encrypted"] = enc
+        with self._save_lock:
+            if token and token.strip():
+                enc = encrypt_string(token.strip())
+                if enc:
+                    self.settings["github_token_encrypted"] = enc
+                else:
+                    self.settings.pop("github_token_encrypted", None)
             else:
                 self.settings.pop("github_token_encrypted", None)
-        else:
-            self.settings.pop("github_token_encrypted", None)
-        self.settings.pop("github_token", None)
-        self._save(self.settings)
+            self.settings.pop("github_token", None)
+            self._save(self.settings)
 
     def save_all(self):
-        self._save(self.settings)
+        with self._save_lock:
+            self._save(self.settings)

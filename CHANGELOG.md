@@ -5,7 +5,7 @@ Tüm önemli değişiklikler, yeni özellikler, hata düzeltmeleri ve optimizasy
 ## 🚀 [v1.2.8] - 2026-10-29
 
 ### 🌐 Ağ ve Hız Testi İyileştirmeleri
-Küçük hata düzeltmeleri başarıyla uygulandı. 
+Performans ve güvenlik güncelleştirmeleri uygulandı.
 
 ---
 

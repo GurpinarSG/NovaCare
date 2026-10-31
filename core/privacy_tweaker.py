@@ -202,9 +202,11 @@ class PrivacyTweaker:
         if "clipboard" in selected_ids:
             try:
                 if ctypes.windll.user32.OpenClipboard(None):
-                    ctypes.windll.user32.EmptyClipboard()
-                    ctypes.windll.user32.CloseClipboard()
-                    cleaned += 1
+                    try:
+                        ctypes.windll.user32.EmptyClipboard()
+                        cleaned += 1
+                    finally:
+                        ctypes.windll.user32.CloseClipboard()
             except Exception as e:
                 log_debug(f"PrivacyTweaker empty clipboard error: {e}")
 

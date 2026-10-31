@@ -17,6 +17,7 @@ import requests
 from dataclasses import dataclass
 from typing import Optional, Callable
 from core.config import CURRENT_VERSION, ConfigManager
+from core.utils import get_system32_path
 
 @dataclass
 class UpdateInfo:
@@ -376,31 +377,37 @@ class GitHubUpdater:
         elif sha256sums_url:
             try:
                 sums_resp = self._safe_request_get(sha256sums_url, headers=self._get_headers(include_auth=False), timeout=15)
-                if sums_resp.status_code == 200:
-                    target_fn = download_url.split("?")[0].rstrip("/").split("/")[-1].lower()
-                    expected_from_sums = None
-                    candidate_matches = []
-                    for line in sums_resp.text.splitlines():
-                        parts = line.strip().split()
-                        if len(parts) >= 2:
-                            h, fn = parts[0], parts[1].lstrip("*")
-                            base_fn = os.path.basename(fn).lower()
-                            if base_fn == target_fn:
-                                expected_from_sums = h.lower()
-                                break
-                            elif base_fn in ("novacare_update.zip", "novacare.zip") or base_fn.endswith(".zip"):
-                                candidate_matches.append(h.lower())
-                    if not expected_from_sums and len(candidate_matches) == 1:
-                        expected_from_sums = candidate_matches[0]
+            except Exception as e:
+                raise ValueError(f"SHA-256 kontrol dosyası indirilemedi: {e}")
 
-                    if expected_from_sums and downloaded_hash != expected_from_sums:
-                        raise ValueError(
-                            f"SHA256SUMS.txt bütünlük doğrulaması başarısız oldu!\n"
-                            f"Beklenen: {expected_from_sums}\n"
-                            f"İndirilen: {downloaded_hash}"
-                        )
-            except requests.RequestException:
-                pass
+            if sums_resp.status_code != 200:
+                raise ValueError(f"SHA-256 kontrol dosyası alınamadı (HTTP {sums_resp.status_code})")
+
+            target_fn = download_url.split("?")[0].rstrip("/").split("/")[-1].lower()
+            expected_from_sums = None
+            candidate_matches = []
+            for line in sums_resp.text.splitlines():
+                parts = line.strip().split()
+                if len(parts) >= 2:
+                    h, fn = parts[0], parts[1].lstrip("*")
+                    base_fn = os.path.basename(fn).lower()
+                    if base_fn == target_fn:
+                        expected_from_sums = h.lower()
+                        break
+                    elif base_fn in ("novacare_update.zip", "novacare.zip") or base_fn.endswith(".zip"):
+                        candidate_matches.append(h.lower())
+            if not expected_from_sums and len(candidate_matches) == 1:
+                expected_from_sums = candidate_matches[0]
+
+            if not expected_from_sums:
+                raise ValueError(f"SHA256SUMS.txt içinde '{target_fn}' için geçerli bir doğrulama özeti bulunamadı!")
+
+            if downloaded_hash != expected_from_sums:
+                raise ValueError(
+                    f"SHA256SUMS.txt bütünlük doğrulaması başarısız oldu!\n"
+                    f"Beklenen: {expected_from_sums}\n"
+                    f"İndirilen: {downloaded_hash}"
+                )
 
         # Extract zip with strict Zip Slip canonical path checking or handle direct executable
         is_zip = zip_path.lower().endswith('.zip') and zipfile.is_zipfile(zip_path)
@@ -533,7 +540,9 @@ try {{
 }}
 
 if (-not $isAdmin -and -not $canWrite) {{
-    $proc = Start-Process powershell.exe -ArgumentList "-ExecutionPolicy Bypass -NoProfile -File `"$PSCommandPath`"" -Verb RunAs -PassThru -Wait
+    $psExe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    if (-not (Test-Path -LiteralPath $psExe)) {{ $psExe = 'powershell.exe' }}
+    $proc = Start-Process $psExe -ArgumentList "-ExecutionPolicy Bypass -NoProfile -File `"$PSCommandPath`"" -Verb RunAs -PassThru -Wait
     exit $proc.ExitCode
 }}
 
@@ -695,28 +704,28 @@ set _PYI_SPLASH_IPC=
 
 :: 1. Try PowerShell Updater engine first (100% reliable Unicode & atomic rename handling)
 if exist "%~dp0apply_update.ps1" (
-    powershell.exe -ExecutionPolicy Bypass -NoProfile -File "%~dp0apply_update.ps1"
+    "%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -ExecutionPolicy Bypass -NoProfile -File "%~dp0apply_update.ps1"
     if not errorlevel 1 goto cleanup_batch
 )
 
 :: 2. Fail-safe native CMD fallback in case PowerShell is disabled or restricted
 if {current_pid} gtr 0 (
-    taskkill /f /pid {current_pid} > nul 2>&1
+    "%SystemRoot%\System32\taskkill.exe" /f /pid {current_pid} > nul 2>&1
 )
-taskkill /f /im NovaCare.exe > nul 2>&1
-timeout /t 1 /nobreak > nul
+"%SystemRoot%\System32\taskkill.exe" /f /im NovaCare.exe > nul 2>&1
+ping 127.0.0.1 -n 2 > nul
 
 for /l %%i in (1,1,15) do (
-    tasklist /fi "imagename eq NovaCare.exe" 2>nul | find /i "NovaCare.exe" >nul
+    "%SystemRoot%\System32\tasklist.exe" /fi "imagename eq NovaCare.exe" 2>nul | "%SystemRoot%\System32\find.exe" /i "NovaCare.exe" >nul
     if errorlevel 1 (
         goto ready_to_copy
     )
-    taskkill /f /im NovaCare.exe > nul 2>&1
-    timeout /t 1 /nobreak > nul
+    "%SystemRoot%\System32\taskkill.exe" /f /im NovaCare.exe > nul 2>&1
+    ping 127.0.0.1 -n 2 > nul
 )
 
 :ready_to_copy
-timeout /t 1 /nobreak > nul
+ping 127.0.0.1 -n 2 > nul
 
 :: Clear destExe with retry loop against locks
 if exist "{source_dir}\\NovaCare.exe" (
@@ -727,13 +736,13 @@ if exist "{source_dir}\\NovaCare.exe" (
         if not exist "{app_root}\\NovaCare.exe" goto dest_cleared
         del /f /q "{app_root}\\NovaCare.exe" > nul 2>&1
         if not exist "{app_root}\\NovaCare.exe" goto dest_cleared
-        timeout /t 1 /nobreak > nul
+        ping 127.0.0.1 -n 2 > nul
     )
     :dest_cleared
     for /l %%k in (1,1,15) do (
         copy /y "{source_dir}\\NovaCare.exe" "{app_root}\\NovaCare.exe" > nul 2>&1
         if not errorlevel 1 if exist "{app_root}\\NovaCare.exe" goto exe_copied
-        timeout /t 1 /nobreak > nul
+        ping 127.0.0.1 -n 2 > nul
     )
     :: Rollback if copy failed
     if exist "{app_root}\\NovaCare.exe.old" move /y "{app_root}\\NovaCare.exe.old" "{app_root}\\NovaCare.exe" > nul 2>&1
@@ -744,7 +753,7 @@ if exist "{source_dir}\\NovaCare.exe" (
 if exist "{app_root}\\NovaCare.exe.old" del /f /q "{app_root}\\NovaCare.exe.old" > nul 2>&1
 
 :: Copy other assets (/r overwrites read-only, /h copies hidden)
-xcopy /s /e /y /i /q /r /h "{source_dir}\\*" "{app_root}\\" > nul 2>&1
+xcopy /s /e /y /i /q /r /h "{source_dir}\\*" "{app_root}" > nul 2>&1
 
 :: Explicitly copy VERSION file if exists
 if exist "{source_dir}\\VERSION" copy /y "{source_dir}\\VERSION" "{app_root}\\VERSION" > nul 2>&1
@@ -755,7 +764,7 @@ reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\NovaCare
 
 :launch_fallback
 echo Guncelleme islemi tamamlandi. NovaCare yeniden baslatiliyor...
-timeout /t 1 /nobreak > nul
+ping 127.0.0.1 -n 2 > nul
 
 set _PYI_PARENT_PID=
 set _MEIPASS2=
@@ -796,7 +805,7 @@ exit
         if not is_admin() and sys.platform == 'win32':
             # Request UAC elevation for updater so it can update files in Program Files and HKLM
             try:
-                ret = ctypes.windll.shell32.ShellExecuteW(None, "runas", "cmd.exe", f'/c "{batch_path}"', None, 1)
+                ret = ctypes.windll.shell32.ShellExecuteW(None, "runas", get_system32_path("cmd.exe"), f'/c "{batch_path}"', None, 1)
                 if ret > 32:
                     spawned = True
             except Exception:
@@ -805,7 +814,7 @@ exit
         if not spawned:
             flags = getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0)
             flags |= getattr(subprocess, 'CREATE_NEW_CONSOLE', 0)
-            subprocess.Popen(["cmd.exe", "/c", batch_path], env=clean_env, creationflags=flags)
+            subprocess.Popen([get_system32_path("cmd.exe"), "/c", batch_path], env=clean_env, creationflags=flags)
 
         # Cleanly close all Qt windows to release file handles immediately
         try:

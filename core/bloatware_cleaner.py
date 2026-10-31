@@ -6,8 +6,10 @@ deep Windows telemetry services and background tracking.
 import json
 import subprocess
 import winreg
+import re
+import base64
 from dataclasses import dataclass
-from core.utils import log_debug
+from core.utils import log_debug, get_system32_path
 
 @dataclass
 class BloatwareItem:
@@ -100,10 +102,10 @@ class BloatwareCleaner:
         try:
             flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
             cmd = [
-                "powershell", "-NoProfile", "-Command",
+                get_system32_path("powershell"), "-NoProfile", "-Command",
                 "Get-AppxPackage | Select-Object -Property Name, PackageFullName | ConvertTo-Json -Compress"
             ]
-            p = subprocess.run(cmd, capture_output=True, text=True, timeout=15, creationflags=flags)
+            p = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=15, creationflags=flags)
             if p.returncode == 0 and p.stdout.strip():
                 try:
                     data = json.loads(p.stdout)
@@ -140,6 +142,12 @@ class BloatwareCleaner:
 
     def remove_bloatware_package(self, package_name: str) -> tuple[bool, str]:
         """Uninstalls a specific AppX package."""
+        if not package_name or not isinstance(package_name, str):
+            return False, "Geçersiz paket adı."
+        package_name = package_name.strip()
+        if not re.match(r"^[a-zA-Z0-9.\-_]+$", package_name):
+            return False, "Geçersiz veya güvenli olmayan paket adı biçimi."
+
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         try:
             ps_cmd = (
@@ -150,7 +158,8 @@ class BloatwareCleaner:
                 f"}}; "
                 f"Get-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue | Where-Object DisplayName -eq '{package_name}' | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue"
             )
-            p = subprocess.run(["powershell", "-NoProfile", "-Command", ps_cmd], capture_output=True, text=True, timeout=30, creationflags=flags)
+            encoded_cmd = base64.b64encode(ps_cmd.encode("utf-16le")).decode("ascii")
+            p = subprocess.run([get_system32_path("powershell"), "-NoProfile", "-EncodedCommand", encoded_cmd], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30, creationflags=flags)
             if p.returncode == 0:
                 return True, "Uygulama başarıyla kaldırıldı."
             return False, p.stderr or "Kaldırma başarısız oldu."
@@ -170,9 +179,9 @@ class BloatwareCleaner:
         for svc_name, friendly in TELEMETRY_SERVICES:
             try:
                 # Stop service
-                subprocess.run(["net", "stop", svc_name, "/y"], capture_output=True, timeout=5, creationflags=flags)
+                subprocess.run([get_system32_path("net"), "stop", svc_name, "/y"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5, creationflags=flags)
                 # Set startup type to disabled
-                subprocess.run(["sc", "config", svc_name, "start=disabled"], capture_output=True, timeout=5, creationflags=flags)
+                subprocess.run([get_system32_path("sc"), "config", svc_name, "start=disabled"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5, creationflags=flags)
                 disabled_services.append(friendly)
             except Exception:
                 continue

@@ -8,7 +8,7 @@ import threading
 import subprocess
 import psutil
 from typing import Optional
-from core.utils import log_debug
+from core.utils import log_debug, get_system32_path
 
 def _fmt_speed(bps: float) -> str:
     """Fast network speed formatter."""
@@ -37,6 +37,7 @@ class HardwareMonitor:
         self.cpu_temp: Optional[float] = None
         self.last_cpu_temp_update = 0
         self._running = True
+        self._net_lock = threading.Lock()
 
         # Non-blocking async hardware probes to keep UI completely free from stutters
         threading.Thread(target=self._init_nvml_worker, daemon=True).start()
@@ -69,10 +70,10 @@ class HardwareMonitor:
         while self._running:
             try:
                 cmd = [
-                    "powershell", "-NoProfile", "-Command",
+                    get_system32_path("powershell"), "-NoProfile", "-Command",
                     "(Get-CimInstance -Namespace root/wmi -ClassName MSAcpi_ThermalZoneTemperature -ErrorAction SilentlyContinue).CurrentTemperature"
                 ]
-                kwargs = {"capture_output": True, "text": True, "timeout": 3}
+                kwargs = {"capture_output": True, "text": True, "encoding": "utf-8", "errors": "replace", "timeout": 3}
                 if hasattr(subprocess, "CREATE_NO_WINDOW"):
                     kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
 
@@ -130,17 +131,25 @@ class HardwareMonitor:
             except Exception:
                 pass
 
-        # 4. Real-time network speed
-        now = time.time()
-        net = psutil.net_io_counters()
-        down_bps = 0.0
-        up_bps = 0.0
-        if hasattr(self, '_last_net_bytes') and hasattr(self, '_last_net_time'):
-            dt = max(0.1, now - self._last_net_time)
-            down_bps = max(0.0, (net.bytes_recv - self._last_net_bytes[0]) / dt)
-            up_bps = max(0.0, (net.bytes_sent - self._last_net_bytes[1]) / dt)
-        self._last_net_bytes = (net.bytes_recv, net.bytes_sent)
-        self._last_net_time = now
+        # 4. Real-time network speed (thread-safe telemetry calculation)
+        with self._net_lock:
+            now = time.time()
+            net = psutil.net_io_counters()
+            down_bps = getattr(self, '_last_down_bps', 0.0)
+            up_bps = getattr(self, '_last_up_bps', 0.0)
+            if net is not None:
+                if hasattr(self, '_last_net_bytes') and hasattr(self, '_last_net_time'):
+                    dt = now - self._last_net_time
+                    if dt >= 0.2:
+                        down_bps = max(0.0, (net.bytes_recv - self._last_net_bytes[0]) / dt)
+                        up_bps = max(0.0, (net.bytes_sent - self._last_net_bytes[1]) / dt)
+                        self._last_down_bps = down_bps
+                        self._last_up_bps = up_bps
+                        self._last_net_bytes = (net.bytes_recv, net.bytes_sent)
+                        self._last_net_time = now
+                else:
+                    self._last_net_bytes = (net.bytes_recv, net.bytes_sent)
+                    self._last_net_time = now
 
         return {
             "cpu_percent": cpu_percent,

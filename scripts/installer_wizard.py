@@ -17,6 +17,7 @@ import winreg
 import subprocess
 import time
 import json
+from core.utils import get_system32_path
 
 from PyQt5.QtWidgets import (
     QApplication, QDialog, QWidget, QLabel, QVBoxLayout, QHBoxLayout,
@@ -45,7 +46,7 @@ def _load_app_version():
                 return f.readline().strip().lstrip("vV")
     except Exception:
         pass
-    return "1.2.6"
+    return "1.2.7"
 
 # Version & Product Info
 APP_NAME = "NovaCare"
@@ -93,7 +94,7 @@ class InstallWorker(QThread):
             try:
                 flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0x08000000)
                 subprocess.run(
-                    ["taskkill", "/f", "/im", "NovaCare.exe"],
+                    [get_system32_path("taskkill"), "/f", "/im", "NovaCare.exe"],
                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                     creationflags=flags, timeout=5
                 )
@@ -184,28 +185,44 @@ echo.
 echo NovaCare uygulaması bilgisayarınızdan kaldırılıyor, lütfen bekleyin...
 echo.
 
-taskkill /f /im NovaCare.exe > nul 2>&1
-schtasks /delete /tn "NovaCare_Autostart" /f > nul 2>&1
-reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v "NovaCare" /f > nul 2>&1
-reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\NovaCare" /f > nul 2>&1
-reg delete "HKLM\Software\Microsoft\Windows\CurrentVersion\Uninstall\NovaCare" /f > nul 2>&1
+"%SystemRoot%\System32\taskkill.exe" /f /im NovaCare.exe > nul 2>&1
+"%SystemRoot%\System32\schtasks.exe" /delete /tn "NovaCare_Autostart" /f > nul 2>&1
+"%SystemRoot%\System32\reg.exe" delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v "NovaCare" /f > nul 2>&1
+"%SystemRoot%\System32\reg.exe" delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\NovaCare" /f > nul 2>&1
+"%SystemRoot%\System32\reg.exe" delete "HKLM\Software\Microsoft\Windows\CurrentVersion\Uninstall\NovaCare" /f > nul 2>&1
 
 del /f /q "%USERPROFILE%\Desktop\NovaCare.lnk" > nul 2>&1
 del /f /q "%PUBLIC%\Desktop\NovaCare.lnk" > nul 2>&1
 rd /s /q "%APPDATA%\Microsoft\Windows\Start Menu\Programs\NovaCare" > nul 2>&1
 rd /s /q "%ALLUSERSPROFILE%\Microsoft\Windows\Start Menu\Programs\NovaCare" > nul 2>&1
 
-powershell -NoProfile -ExecutionPolicy Bypass -Command "Remove-Item (Join-Path ([Environment]::GetFolderPath('Desktop')) 'NovaCare.lnk') -Force -ErrorAction SilentlyContinue; Remove-Item (Join-Path ([Environment]::GetFolderPath('Programs')) 'NovaCare') -Recurse -Force -ErrorAction SilentlyContinue" > nul 2>&1
+"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -Command "Remove-Item (Join-Path ([Environment]::GetFolderPath('Desktop')) 'NovaCare.lnk') -Force -ErrorAction SilentlyContinue; Remove-Item (Join-Path ([Environment]::GetFolderPath('Programs')) 'NovaCare') -Recurse -Force -ErrorAction SilentlyContinue" > nul 2>&1
 
 set "TARGET_DIR=%~dp0"
 if "%TARGET_DIR:~-1%"=="\" set "TARGET_DIR=%TARGET_DIR:~0,-1%"
 
-cd /d "%TEMP%"
-start /b "" cmd /c "timeout /t 2 /nobreak > nul & rmdir /s /q \"%TARGET_DIR%\""
+set "CLEANUP_BAT=%TEMP%\novacare_uninst_cleanup.bat"
+> "%CLEANUP_BAT%" echo @echo off
+>> "%CLEANUP_BAT%" echo chcp 65001 ^> nul
+>> "%CLEANUP_BAT%" echo setlocal EnableDelayedExpansion
+>> "%CLEANUP_BAT%" echo set /a attempts=0
+>> "%CLEANUP_BAT%" echo :retry_loop
+>> "%CLEANUP_BAT%" echo if not exist "%TARGET_DIR%" goto done
+>> "%CLEANUP_BAT%" echo set /a attempts+=1
+>> "%CLEANUP_BAT%" echo rmdir /s /q "%TARGET_DIR%" ^> nul 2^>^&1
+>> "%CLEANUP_BAT%" echo if not exist "%TARGET_DIR%" goto done
+>> "%CLEANUP_BAT%" echo if !attempts! geq 25 goto done
+>> "%CLEANUP_BAT%" echo ping 127.0.0.1 -n 2 ^> nul
+>> "%CLEANUP_BAT%" echo goto retry_loop
+>> "%CLEANUP_BAT%" echo :done
+>> "%CLEANUP_BAT%" echo echo.
+>> "%CLEANUP_BAT%" echo echo [OK] NovaCare başarıyla bilgisayarınızdan kaldırıldı!
+>> "%CLEANUP_BAT%" echo echo Bu pencere birkaç saniye içinde otomatik olarak kapanacaktır.
+>> "%CLEANUP_BAT%" echo ping 127.0.0.1 -n 3 ^> nul
+>> "%CLEANUP_BAT%" echo del /f /q "%%~f0" ^> nul 2^>^&1
 
-echo [OK] NovaCare başarıyla bilgisayarınızdan kaldırıldı!
-echo Bu pencere birkaç saniye içinde otomatik olarak kapanacaktır.
-timeout /t 3 > nul
+cd /d "%TEMP%"
+start "" cmd /c "%CLEANUP_BAT%"
 exit
 '''
         with open(uninst_bat, "w", encoding="utf-8") as f:
@@ -258,7 +275,7 @@ exit
             script = "$wsh = New-Object -ComObject WScript.Shell\n" + "\n".join(ps_commands)
             encoded_ps = base64.b64encode(script.encode('utf-16le')).decode('ascii')
             flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
-            subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded_ps], creationflags=flags)
+            subprocess.run([get_system32_path("powershell"), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded_ps], creationflags=flags)
 
     def _register_uninstaller(self, dest_exe: str):
         key_path = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\NovaCare"
@@ -285,20 +302,16 @@ exit
                 winreg.SetValueEx(key, "NoModify", 0, winreg.REG_DWORD, 1)
                 winreg.SetValueEx(key, "NoRepair", 0, winreg.REG_DWORD, 1)
         except Exception:
-            # Fallback to HKCU if HKLM write fails (e.g. non-admin environment),
-            # using an elevated wrapper in UninstallString to prevent Error 740
+            # Fallback to HKCU if HKLM write fails (e.g. non-admin environment)
             try:
-                ps_dest_exe = dest_exe.replace("'", "''")
-                elevated_uninstall = f'powershell.exe -NoProfile -WindowStyle Hidden -Command "Start-Process -FilePath \'{ps_dest_exe}\' -ArgumentList \'--uninstall\' -Verb RunAs"'
-                elevated_quiet = f'powershell.exe -NoProfile -WindowStyle Hidden -Command "Start-Process -FilePath \'{ps_dest_exe}\' -ArgumentList \'--uninstall --silent\' -Verb RunAs"'
                 with winreg.CreateKey(winreg.HKEY_CURRENT_USER, key_path) as key:
                     winreg.SetValueEx(key, "DisplayName", 0, winreg.REG_SZ, APP_DISPLAY_NAME)
                     winreg.SetValueEx(key, "DisplayVersion", 0, winreg.REG_SZ, APP_VERSION)
                     winreg.SetValueEx(key, "Publisher", 0, winreg.REG_SZ, APP_PUBLISHER)
                     winreg.SetValueEx(key, "DisplayIcon", 0, winreg.REG_SZ, f"{dest_exe},0")
                     winreg.SetValueEx(key, "InstallLocation", 0, winreg.REG_SZ, self.target_dir)
-                    winreg.SetValueEx(key, "UninstallString", 0, winreg.REG_SZ, elevated_uninstall)
-                    winreg.SetValueEx(key, "QuietUninstallString", 0, winreg.REG_SZ, elevated_quiet)
+                    winreg.SetValueEx(key, "UninstallString", 0, winreg.REG_SZ, f'"{dest_exe}" --uninstall')
+                    winreg.SetValueEx(key, "QuietUninstallString", 0, winreg.REG_SZ, f'"{dest_exe}" --uninstall --silent')
                     winreg.SetValueEx(key, "EstimatedSize", 0, winreg.REG_DWORD, 42000)
                     winreg.SetValueEx(key, "NoModify", 0, winreg.REG_DWORD, 1)
                     winreg.SetValueEx(key, "NoRepair", 0, winreg.REG_DWORD, 1)
@@ -318,12 +331,12 @@ exit
             Register-ScheduledTask -TaskName 'NovaCare_Autostart' -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
             """
             encoded_ps = base64.b64encode(ps_script.encode('utf-16le')).decode('ascii')
-            subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded_ps], creationflags=flags, timeout=8)
+            subprocess.run([get_system32_path("powershell"), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded_ps], creationflags=flags, timeout=8)
         except Exception:
             try:
                 cmd_str = f'"{dest_exe}" --autostart'
                 subprocess.run(
-                    ["schtasks", "/create", "/tn", "NovaCare_Autostart", "/tr", cmd_str, "/sc", "onlogon", "/rl", "highest", "/f"],
+                    [get_system32_path("schtasks"), "/create", "/tn", "NovaCare_Autostart", "/tr", cmd_str, "/sc", "onlogon", "/rl", "highest", "/f"],
                     creationflags=flags,
                     timeout=5
                 )

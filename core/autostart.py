@@ -8,7 +8,7 @@ import os
 import sys
 import winreg
 import subprocess
-from core.utils import log_debug
+from core.utils import log_debug, get_system32_path, get_console_encoding
 
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 APP_NAME = "NovaCare"
@@ -53,9 +53,11 @@ def is_autostart_enabled() -> bool:
     try:
         flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
         res = subprocess.run(
-            ["schtasks", "/query", "/tn", TASK_NAME],
+            [get_system32_path("schtasks"), "/query", "/tn", TASK_NAME],
             capture_output=True,
             text=True,
+            encoding=get_console_encoding(),
+            errors="replace",
             creationflags=flags,
             timeout=3
         )
@@ -104,13 +106,13 @@ def set_autostart(enable: bool) -> bool:
             Register-ScheduledTask -TaskName '{ps_task}' -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
             """
             encoded_ps = base64.b64encode(ps_script.encode('utf-16le')).decode('ascii')
-            r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded_ps], creationflags=flags, timeout=8)
+            r = subprocess.run([get_system32_path("powershell"), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded_ps], creationflags=flags, timeout=8)
             task_created = (r.returncode == 0)
         except Exception as e:
             log_debug(f"Autostart: PowerShell task creation failed: {e}")
             try:
                 r = subprocess.run(
-                    ["schtasks", "/create", "/tn", TASK_NAME, "/tr", cmd_str, "/sc", "onlogon", "/rl", "highest", "/f"],
+                    [get_system32_path("schtasks"), "/create", "/tn", TASK_NAME, "/tr", cmd_str, "/sc", "onlogon", "/rl", "highest", "/f"],
                     creationflags=flags,
                     timeout=5
                 )
@@ -138,7 +140,7 @@ def set_autostart(enable: bool) -> bool:
     else:
         # 1. Delete from Windows Task Scheduler
         try:
-            subprocess.run(["schtasks", "/delete", "/tn", TASK_NAME, "/f"], creationflags=flags, timeout=5)
+            subprocess.run([get_system32_path("schtasks"), "/delete", "/tn", TASK_NAME, "/f"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=flags, timeout=5)
         except Exception:
             pass
 
@@ -153,6 +155,13 @@ def set_autostart(enable: bool) -> bool:
 
 def ensure_default_autostart():
     """Ensures autostart is active by default on user system with proper elevated task scheduler integration."""
+    try:
+        from core.config import ConfigManager
+        if not ConfigManager().get("autostart_on_boot", True):
+            return
+    except Exception:
+        return
+
     # Fast check if elevated task scheduler exists in Registry TaskCache
     try:
         task_tree_path = rf"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tree\{TASK_NAME}"
@@ -169,8 +178,11 @@ def ensure_default_autostart():
     try:
         flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
         res = subprocess.run(
-            ["schtasks", "/query", "/tn", TASK_NAME],
+            [get_system32_path("schtasks"), "/query", "/tn", TASK_NAME],
             capture_output=True,
+            text=True,
+            encoding=get_console_encoding(),
+            errors="replace",
             creationflags=flags,
             timeout=3
         )

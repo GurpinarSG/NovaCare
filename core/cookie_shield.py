@@ -11,7 +11,7 @@ import psutil
 from dataclasses import dataclass
 from typing import Optional, Union
 from core.config import ConfigManager
-from core.utils import log_debug
+from core.utils import log_debug, get_system32_path, get_console_encoding
 
 DEFAULT_WHITELIST = [
     "google.com", "youtube.com", "github.com", "microsoft.com",
@@ -33,6 +33,8 @@ KNOWN_TRACKERS = {
     "chartbeat.com", "newrelic.com", "teads.tv", "indexww.com",
     "sharethrough.com", "advertising.com", "yandex.ru"
 }
+
+ALLOWED_BROWSER_EXES = frozenset({'msedge.exe', 'chrome.exe', 'brave.exe', 'opera.exe', 'firefox.exe'})
 
 @dataclass
 class CookieDomainItem:
@@ -210,14 +212,17 @@ class CookieShield:
 
     def close_browser(self, exe_name: str) -> bool:
         """Gracefully closes a browser to release file locks."""
+        if not exe_name or not isinstance(exe_name, str) or exe_name.strip().lower() not in ALLOWED_BROWSER_EXES:
+            return False
+        clean_exe = exe_name.strip().lower()
         try:
-            kwargs = {"capture_output": True, "text": True, "timeout": 5}
+            kwargs = {"capture_output": True, "text": True, "encoding": get_console_encoding(), "errors": "replace", "timeout": 5}
             if hasattr(subprocess, "CREATE_NO_WINDOW"):
                 kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
-            subprocess.run(["taskkill", "/F", "/IM", exe_name], **kwargs)
+            subprocess.run([get_system32_path("taskkill"), "/F", "/IM", clean_exe], **kwargs)
             return True
         except Exception as e:
-            log_debug(f"CookieShield: close_browser failed for {exe_name}: {e}")
+            log_debug(f"CookieShield: close_browser failed for {clean_exe}: {e}")
             return False
 
     def scan_cookies(self) -> dict:
@@ -353,6 +358,11 @@ class CookieShield:
                         log_debug(f"CookieShield: VACUUM failed on {db_path}: {e}")
             except Exception as e:
                 log_debug(f"CookieShield: Error cleaning {browser_name} ({db_path}): {e}")
+                if con:
+                    try:
+                        con.rollback()
+                    except Exception:
+                        pass
                 locked_browsers.append(browser_name)
             finally:
                 if con:

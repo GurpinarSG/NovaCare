@@ -8,7 +8,7 @@ import subprocess
 import psutil
 from dataclasses import dataclass
 from typing import Optional
-from core.utils import format_bytes, log_debug
+from core.utils import format_bytes, log_debug, get_system32_path
 
 @dataclass
 class DiskHealthInfo:
@@ -73,8 +73,8 @@ class SmartReporter:
             } | ConvertTo-Json -Compress
             """
             flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-            cmd = ["powershell", "-NoProfile", "-Command", ps_code]
-            p = subprocess.run(cmd, capture_output=True, text=True, timeout=12, creationflags=flags)
+            cmd = [get_system32_path("powershell"), "-NoProfile", "-Command", ps_code]
+            p = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=12, creationflags=flags)
 
             if p.returncode == 0 and p.stdout.strip():
                 raw_data = json.loads(p.stdout.strip())
@@ -186,7 +186,7 @@ class SmartReporter:
         try:
             flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
             ps_cmd = "(Get-CimInstance Win32_DiskDrive) | Select-Object DeviceID, Model, Size, Status, InterfaceType | ConvertTo-Json -Compress"
-            p = subprocess.run(["powershell", "-NoProfile", "-Command", ps_cmd], capture_output=True, text=True, timeout=5, creationflags=flags)
+            p = subprocess.run([get_system32_path("powershell"), "-NoProfile", "-Command", ps_cmd], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5, creationflags=flags)
             if p.returncode == 0 and p.stdout.strip():
                 raw = json.loads(p.stdout.strip())
                 if isinstance(raw, dict):

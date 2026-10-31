@@ -46,10 +46,22 @@ class BackgroundAutoCleanWorker(QThread):
     finished = pyqtSignal(dict)
 
     def run(self):
-        res = {"total_freed": 0, "cleaned_files": 0, "failed_files": 0, "cleaned_categories": 0, "errors": []}
+        res = {
+            "triggered": False,
+            "total_freed_str": "0 B",
+            "cleaned_files_count": 0,
+            "errors": []
+        }
         try:
             cleaner = AutoCleaner()
-            res = cleaner.execute_cleanup()
+            should_run, reason = cleaner.should_trigger()
+            if should_run:
+                cleanup_res = cleaner.execute_cleanup()
+                res.update(cleanup_res)
+                res["triggered"] = True
+                res["reason"] = reason
+            else:
+                res["reason"] = reason
         except Exception as e:
             log_debug(f"BackgroundAutoCleanWorker error: {e}")
             res["errors"].append(str(e))
@@ -481,14 +493,17 @@ class MainWindow(QMainWindow):
         self.auto_clean_timer.start(3600 * 1000)
 
     def _check_and_run_auto_clean(self):
-        cleaner = AutoCleaner()
-        should_run, reason = cleaner.should_trigger()
-        if should_run:
-            self.auto_clean_worker = BackgroundAutoCleanWorker()
-            self.auto_clean_worker.finished.connect(self._on_background_auto_clean_finished)
-            self.auto_clean_worker.start()
+        if hasattr(self, 'auto_clean_worker') and self.auto_clean_worker and self.auto_clean_worker.isRunning():
+            return
+        if not self.config.get("auto_clean_enabled", False):
+            return
+        self.auto_clean_worker = BackgroundAutoCleanWorker()
+        self.auto_clean_worker.finished.connect(self._on_background_auto_clean_finished)
+        self.auto_clean_worker.start()
 
     def _on_background_auto_clean_finished(self, res: dict):
+        if not res.get("triggered", False):
+            return
         if self.config.get("auto_clean_notify", True) and hasattr(self, 'tray_icon') and self.tray_icon.isVisible():
             total = res.get("total_freed_str", "0 B")
             files = res.get("cleaned_files_count", 0)
@@ -631,14 +646,15 @@ class MainWindow(QMainWindow):
                 ('view_junk', ['scan_thread', 'clean_thread']),
                 ('view_registry', ['scan_thread', 'fix_thread']),
                 ('view_memory', ['loader_worker']),
-                ('view_uninstaller', ['scan_worker', 'uninstall_worker']),
+                ('view_startup', ['scan_worker']),
+                ('view_uninstaller', ['scan_worker']),
                 ('view_hardware_health', ['scan_worker']),
-                ('view_battery', ['worker']),
+                ('view_battery', ['hw_worker']),
                 ('view_disk', ['scan_thread']),
-                ('view_privacy', ['bloatware_worker', 'telemetry_worker', 'cookie_worker']),
-                ('view_rescue', ['restore_worker']),
-                ('view_network', ['speed_worker', 'meta_worker', 'dns_worker', 'repair_worker']),
-                ('view_settings', ['check_thread', 'download_thread', 'auto_clean_worker']),
+                ('view_privacy', ['scan_worker', 'remove_worker', 'telemetry_worker', 'cookie_scan_worker', 'cookie_clean_worker']),
+                ('view_rescue', ['rp_worker']),
+                ('view_network', ['speed_worker', 'meta_worker', 'benchmark_worker', 'repair_worker']),
+                ('view_settings', ['check_thread', 'download_thread', 'manual_clean_worker']),
             ]:
                 if hasattr(self, view_attr):
                     view_obj = getattr(self, view_attr)

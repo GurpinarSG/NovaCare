@@ -16,6 +16,9 @@ if sys.platform == 'win32':
         pass
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
+from core.utils import get_system32_path
 
 def build_executable(onefile: bool = True):
     print("=" * 60)
@@ -79,7 +82,7 @@ def build_executable(onefile: bool = True):
                     copied = True
                     break
                 except PermissionError:
-                    subprocess.run(["taskkill", "/f", "/im", "NovaCare.exe"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    subprocess.run([get_system32_path("taskkill"), "/f", "/im", "NovaCare.exe"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                     import time
                     time.sleep(1.2)
             if not copied:
@@ -95,10 +98,13 @@ def build_executable(onefile: bool = True):
                     print(f"  [!] Yüklü uygulama güncellenemedi: {e}")
 
             # Sync shortcuts via PowerShell WScript.Shell
+            import base64
+            ps_root_dir = ROOT_DIR.replace("'", "''")
+            ps_exe_path = root_exe.replace("'", "''")
             ps_script = f"""
             $wsh = New-Object -ComObject WScript.Shell
-            $root_dir = '{ROOT_DIR}'
-            $exe_path = '{root_exe}'
+            $root_dir = '{ps_root_dir}'
+            $exe_path = '{ps_exe_path}'
             $icon_path = Join-Path $root_dir 'assets\\icon.ico'
             $desktop_lnk = Join-Path ([Environment]::GetFolderPath('Desktop')) 'NovaCare.lnk'
             $local_lnk = Join-Path $root_dir 'NovaCare.lnk'
@@ -114,8 +120,9 @@ def build_executable(onefile: bool = True):
             }}
             """
             try:
+                encoded_ps = base64.b64encode(ps_script.encode('utf-16le')).decode('ascii')
                 flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
-                subprocess.run(["powershell", "-NoProfile", "-Command", ps_script], creationflags=flags)
+                subprocess.run([get_system32_path("powershell"), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded_ps], creationflags=flags)
             except Exception:
                 pass
 

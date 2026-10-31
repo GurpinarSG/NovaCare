@@ -186,7 +186,8 @@ exit 0
         p = subprocess.run(
             ["powershell.exe", "-ExecutionPolicy", "Bypass", "-NoProfile", "-File", ps1_path],
             capture_output=True,
-            text=True
+            text=True,
+            errors="replace"
         )
 
         assert p.returncode == 0, f"PowerShell failed with code {p.returncode}: {p.stderr}"
@@ -247,7 +248,7 @@ exit /b 0
         with open(bat_path, "w", encoding="utf-8-sig") as f:
             f.write(bat_code)
 
-        p = subprocess.run(["cmd.exe", "/c", bat_path], capture_output=True, text=True)
+        p = subprocess.run(["cmd.exe", "/c", bat_path], capture_output=True, text=True, errors="replace")
         assert p.returncode == 0, f"CMD failed with code {p.returncode}: {p.stderr}"
 
         with open(old_exe, "rb") as f:
@@ -295,7 +296,8 @@ def test_web_redirect_rate_limit_fallback():
         # Even with API 403 rate limit, web fallback retrieves latest release info
         info = updater.check_for_updates(mode="release")
         assert info.available == True
-        assert info.latest_version in ("v1.2.4", "v1.2.5", "v1.2.6")
+        from core.updater import is_newer_version
+        assert is_newer_version(info.latest_version, "1.2.3")
         assert "NovaCare_Update.zip" in info.download_url
         print(f"  [✔] Rate limit fallback detected {info.latest_version} via web redirect successfully.")
 
@@ -304,8 +306,9 @@ def test_live_release_update_readiness():
     updater = GitHubUpdater("GurpinarSG/NovaCare", token="", current_version="1.2.4")
     info = updater.check_for_updates(mode="release")
 
+    from core.updater import is_newer_version
     assert info.available == True, f"Should detect {info.latest_version} as newer than v1.2.4"
-    assert info.latest_version in ("v1.2.5", "v1.2.6")
+    assert is_newer_version(info.latest_version, "1.2.4")
     assert info.download_url.startswith("https://")
     print(f"  [✔] Live update check: {info.current_version} -> {info.latest_version}")
 
@@ -408,7 +411,7 @@ def test_file_lock_retry_loop():
         with open(ps1_file, "w", encoding="utf-8-sig") as f:
             f.write(ps1_code)
 
-        p = subprocess.run(["powershell.exe", "-ExecutionPolicy", "Bypass", "-NoProfile", "-File", ps1_file], capture_output=True, text=True)
+        p = subprocess.run(["powershell.exe", "-ExecutionPolicy", "Bypass", "-NoProfile", "-File", ps1_file], capture_output=True, text=True, errors="replace")
         assert p.returncode == 0, f"PowerShell lock retry failed: {p.stderr}"
         with open(old_exe, "rb") as f:
             assert f.read() == b"MZ_NEW_PAYLOAD_REPLACED", "File must have been updated after lock release"

@@ -94,7 +94,11 @@ class AutoCleaner:
             try:
                 cats = self.junk_cleaner.scan_all()
                 if cats:
-                    cat_ids = {c.id for c in cats}
+                    clean_recycle = self.config.get("auto_clean_recycle_bin", False)
+                    cat_ids = {
+                        c.id for c in cats
+                        if clean_recycle or (c.id != "recycle_bin" and not getattr(c, "is_recycle_bin", False))
+                    }
                     freed_junk, cleaned_files, _ = self.junk_cleaner.clean_categories(cat_ids)
             except Exception:
                 pass

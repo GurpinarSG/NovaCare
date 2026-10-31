@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Optional
 from core.utils import (
     safe_remove_file,
+    is_reparse_point,
     query_recycle_bin,
     empty_recycle_bin,
     log_debug
@@ -230,8 +231,8 @@ class JunkCleaner:
                         if e_name in _EXCLUDED_NAMES:
                             continue
 
-                        # Avoid traversing symlinks and junction points
-                        if entry.is_symlink():
+                        # Avoid traversing symlinks and Windows NTFS junction points
+                        if is_reparse_point(entry):
                             continue
 
                         if entry.is_file(follow_symlinks=False):
@@ -337,16 +338,20 @@ class JunkCleaner:
                         continue
                     if os.path.exists(p):
                         try:
-                            for root, dirs, _ in os.walk(p, topdown=False, followlinks=False):
-                                # Don't delete root path itself
-                                if root == p:
-                                    continue
+                            visited_dirs = []
+                            for root, dirs, _ in os.walk(p, topdown=True, followlinks=False):
+                                dirs[:] = [d for d in dirs if not is_reparse_point(os.path.join(root, d))]
                                 for d in dirs:
-                                    dir_to_check = os.path.join(root, d)
-                                    try:
-                                        os.rmdir(dir_to_check)
-                                    except (OSError, PermissionError):
-                                        pass
+                                    visited_dirs.append(os.path.join(root, d))
+
+                            for dir_to_check in reversed(visited_dirs):
+                                # Never remove the category root path itself
+                                if os.path.abspath(dir_to_check) == os.path.abspath(p):
+                                    continue
+                                try:
+                                    os.rmdir(dir_to_check)
+                                except (OSError, PermissionError):
+                                    pass
                         except Exception:
                             pass
 

@@ -65,6 +65,25 @@ def format_bytes(bytes_count: int | float) -> str:
         return f"{int(val)} {_UNITS[unit_index]}"
     return f"{val:.2f} {_UNITS[unit_index]}"
 
+def is_reparse_point(entry_or_path) -> bool:
+    """
+    Checks if a file or directory is a Windows NTFS Junction, Reparse Point, or Symlink.
+    st_reparse_tag != 0 on Windows indicates a reparse point (junctions, mount points, appexec links).
+    Prevents infinite recursion and memory exhaustion on recursive junctions like AppData\\Local\\Application Data.
+    """
+    try:
+        if hasattr(entry_or_path, 'is_symlink') and entry_or_path.is_symlink():
+            return True
+        if hasattr(entry_or_path, 'stat'):
+            st = entry_or_path.stat(follow_symlinks=False)
+            return getattr(st, 'st_reparse_tag', 0) != 0
+        if os.path.islink(entry_or_path):
+            return True
+        st = os.lstat(entry_or_path)
+        return getattr(st, 'st_reparse_tag', 0) != 0
+    except Exception:
+        return False
+
 def get_folder_size(path: str) -> tuple[int, int]:
     """Calculate total size in bytes and number of files in folder iteratively, avoiding recursion limits."""
     total_size = 0
@@ -79,6 +98,9 @@ def get_folder_size(path: str) -> tuple[int, int]:
             with os.scandir(current) as it:
                 for entry in it:
                     try:
+                        # Skip symlinks and NTFS junctions / reparse points to avoid infinite loops
+                        if is_reparse_point(entry):
+                            continue
                         if entry.is_file(follow_symlinks=False):
                             total_size += entry.stat().st_size
                             total_files += 1
@@ -92,9 +114,14 @@ def get_folder_size(path: str) -> tuple[int, int]:
     return total_size, total_files
 
 def to_long_path(path: str) -> str:
-    """Prepends \\?\ prefix to Windows absolute paths exceeding MAX_PATH (240+ chars)."""
+    r"""Prepends \\?\ or \\?\UNC\ prefix to Windows absolute paths exceeding MAX_PATH (240+ chars)."""
     if os.name == 'nt' and path and not path.startswith('\\\\?\\') and len(path) >= 240 and os.path.isabs(path):
-        return '\\\\?\\' + os.path.normpath(path)
+        norm = os.path.normpath(path)
+        if norm.startswith('\\\\?\\'):
+            return norm
+        if norm.startswith('\\\\'):
+            return '\\\\?\\UNC\\' + norm.lstrip('\\')
+        return '\\\\?\\' + norm
     return path
 
 def safe_remove_file(file_path: str) -> bool:
@@ -251,13 +278,67 @@ def log_debug(msg: str):
     except Exception:
         pass
 
+CRITICAL_REGISTRY_BRANCHES = frozenset({
+    "software",
+    "system",
+    "sam",
+    "security",
+    "hardware",
+    "software\\microsoft",
+    "software\\microsoft\\windows",
+    "software\\microsoft\\windows nt",
+    "software\\microsoft\\windows nt\\currentversion",
+    "software\\microsoft\\windows\\currentversion",
+    "software\\microsoft\\windows\\currentversion\\uninstall",
+    "software\\microsoft\\windows\\currentversion\\run",
+    "software\\microsoft\\windows\\currentversion\\runonce",
+    "software\\microsoft\\windows\\currentversion\\explorer",
+    "software\\policies",
+    "software\\policies\\microsoft",
+    "software\\classes",
+    "software\\wow6432node",
+    "software\\wow6432node\\microsoft",
+    "software\\wow6432node\\microsoft\\windows",
+    "software\\wow6432node\\microsoft\\windows nt",
+    "software\\wow6432node\\microsoft\\windows nt\\currentversion",
+    "software\\wow6432node\\microsoft\\windows\\currentversion",
+    "software\\wow6432node\\microsoft\\windows\\currentversion\\uninstall",
+    "software\\wow6432node\\policies",
+    "software\\wow6432node\\classes",
+    "system\\currentcontrolset",
+    "system\\currentcontrolset\\services",
+    "system\\currentcontrolset\\control",
+    "system\\select",
+    "system\\setup",
+})
+
 def delete_registry_key_tree(root_key, subkey_path: str) -> bool:
     """
     Recursively deletes a Windows registry key and all of its subkeys and values.
     Standard winreg.DeleteKey fails if subkeys exist.
     Uses SHDeleteKeyW with recursive winreg enumeration fallback.
+    Guarded against root hives and critical system branch deletion.
     """
-    if sys.platform != 'win32' or not subkey_path:
+    if sys.platform != 'win32' or not subkey_path or not isinstance(subkey_path, str):
+        return False
+
+    clean_path = subkey_path.strip().replace('/', '\\').strip('\\')
+    if not clean_path:
+        return False
+
+    parts = [p.strip() for p in clean_path.split('\\') if p.strip()]
+    # Enforce minimum 2-level depth to prevent wiping root hives (e.g., "Software\Vendor\App")
+    if len(parts) < 2:
+        return False
+
+    # Strictly re-normalize path to prevent bypasses via redundant backslashes (e.g. Software\\Microsoft)
+    clean_path = '\\'.join(parts)
+    norm_lower = clean_path.lower()
+    if norm_lower in CRITICAL_REGISTRY_BRANCHES:
+        return False
+    if norm_lower.startswith("system\\currentcontrolset") and len(parts) <= 2:
+        return False
+    if (norm_lower.startswith("software\\microsoft") or norm_lower.startswith("software\\wow6432node\\microsoft")) and len(parts) <= 2:
         return False
 
     # 1. Try SHDeleteKeyW from shlwapi.dll (fastest, atomic Win32 API)
@@ -266,7 +347,7 @@ def delete_registry_key_tree(root_key, subkey_path: str) -> bool:
         shlwapi.SHDeleteKeyW.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p]
         shlwapi.SHDeleteKeyW.restype = ctypes.c_long
         hkey_val = int(root_key)
-        res = shlwapi.SHDeleteKeyW(ctypes.c_void_p(hkey_val), subkey_path)
+        res = shlwapi.SHDeleteKeyW(ctypes.c_void_p(hkey_val), clean_path)
         if res == 0:
             return True
     except Exception:
@@ -285,12 +366,94 @@ def delete_registry_key_tree(root_key, subkey_path: str) -> bool:
                 except OSError:
                     break
 
-        with winreg.OpenKey(root_key, subkey_path, 0, winreg.KEY_READ | winreg.KEY_WRITE) as key:
+        with winreg.OpenKey(root_key, clean_path, 0, winreg.KEY_READ | winreg.KEY_WRITE) as key:
             _delete_subkeys(key)
-        winreg.DeleteKey(root_key, subkey_path)
+        winreg.DeleteKey(root_key, clean_path)
         return True
     except Exception:
         return False
 
 
+def get_system32_path(binary_name: str) -> str:
+    """
+    Returns the absolute path to a Windows system binary inside System32 or PowerShell directory,
+    preventing DLL/binary search order hijacking from current working directory or user PATH.
+    If binary_name is 'powershell' or 'powershell.exe', resolves to System32\\WindowsPowerShell\\v1.0\\powershell.exe.
+    """
+    if not binary_name or not isinstance(binary_name, str):
+        return binary_name
 
+    raw = binary_name.strip()
+    if os.path.isabs(raw):
+        return os.path.normpath(raw)
+
+    sys_root = os.environ.get("SystemRoot") or os.environ.get("WINDIR") or r"C:\Windows"
+    system32 = os.path.join(sys_root, "System32")
+
+    name_lower = raw.lower()
+    if name_lower in ("powershell", "powershell.exe"):
+        ps_path = os.path.join(system32, "WindowsPowerShell", "v1.0", "powershell.exe")
+        if os.path.exists(ps_path):
+            return ps_path
+        return shutil.which("powershell.exe") or shutil.which("powershell") or ps_path
+
+    exe_name = raw if raw.lower().endswith(".exe") else f"{raw}.exe"
+    target = os.path.join(system32, exe_name)
+    if os.path.exists(target):
+        return target
+
+    if sys.platform == 'win32':
+        return target
+
+    return raw
+
+
+def get_console_encoding() -> str:
+    """Returns the Windows console OEM codepage (e.g. 'cp857', 'cp437') or system encoding fallback."""
+    if sys.platform == 'win32':
+        try:
+            oem_cp = ctypes.windll.kernel32.GetOEMCP()
+            if oem_cp:
+                return f"cp{oem_cp}"
+        except Exception:
+            pass
+    try:
+        import locale
+        enc = locale.getencoding()
+        if enc:
+            return enc
+    except Exception:
+        pass
+    return "utf-8"
+
+
+def safe_decode_bytes(data: bytes, default: str = "") -> str:
+    """
+    Safely decodes binary process stdout/stderr attempting OEM console codepage,
+    UTF-8, and ANSI encodings with guaranteed errors='replace' fallback.
+    Prevents UnicodeDecodeError on international/Turkish Windows installations.
+    """
+    if not data:
+        return default
+    # Try UTF-8 first (strict multi-byte validation)
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError:
+        pass
+
+    # Fallback to Windows OEM console codepage (e.g. cp857) and ANSI
+    encodings = []
+    if sys.platform == 'win32':
+        try:
+            oem = ctypes.windll.kernel32.GetOEMCP()
+            if oem:
+                encodings.append(f"cp{oem}")
+        except Exception:
+            pass
+    encodings.extend(["cp1254", "cp1252", "latin1"])
+    for enc in encodings:
+        try:
+            return data.decode(enc)
+        except Exception:
+            continue
+    return data.decode("utf-8", errors="replace")

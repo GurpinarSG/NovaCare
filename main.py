@@ -187,9 +187,10 @@ def perform_self_uninstall(silent: bool = False):
     # 1. Terminate other running NovaCare processes
     my_pid = os.getpid()
     flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0x08000000)
+    from core.utils import get_system32_path
     try:
         subprocess.run(
-            ["taskkill", "/f", "/fi", f"PID ne {my_pid}", "/im", "NovaCare.exe"],
+            [get_system32_path("taskkill"), "/f", "/fi", f"PID ne {my_pid}", "/im", "NovaCare.exe"],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             creationflags=flags, timeout=5
         )
@@ -199,7 +200,7 @@ def perform_self_uninstall(silent: bool = False):
     # 2. Remove Task Scheduler and Registry Run entries
     try:
         subprocess.run(
-            ["schtasks", "/delete", "/tn", "NovaCare_Autostart", "/f"],
+            [get_system32_path("schtasks"), "/delete", "/tn", "NovaCare_Autostart", "/f"],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             creationflags=flags, timeout=5
         )
@@ -231,8 +232,10 @@ def perform_self_uninstall(silent: bool = False):
     Remove-Item -Path (Join-Path $programs 'NovaCare') -Recurse -Force -ErrorAction SilentlyContinue
     """
     try:
+        import base64
+        encoded_ps = base64.b64encode(ps_remove_shortcuts.encode('utf-16le')).decode('ascii')
         subprocess.run(
-            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_remove_shortcuts],
+            [get_system32_path("powershell"), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded_ps],
             creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)
         )
     except Exception:
@@ -277,8 +280,10 @@ def perform_self_uninstall(silent: bool = False):
 
     if is_safe_novacare_dir:
         flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0) | getattr(subprocess, 'DETACHED_PROCESS', 0x00000008)
+        from core.utils import get_system32_path
+        cmd_bin = get_system32_path("cmd.exe")
         local_cfg = os.path.normpath(os.path.abspath(os.path.join(os.environ.get('LOCALAPPDATA', ''), 'NovaCare')))
-        del_cmd = f'timeout /t 2 /nobreak > nul & rmdir /s /q "{install_dir}"'
+        del_cmd = f'ping 127.0.0.1 -n 3 > nul & rmdir /s /q "{install_dir}"'
         if (
             os.path.exists(local_cfg)
             and local_cfg.lower() != install_dir.lower()
@@ -287,7 +292,7 @@ def perform_self_uninstall(silent: bool = False):
         ):
             del_cmd += f' & rmdir /s /q "{local_cfg}"'
         try:
-            subprocess.Popen(["cmd.exe", "/c", del_cmd], shell=False, creationflags=flags)
+            subprocess.Popen([cmd_bin, "/c", del_cmd], shell=False, creationflags=flags)
         except Exception:
             pass
 
@@ -326,9 +331,11 @@ def main():
         from core.utils import elevate_if_needed
         elevate_if_needed()
 
-    # Enable autostart by default on user system
+    # Enable autostart by default on user system if configured
     try:
-        ensure_default_autostart()
+        from core.config import ConfigManager
+        if ConfigManager().get("autostart_on_boot", True):
+            ensure_default_autostart()
     except Exception:
         pass
 
