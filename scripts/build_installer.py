@@ -1,7 +1,7 @@
 """
 NovaCare System Suite 2026 - Installer Builder
 Compiles installer_wizard.py and the core NovaCare application payload into
-a standalone setup file: dist/NovaCare_Setup_v1.0.1.exe
+a standalone setup file: dist/NovaCare_Setup_v<VERSION>.exe
 """
 import os
 import sys

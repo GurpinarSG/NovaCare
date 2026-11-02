@@ -8,7 +8,6 @@ Supports two update modes:
 """
 import os
 import sys
-import re
 import shutil
 import zipfile
 import subprocess
@@ -16,8 +15,10 @@ import ctypes
 import requests
 from dataclasses import dataclass
 from typing import Optional, Callable
-from core.config import CURRENT_VERSION, ConfigManager
+from core.config import CURRENT_VERSION, ConfigManager, parse_version_tuple, is_newer_version
 from core.utils import get_system32_path
+
+__all__ = ["GitHubUpdater", "UpdateInfo", "parse_version_tuple", "is_newer_version"]
 
 @dataclass
 class UpdateInfo:
@@ -33,25 +34,6 @@ class UpdateInfo:
     new_commit_sha: str = ""
     sha256: str = ""
     sha256sums_url: str = ""
-
-def parse_version_tuple(v_str: str) -> tuple[int, ...]:
-    cleaned = re.sub(r'^[vV]', '', str(v_str).strip())
-    # Match the leading version number segment like "1.2.4"
-    m = re.match(r'^(\d+(?:\.\d+)*)', cleaned)
-    if m:
-        return tuple(int(p) for p in m.group(1).split('.'))
-    parts = re.findall(r'\d+', cleaned)
-    if not parts:
-        return (0, 0, 0)
-    return tuple(int(p) for p in parts)
-
-def is_newer_version(latest_str: str, current_str: str) -> bool:
-    v_latest = parse_version_tuple(latest_str)
-    v_curr = parse_version_tuple(current_str)
-    max_len = max(len(v_latest), len(v_curr))
-    v_latest_padded = v_latest + (0,) * (max_len - len(v_latest))
-    v_curr_padded = v_curr + (0,) * (max_len - len(v_curr))
-    return v_latest_padded > v_curr_padded
 
 class GitHubUpdater:
     def __init__(
@@ -316,15 +298,18 @@ class GitHubUpdater:
         new_version: str = "",
         expected_sha256: str = "",
         sha256sums_url: str = "",
-        progress_callback: Optional[Callable[[int, int], None]] = None
+        progress_callback: Optional[Callable[[int, int], None]] = None,
+        target_app_root: Optional[str] = None,
+        parent_pid: Optional[int] = None,
+        custom_temp_dir: Optional[str] = None
     ) -> str:
         """
         Downloads update zip to temp folder, verifies SHA-256 integrity, extracts safely,
-        and generates apply_update.bat.
+        and generates apply_update.bat and apply_update.ps1.
         Returns the path to apply_update.bat ready to execute.
         """
-        temp_dir = os.path.join(os.environ.get('TEMP', os.path.expanduser('~')), 'NovaCare_Update')
-        if os.path.exists(temp_dir):
+        temp_dir = custom_temp_dir if custom_temp_dir else os.path.join(os.environ.get('TEMP', os.path.expanduser('~')), 'NovaCare_Update')
+        if not custom_temp_dir and os.path.exists(temp_dir):
             shutil.rmtree(temp_dir, ignore_errors=True)
         os.makedirs(temp_dir, exist_ok=True)
 
@@ -487,10 +472,19 @@ class GitHubUpdater:
             except Exception:
                 pass
 
-        current_pid = os.getpid()
+        current_pid = parent_pid if parent_pid is not None else os.getpid()
 
         # Determine app paths and exact python interpreter
-        if getattr(sys, 'frozen', False):
+        if target_app_root:
+            app_root = target_app_root
+            if os.path.exists(os.path.join(app_root, "NovaCare.bat")):
+                launcher_target = os.path.join(app_root, "NovaCare.bat")
+            elif os.path.exists(os.path.join(app_root, "NovaCare.exe")):
+                launcher_target = os.path.join(app_root, "NovaCare.exe")
+            else:
+                launcher_target = os.path.join(app_root, "NovaCare.exe")
+            python_exe = sys.executable
+        elif getattr(sys, 'frozen', False):
             app_root = os.path.dirname(sys.executable)
             launcher_target = os.path.join(app_root, "NovaCare.exe")
             python_exe = ""
@@ -519,6 +513,20 @@ class GitHubUpdater:
         with open(ps1_path, "w", encoding="utf-8-sig") as pf:
             pf.write(f"""# NovaCare System Suite - Robust In-Place PowerShell Updater
 $ErrorActionPreference = 'SilentlyContinue'
+$logFile = if ($PSScriptRoot) {{ Join-Path $PSScriptRoot 'update.log' }} else {{ 'update.log' }}
+function Write-Log($msg) {{
+    $timestamp = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+    $line = "[$timestamp] [PowerShell] $msg"
+    Write-Output $line
+    try {{ [System.IO.File]::AppendAllText($logFile, "$line`r`n", [System.Text.Encoding]::UTF8) }} catch {{}}
+}}
+
+Write-Log "NovaCare PowerShell Updater started (PID: $PID)"
+Write-Log "SourceDir: '{ps_source_dir}'"
+Write-Log "AppRoot: '{ps_app_root}'"
+Write-Log "Launcher: '{ps_launcher}'"
+Write-Log "Version: '{ps_version}'"
+
 $sourceDir = '{ps_source_dir}'
 $appRoot = '{ps_app_root}'
 $launcher = '{ps_launcher}'
@@ -540,14 +548,28 @@ try {{
 }}
 
 if (-not $isAdmin -and -not $canWrite) {{
-    $psExe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    Write-Log "Elevation needed, attempting restart as Administrator..."
+    $psExe = Join-Path $env:SystemRoot 'System32\\WindowsPowerShell\\v1.0\\powershell.exe'
     if (-not (Test-Path -LiteralPath $psExe)) {{ $psExe = 'powershell.exe' }}
-    $proc = Start-Process $psExe -ArgumentList "-ExecutionPolicy Bypass -NoProfile -File `"$PSCommandPath`"" -Verb RunAs -PassThru -Wait
-    exit $proc.ExitCode
+    try {{
+        $proc = Start-Process $psExe -ArgumentList "-ExecutionPolicy Bypass -NoProfile -File `"$PSCommandPath`"" -Verb RunAs -PassThru -Wait
+        if ($proc -and $proc.ExitCode -eq 0) {{
+            Write-Log "Elevated PowerShell updater finished successfully."
+            exit 0
+        }} else {{
+            $code = if ($proc) {{ $proc.ExitCode }} else {{ 1 }}
+            Write-Log "Elevated PowerShell updater exited with code: $code"
+            exit $code
+        }}
+    }} catch {{
+        Write-Log "Failed to elevate PowerShell updater: $_"
+        exit 1
+    }}
 }}
 
 # 1. Terminate current NovaCare process and any tree processes
 if ($parentPid -gt 0) {{
+    Write-Log "Stopping parent PID: $parentPid"
     Stop-Process -Id $parentPid -Force -ErrorAction SilentlyContinue
     $pStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
     while ($pStopwatch.Elapsed.TotalSeconds -lt 10) {{
@@ -574,6 +596,7 @@ $destExe = Join-Path $appRoot 'NovaCare.exe'
 $oldExe = Join-Path $appRoot ('NovaCare.exe.old.' + [System.Guid]::NewGuid().ToString('N').Substring(0, 8))
 
 if (Test-Path -LiteralPath $srcExe) {{
+    Write-Log "Replacing NovaCare.exe..."
     # Clear any old backup files from previous updates
     Get-ChildItem -LiteralPath $appRoot -Filter 'NovaCare.exe.old*' -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
 
@@ -607,16 +630,19 @@ if (Test-Path -LiteralPath $srcExe) {{
     }}
 
     if (-not $copied) {{
+        Write-Log "FATAL: Copy-Item failed to replace NovaCare.exe after retries."
         # Rollback original executable if copy failed
         if (Test-Path -LiteralPath $oldExe) {{
             Move-Item -LiteralPath $oldExe -Destination $destExe -Force -ErrorAction SilentlyContinue
         }}
         exit 1
     }}
+    Write-Log "NovaCare.exe replacement succeeded."
     if (Test-Path -LiteralPath $oldExe) {{ Remove-Item -LiteralPath $oldExe -Force -ErrorAction SilentlyContinue }}
 }}
 
 # 3. Synchronize all updated assets and files
+Write-Log "Synchronizing updated assets and files..."
 Get-ChildItem -LiteralPath $sourceDir -Force | ForEach-Object {{
     if ($_.Name -ne 'NovaCare.exe') {{
         Copy-Item -LiteralPath ($_.FullName) -Destination $appRoot -Recurse -Force -ErrorAction SilentlyContinue
@@ -636,7 +662,10 @@ if ($version) {{
             if ($parts.Length -gt 1) {{ $vNotes = "`n---" + $parts[1] }}
         }}
         [System.IO.File]::WriteAllText($destVFile, ($version + $vNotes), $utf8NoBom)
-    }} catch {{}}
+        Write-Log "Updated VERSION in appRoot to: $version"
+    }} catch {{
+        Write-Log "Warning: Failed to update VERSION file: $_"
+    }}
 }}
 
 # 4. Synchronize Registry DisplayVersion
@@ -662,23 +691,36 @@ try {{
     if ($commitSha) {{ $json.local_commit_sha = $commitSha }}
     $jsonText = $json | ConvertTo-Json -Depth 10
     [System.IO.File]::WriteAllText($cfgPath, $jsonText, $utf8NoBom)
-}} catch {{}}
+    Write-Log "Updated settings.json with version: $version"
+}} catch {{
+    Write-Log "Warning: Failed to update settings.json: $_"
+}}
 
 # 6. Relaunch updated NovaCare
 Start-Sleep -Milliseconds 500
-if (Test-Path -LiteralPath $launcher) {{
-    if ($launcher.EndsWith('.bat')) {{
-        Start-Process -FilePath 'cmd.exe' -ArgumentList "/c `"$launcher`"" -WorkingDirectory $appRoot
+Write-Log "Launching updated target: $launcher"
+try {{
+    if (Test-Path -LiteralPath $launcher) {{
+        if ($launcher.EndsWith('.bat')) {{
+            Start-Process -FilePath 'cmd.exe' -ArgumentList "/c `"`"$launcher`"`"" -WorkingDirectory $appRoot
+        }} else {{
+            Start-Process -FilePath $launcher -WorkingDirectory $appRoot
+        }}
+        Write-Log "Successfully requested launch of $launcher"
+    }} elseif (Test-Path -LiteralPath $mainPy) {{
+        if ((Test-Path -LiteralPath $pythonExe) -and $pythonExe) {{
+            Start-Process -FilePath $pythonExe -ArgumentList "`"$mainPy`"" -WorkingDirectory $appRoot -ErrorAction SilentlyContinue
+        }} else {{
+            Start-Process -FilePath 'pythonw.exe' -ArgumentList "`"$mainPy`"" -WorkingDirectory $appRoot -ErrorAction SilentlyContinue
+        }}
+        Write-Log "Successfully requested launch of main.py"
     }} else {{
-        Start-Process -FilePath $launcher -WorkingDirectory $appRoot
+        Write-Log "Warning: No valid launcher or main.py found at $appRoot"
     }}
-}} elseif (Test-Path -LiteralPath $mainPy) {{
-    if ((Test-Path -LiteralPath $pythonExe) -and $pythonExe) {{
-        Start-Process -FilePath $pythonExe -ArgumentList "`"$mainPy`"" -WorkingDirectory $appRoot -ErrorAction SilentlyContinue
-    }} else {{
-        Start-Process -FilePath 'pythonw.exe' -ArgumentList "`"$mainPy`"" -WorkingDirectory $appRoot -ErrorAction SilentlyContinue
-    }}
+}} catch {{
+    Write-Log "Error launching updated application: $_"
 }}
+Write-Log "PowerShell updater finished successfully with exit code 0."
 exit 0
 """)
 
@@ -689,6 +731,12 @@ exit 0
         with open(batch_path, "w", encoding="utf-8-sig") as bf:
             bf.write(f"""@echo off
 chcp 65001 > nul
+set "UPDATE_LOG=%~dp0update.log"
+echo ======================================================== >> "%UPDATE_LOG%" 2>&1
+echo [NovaCare Update Started %date% %time%] >> "%UPDATE_LOG%" 2>&1
+echo AppRoot: "{app_root}" >> "%UPDATE_LOG%" 2>&1
+echo SourceDir: "{source_dir}" >> "%UPDATE_LOG%" 2>&1
+echo TargetVersion: "{clean_ver_num}" >> "%UPDATE_LOG%" 2>&1
 title NovaCare Guncelleme Yoneticisi
 echo ========================================================
 echo   NovaCare System Care Suite - Guncelleme Uygulaniyor
@@ -704,23 +752,30 @@ set _PYI_SPLASH_IPC=
 
 :: 1. Try PowerShell Updater engine first (100% reliable Unicode & atomic rename handling)
 if exist "%~dp0apply_update.ps1" (
-    "%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -ExecutionPolicy Bypass -NoProfile -File "%~dp0apply_update.ps1"
-    if not errorlevel 1 goto cleanup_batch
+    echo [*] Starting PowerShell Updater engine... >> "%UPDATE_LOG%" 2>&1
+    "%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -ExecutionPolicy Bypass -NoProfile -File "%~dp0apply_update.ps1" >> "%UPDATE_LOG%" 2>&1
+    if not errorlevel 1 (
+        echo [✔] PowerShell Updater completed successfully. >> "%UPDATE_LOG%" 2>&1
+        goto cleanup_batch
+    )
+    echo [!] PowerShell Updater failed or exited with code %errorlevel%, falling back to native CMD updater >> "%UPDATE_LOG%" 2>&1
 )
 
 :: 2. Fail-safe native CMD fallback in case PowerShell is disabled or restricted
+echo [*] Native CMD Updater running >> "%UPDATE_LOG%" 2>&1
 if {current_pid} gtr 0 (
-    "%SystemRoot%\System32\taskkill.exe" /f /pid {current_pid} > nul 2>&1
+    echo [*] Terminating parent PID {current_pid} >> "%UPDATE_LOG%" 2>&1
+    "%SystemRoot%\\System32\\taskkill.exe" /f /pid {current_pid} >> "%UPDATE_LOG%" 2>&1
 )
-"%SystemRoot%\System32\taskkill.exe" /f /im NovaCare.exe > nul 2>&1
+"%SystemRoot%\\System32\\taskkill.exe" /f /im NovaCare.exe >> "%UPDATE_LOG%" 2>&1
 ping 127.0.0.1 -n 2 > nul
 
 for /l %%i in (1,1,15) do (
-    "%SystemRoot%\System32\tasklist.exe" /fi "imagename eq NovaCare.exe" 2>nul | "%SystemRoot%\System32\find.exe" /i "NovaCare.exe" >nul
+    "%SystemRoot%\\System32\\tasklist.exe" /fi "imagename eq NovaCare.exe" 2>nul | "%SystemRoot%\\System32\\find.exe" /i "NovaCare.exe" >nul
     if errorlevel 1 (
         goto ready_to_copy
     )
-    "%SystemRoot%\System32\taskkill.exe" /f /im NovaCare.exe > nul 2>&1
+    "%SystemRoot%\\System32\\taskkill.exe" /f /im NovaCare.exe >> "%UPDATE_LOG%" 2>&1
     ping 127.0.0.1 -n 2 > nul
 )
 
@@ -729,41 +784,54 @@ ping 127.0.0.1 -n 2 > nul
 
 :: Clear destExe with retry loop against locks
 if exist "{source_dir}\\NovaCare.exe" (
-    if exist "{app_root}\\NovaCare.exe.old" del /f /q "{app_root}\\NovaCare.exe.old" > nul 2>&1
+    echo [*] Replacing NovaCare.exe in CMD fallback... >> "%UPDATE_LOG%" 2>&1
+    if exist "{app_root}\\NovaCare.exe.old" del /f /q "{app_root}\\NovaCare.exe.old" >> "%UPDATE_LOG%" 2>&1
     for /l %%m in (1,1,15) do (
         if not exist "{app_root}\\NovaCare.exe" goto dest_cleared
-        move /y "{app_root}\\NovaCare.exe" "{app_root}\\NovaCare.exe.old" > nul 2>&1
+        move /y "{app_root}\\NovaCare.exe" "{app_root}\\NovaCare.exe.old" >> "%UPDATE_LOG%" 2>&1
         if not exist "{app_root}\\NovaCare.exe" goto dest_cleared
-        del /f /q "{app_root}\\NovaCare.exe" > nul 2>&1
+        del /f /q "{app_root}\\NovaCare.exe" >> "%UPDATE_LOG%" 2>&1
         if not exist "{app_root}\\NovaCare.exe" goto dest_cleared
         ping 127.0.0.1 -n 2 > nul
     )
     :dest_cleared
     for /l %%k in (1,1,15) do (
-        copy /y "{source_dir}\\NovaCare.exe" "{app_root}\\NovaCare.exe" > nul 2>&1
+        copy /y "{source_dir}\\NovaCare.exe" "{app_root}\\NovaCare.exe" >> "%UPDATE_LOG%" 2>&1
         if not errorlevel 1 if exist "{app_root}\\NovaCare.exe" goto exe_copied
         ping 127.0.0.1 -n 2 > nul
     )
     :: Rollback if copy failed
-    if exist "{app_root}\\NovaCare.exe.old" move /y "{app_root}\\NovaCare.exe.old" "{app_root}\\NovaCare.exe" > nul 2>&1
+    echo [X] Copying NovaCare.exe failed, rolling back! >> "%UPDATE_LOG%" 2>&1
+    if exist "{app_root}\\NovaCare.exe.old" move /y "{app_root}\\NovaCare.exe.old" "{app_root}\\NovaCare.exe" >> "%UPDATE_LOG%" 2>&1
     goto launch_fallback
 )
 
 :exe_copied
-if exist "{app_root}\\NovaCare.exe.old" del /f /q "{app_root}\\NovaCare.exe.old" > nul 2>&1
+if exist "{app_root}\\NovaCare.exe.old" del /f /q "{app_root}\\NovaCare.exe.old" >> "%UPDATE_LOG%" 2>&1
 
 :: Copy other assets (/r overwrites read-only, /h copies hidden)
-xcopy /s /e /y /i /q /r /h "{source_dir}\\*" "{app_root}" > nul 2>&1
+echo [*] Copying all other assets... >> "%UPDATE_LOG%" 2>&1
+xcopy /s /e /y /i /q /r /h "{source_dir}\\*" "{app_root}" >> "%UPDATE_LOG%" 2>&1
 
 :: Explicitly copy VERSION file if exists
-if exist "{source_dir}\\VERSION" copy /y "{source_dir}\\VERSION" "{app_root}\\VERSION" > nul 2>&1
+if exist "{source_dir}\\VERSION" (
+    echo [*] Copying VERSION file... >> "%UPDATE_LOG%" 2>&1
+    copy /y "{source_dir}\\VERSION" "{app_root}\\VERSION" >> "%UPDATE_LOG%" 2>&1
+)
 
 :: Update registry DisplayVersion
-reg add "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\NovaCare" /v "DisplayVersion" /d "{clean_ver_num}" /f > nul 2>&1
-reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\NovaCare" /v "DisplayVersion" /d "{clean_ver_num}" /f > nul 2>&1
+reg add "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\NovaCare" /v "DisplayVersion" /d "{clean_ver_num}" /f >> "%UPDATE_LOG%" 2>&1
+reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\NovaCare" /v "DisplayVersion" /d "{clean_ver_num}" /f >> "%UPDATE_LOG%" 2>&1
+
+:: Update %LOCALAPPDATA%\\NovaCare\\settings.json with the new version if settings exist
+if exist "%LOCALAPPDATA%\\NovaCare\\settings.json" (
+    echo [*] Updating %LOCALAPPDATA%\\NovaCare\\settings.json in CMD fallback... >> "%UPDATE_LOG%" 2>&1
+    "%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -NoProfile -ExecutionPolicy Bypass -Command "$p = Join-Path $env:LOCALAPPDATA 'NovaCare\\settings.json'; try {{ $j = Get-Content -LiteralPath $p -Raw -Encoding UTF8 | ConvertFrom-Json; $j.version = '{clean_ver_num}'; if ('{new_commit_sha}') {{ $j.local_commit_sha = '{new_commit_sha}' }}; $u = New-Object System.Text.UTF8Encoding $false; [System.IO.File]::WriteAllText($p, ($j | ConvertTo-Json -Depth 10), $u) }} catch {{}}" >> "%UPDATE_LOG%" 2>&1
+)
 
 :launch_fallback
 echo Guncelleme islemi tamamlandi. NovaCare yeniden baslatiliyor...
+echo [*] Relaunching application... >> "%UPDATE_LOG%" 2>&1
 ping 127.0.0.1 -n 2 > nul
 
 set _PYI_PARENT_PID=
@@ -774,21 +842,25 @@ set _PYI_SPLASH_IPC=
 
 cd /d "{app_root}"
 if exist "{launcher_target}" (
+    echo [*] Starting launcher: "{launcher_target}" >> "%UPDATE_LOG%" 2>&1
     start "" "{launcher_target}"
 ) else if exist "{main_py}" (
     if exist "{python_exe}" (
+        echo [*] Starting python_exe: "{python_exe}" "{main_py}" >> "%UPDATE_LOG%" 2>&1
         start "" "{python_exe}" "{main_py}"
     ) else (
+        echo [*] Starting pythonw: pythonw "{main_py}" >> "%UPDATE_LOG%" 2>&1
         start "" pythonw "{main_py}"
     )
 )
 
 :cleanup_batch
+echo [Update Completed %date% %time%] >> "%UPDATE_LOG%" 2>&1
 if exist "%~dp0apply_update.ps1" del /f /q "%~dp0apply_update.ps1" > nul 2>&1
 if exist "%~dp0update.zip" del /f /q "%~dp0update.zip" > nul 2>&1
 if exist "%~dp0extracted" rd /s /q "%~dp0extracted" > nul 2>&1
-del /f /q "%~f0" > nul 2>&1
-exit
+start /b "" cmd /c del /f /q "%~f0" > nul 2>&1
+exit /b 0
 """)
 
         return batch_path

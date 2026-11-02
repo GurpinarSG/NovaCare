@@ -8,8 +8,10 @@ import sys
 import time
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QProgressBar,
-    QCheckBox, QRadioButton, QButtonGroup, QTextEdit, QMessageBox, QFrame, QScrollArea, QComboBox
+    QCheckBox, QRadioButton, QButtonGroup, QTextEdit, QMessageBox, QFrame, QScrollArea, QComboBox,
+    QSlider, QColorDialog, QGridLayout
 )
+from PyQt5.QtGui import QColor
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from core.config import ConfigManager, CURRENT_VERSION
 from core.updater import GitHubUpdater, UpdateInfo
@@ -82,6 +84,20 @@ class DownloadUpdateThread(QThread):
         except Exception as e:
             self.finished.emit(f"ERROR:{e}")
 
+class AutostartWorker(QThread):
+    finished = pyqtSignal(bool, bool)  # enable, success
+
+    def __init__(self, enable: bool):
+        super().__init__()
+        self.enable = enable
+
+    def run(self):
+        try:
+            ok = set_autostart(self.enable)
+            self.finished.emit(self.enable, ok)
+        except Exception:
+            self.finished.emit(self.enable, False)
+
 class SettingsView(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -91,6 +107,7 @@ class SettingsView(QWidget):
         self.check_thread = None
         self.download_thread = None
         self.manual_clean_worker = None
+        self.autostart_worker = None
         self._init_ui()
 
     def _init_ui(self):
@@ -373,6 +390,8 @@ class SettingsView(QWidget):
         self.combo_schedule.addItem("Günde Bir Kez (Önerilen)", "daily")
         self.combo_schedule.addItem("Her Windows Başlangıcında", "startup")
         self.combo_schedule.addItem("Haftada Bir Kez", "weekly")
+        self.combo_schedule.addItem("Belirli Gün ve Saatte (Haftalık Bakım)", "scheduled_time")
+        self.combo_schedule.addItem("Sistem Boştayken (Akıllı Boşta Bakım)", "idle")
         self.combo_schedule.addItem("Gereksiz Dosyalar 1 GB'ı Aştığında", "threshold")
 
         cur_sch = self.config.get("auto_clean_schedule", "daily")
@@ -383,6 +402,80 @@ class SettingsView(QWidget):
         sch_row.addWidget(self.combo_schedule)
         sch_row.addStretch()
         ac_opt_lay.addLayout(sch_row)
+
+        # Dynamic Schedule Details Frame
+        self.frame_sch_time = QFrame()
+        st_lay = QHBoxLayout(self.frame_sch_time)
+        st_lay.setContentsMargins(20, 2, 0, 2)
+        st_lay.setSpacing(10)
+
+        lbl_day = QLabel("Bakım Günü:")
+        lbl_day.setStyleSheet("font-size: 11.5px; font-weight: 600;")
+        self.combo_target_day = QComboBox()
+        days = [
+            (6, "Pazar Gecesi"),
+            (0, "Pazartesi"),
+            (1, "Salı"),
+            (2, "Çarşamba"),
+            (3, "Perşembe"),
+            (4, "Cuma"),
+            (5, "Cumartesi"),
+            (-1, "Her Gün")
+        ]
+        for d_val, d_name in days:
+            self.combo_target_day.addItem(d_name, d_val)
+        c_day = self.config.get("auto_clean_target_day", 6)
+        d_idx = self.combo_target_day.findData(c_day)
+        if d_idx >= 0:
+            self.combo_target_day.setCurrentIndex(d_idx)
+        self.combo_target_day.currentIndexChanged.connect(
+            lambda: self.config.set("auto_clean_target_day", self.combo_target_day.currentData())
+        )
+
+        lbl_hour = QLabel("Saat:")
+        lbl_hour.setStyleSheet("font-size: 11.5px; font-weight: 600;")
+        self.combo_target_hour = QComboBox()
+        for h in range(24):
+            self.combo_target_hour.addItem(f"{h:02d}:00", h)
+        c_hour = self.config.get("auto_clean_target_hour", 3)
+        h_idx = self.combo_target_hour.findData(c_hour)
+        if h_idx >= 0:
+            self.combo_target_hour.setCurrentIndex(h_idx)
+        self.combo_target_hour.currentIndexChanged.connect(
+            lambda: self.config.set("auto_clean_target_hour", self.combo_target_hour.currentData())
+        )
+
+        st_lay.addWidget(lbl_day)
+        st_lay.addWidget(self.combo_target_day)
+        st_lay.addSpacing(10)
+        st_lay.addWidget(lbl_hour)
+        st_lay.addWidget(self.combo_target_hour)
+        st_lay.addStretch()
+        ac_opt_lay.addWidget(self.frame_sch_time)
+
+        # Idle details frame
+        self.frame_sch_idle = QFrame()
+        si_lay = QHBoxLayout(self.frame_sch_idle)
+        si_lay.setContentsMargins(20, 2, 0, 2)
+        si_lay.setSpacing(10)
+        lbl_idle = QLabel("Boşta Kalma Süresi:")
+        lbl_idle.setStyleSheet("font-size: 11.5px; font-weight: 600;")
+        self.combo_idle_min = QComboBox()
+        for m in (5, 10, 15, 30, 60):
+            self.combo_idle_min.addItem(f"{m} dakika boşta kaldığında", m)
+        c_idle = self.config.get("auto_clean_idle_minutes", 10)
+        i_idx = self.combo_idle_min.findData(c_idle)
+        if i_idx >= 0:
+            self.combo_idle_min.setCurrentIndex(i_idx)
+        self.combo_idle_min.currentIndexChanged.connect(
+            lambda: self.config.set("auto_clean_idle_minutes", self.combo_idle_min.currentData())
+        )
+        si_lay.addWidget(lbl_idle)
+        si_lay.addWidget(self.combo_idle_min)
+        si_lay.addStretch()
+        ac_opt_lay.addWidget(self.frame_sch_idle)
+
+        self._update_scheduler_details_ui()
 
         # Categories
         self.chk_ac_junk = QCheckBox("🗑️  Geçici dosyalar ve Windows önbellekleri (Junk Cleaner)")
@@ -430,6 +523,137 @@ class SettingsView(QWidget):
         self.auto_clean_options_widget.setEnabled(is_ac_enabled)
 
         content_layout.addWidget(card_auto_clean)
+
+        # 4.5 Desktop Performance Monitor Customization Card
+        card_widget = QFrame()
+        card_widget.setObjectName("CardFrame")
+        cw_layout = QVBoxLayout(card_widget)
+        cw_layout.setContentsMargins(22, 20, 22, 20)
+        cw_layout.setSpacing(14)
+
+        lbl_cw_title = QLabel("🖥️  Akıllı Masaüstü Monitörü Kişiselleştirme (Desktop Widget)")
+        lbl_cw_title.setStyleSheet(f"font-size: 16px; font-weight: 700; color: {COLOR_ACCENT};")
+        cw_layout.addWidget(lbl_cw_title)
+
+        lbl_cw_sub = QLabel("Masaüstü donanım panelinizin saydamlığını, yatay/dikey boyut modunu, renk temasını ve görüntülenecek modüllerini özelleştirin.")
+        lbl_cw_sub.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 12px;")
+        lbl_cw_sub.setWordWrap(True)
+        cw_layout.addWidget(lbl_cw_sub)
+
+        # Opacity Slider Row
+        opac_row = QVBoxLayout()
+        opac_row.setSpacing(4)
+        cur_opac_pct = int(float(self.config.get("desktop_widget_opacity", 0.90)) * 100)
+        self.lbl_widget_opac = QLabel(f"Monitör Arka Plan Saydamlığı (Opaklık): <b>%{cur_opac_pct}</b>")
+        self.lbl_widget_opac.setStyleSheet("font-size: 12px; font-weight: 600;")
+        opac_row.addWidget(self.lbl_widget_opac)
+
+        self.slider_widget_opacity = QSlider(Qt.Horizontal)
+        self.slider_widget_opacity.setRange(20, 100)
+        self.slider_widget_opacity.setValue(cur_opac_pct)
+        self.slider_widget_opacity.setTickInterval(10)
+        self.slider_widget_opacity.setTickPosition(QSlider.TicksBelow)
+        self.slider_widget_opacity.valueChanged.connect(self._on_widget_opacity_slider)
+        opac_row.addWidget(self.slider_widget_opacity)
+        cw_layout.addLayout(opac_row)
+
+        # Layout Mode & Theme Row
+        cfg_grid = QHBoxLayout()
+        cfg_grid.setSpacing(16)
+
+        # Layout Mode
+        v_lmode = QVBoxLayout()
+        v_lmode.setSpacing(4)
+        lbl_lm = QLabel("Yerleşim Modu:")
+        lbl_lm.setStyleSheet("font-size: 12px; font-weight: 600;")
+        v_lmode.addWidget(lbl_lm)
+
+        self.combo_widget_layout = QComboBox()
+        self.combo_widget_layout.addItem("Detaylı Panel (Klasik Kart)", "card")
+        self.combo_widget_layout.addItem("Yatay İnce Çubuk (Bar)", "horizontal")
+        self.combo_widget_layout.addItem("Dikey Şerit (Kenar Çubuğu)", "vertical")
+        cur_lm = self.config.get("desktop_widget_layout", "card")
+        lm_idx = self.combo_widget_layout.findData(cur_lm)
+        if lm_idx >= 0:
+            self.combo_widget_layout.setCurrentIndex(lm_idx)
+        self.combo_widget_layout.currentIndexChanged.connect(self._on_widget_layout_changed)
+        v_lmode.addWidget(self.combo_widget_layout)
+        cfg_grid.addLayout(v_lmode)
+
+        # Theme Presets
+        v_theme = QVBoxLayout()
+        v_theme.setSpacing(4)
+        lbl_wt = QLabel("Renk ve Tema Şablonu:")
+        lbl_wt.setStyleSheet("font-size: 12px; font-weight: 600;")
+        v_theme.addWidget(lbl_wt)
+
+        self.combo_widget_theme = QComboBox()
+        self.combo_widget_theme.addItem("Neon Camgöbeği", "neon_cyan")
+        self.combo_widget_theme.addItem("Cyberpunk Moru", "cyberpunk_purple")
+        self.combo_widget_theme.addItem("OLED Saf Siyah", "oled_black")
+        self.combo_widget_theme.addItem("Minimal Beyaz", "minimal_white")
+        self.combo_widget_theme.addItem("Özel RGB Renk Seç...", "custom_rgb")
+        cur_wt = self.config.get("desktop_widget_theme", "neon_cyan")
+        wt_idx = self.combo_widget_theme.findData(cur_wt)
+        if wt_idx >= 0:
+            self.combo_widget_theme.setCurrentIndex(wt_idx)
+        self.combo_widget_theme.currentIndexChanged.connect(self._on_widget_theme_changed)
+        v_theme.addWidget(self.combo_widget_theme)
+        cfg_grid.addLayout(v_theme)
+
+        cw_layout.addLayout(cfg_grid)
+
+        # Click-Through and Snap to Edge Checkboxes
+        self.chk_widget_ct = QCheckBox("🖱️  Tıklamayı Geçir (Click-Through) Modu: Monitör açıkken altındaki pencere ve oyunlara fare tıklamaları geçsin")
+        self.chk_widget_ct.setChecked(self.config.get("desktop_widget_click_through", False))
+        self.chk_widget_ct.stateChanged.connect(self._on_widget_ct_toggled)
+        cw_layout.addWidget(self.chk_widget_ct)
+
+        self.chk_widget_snap = QCheckBox("🧲  Mıknatıslı Kenara Hizalama (Snap to Edge): Taşırken ekran kenarlarına ve köşelerine otomatik yapışsın")
+        self.chk_widget_snap.setChecked(self.config.get("desktop_widget_snap_to_edge", True))
+        self.chk_widget_snap.stateChanged.connect(self._on_widget_snap_toggled)
+        cw_layout.addWidget(self.chk_widget_snap)
+
+        # Modular Telemetry Cards Grid
+        lbl_mod_hdr = QLabel("Görüntülenecek Telemetriler ve Modüller:")
+        lbl_mod_hdr.setStyleSheet("font-size: 12px; font-weight: 700; margin-top: 4px;")
+        cw_layout.addWidget(lbl_mod_hdr)
+
+        mod_grid = QGridLayout()
+        mod_grid.setSpacing(8)
+
+        mods = [
+            ("widget_show_cpu", "⚡ CPU Yükü ve Frekansı", 0, 0),
+            ("widget_show_ram", "🧠 RAM Bellek Tüketimi", 0, 1),
+            ("widget_show_gpu", "🎮 Ayrık GPU Sıcaklık & VRAM", 1, 0),
+            ("widget_show_disk_io", "💾 Disk Anlık I/O (MB/s)", 1, 1),
+            ("widget_show_net", "🌐 Ağ Hızı (İndirme / Yükleme)", 2, 0),
+            ("widget_show_top_app", "🔥 Lider Süreç Göstergesi", 2, 1),
+            ("widget_show_uptime", "⏱️ Sistem Uptime & Sıcaklık", 3, 0),
+            ("widget_show_quick_actions", "⚡ Mini Hızlı Eylem Butonları", 3, 1),
+        ]
+        for key, title, r, c in mods:
+            chk = QCheckBox(title)
+            chk.setChecked(self.config.get(key, True))
+            chk.stateChanged.connect(lambda s, k=key: self._on_widget_modular_toggle(k, s))
+            mod_grid.addWidget(chk, r, c)
+
+        cw_layout.addLayout(mod_grid)
+
+        # Widget Toggle & Status Button Row
+        w_btn_row = QHBoxLayout()
+        w_btn_row.setSpacing(12)
+
+        self.btn_toggle_widget_now = QPushButton("📌  Masaüstü Widget'ını Şimdi Aç / Kapat")
+        self.btn_toggle_widget_now.setProperty("class", "secondary-btn")
+        self.btn_toggle_widget_now.setCursor(Qt.PointingHandCursor)
+        self.btn_toggle_widget_now.clicked.connect(self._toggle_desktop_widget_action)
+        w_btn_row.addWidget(self.btn_toggle_widget_now)
+        w_btn_row.addStretch()
+
+        cw_layout.addLayout(w_btn_row)
+
+        content_layout.addWidget(card_widget)
 
         # 5. General Preferences Card
         card_gen = QFrame()
@@ -545,13 +769,42 @@ class SettingsView(QWidget):
         main_layout.addWidget(scroll)
 
     def _on_autostart_toggle(self, state: int):
+        if hasattr(self, 'autostart_worker') and self.autostart_worker and self.autostart_worker.isRunning():
+            return
+
         enable = (state == Qt.Checked)
-        set_autostart(enable)
         self.config.set("autostart_on_boot", enable)
         if hasattr(self, 'widget_autostart_container'):
             self.widget_autostart_container.setEnabled(enable)
 
-        # When autostart is enabled, offer the desktop widget preference if not already prompted
+        if hasattr(self, 'chk_autostart'):
+            self.chk_autostart.setEnabled(False)
+
+        self.autostart_worker = AutostartWorker(enable)
+        self.autostart_worker.finished.connect(self._on_autostart_finished)
+        self.autostart_worker.start()
+
+    def _on_autostart_finished(self, enable: bool, success: bool):
+        if hasattr(self, 'chk_autostart'):
+            self.chk_autostart.setEnabled(True)
+
+        if not success:
+            log_debug(f"Autostart configuration failed for enable={enable}")
+            self.config.set("autostart_on_boot", not enable)
+            if hasattr(self, 'chk_autostart'):
+                self.chk_autostart.blockSignals(True)
+                self.chk_autostart.setChecked(not enable)
+                self.chk_autostart.blockSignals(False)
+            if hasattr(self, 'widget_autostart_container'):
+                self.widget_autostart_container.setEnabled(not enable)
+            QMessageBox.warning(
+                self,
+                "Yetki Hatası",
+                "Otomatik başlatma ayarı kaydedilemedi. Görev Zamanlayıcı (Task Scheduler) erişim izni gereklidir."
+            )
+            return
+
+        # When autostart is enabled and succeeded, offer the desktop widget preference if not already prompted
         if enable and not self.config.get("widget_autostart_prompted", False):
             self.config.set("widget_autostart_prompted", True)
             reply = QMessageBox.question(
@@ -746,6 +999,80 @@ class SettingsView(QWidget):
         sch = self.combo_schedule.currentData()
         if sch:
             self.config.set("auto_clean_schedule", sch)
+            self._update_scheduler_details_ui()
+
+    def _update_scheduler_details_ui(self):
+        cur_sch = self.combo_schedule.currentData() if hasattr(self, 'combo_schedule') else self.config.get("auto_clean_schedule", "weekly")
+        if hasattr(self, 'frame_sch_time'):
+            self.frame_sch_time.setVisible(cur_sch in ("scheduled_time", "daily", "weekly"))
+        if hasattr(self, 'frame_sch_idle'):
+            self.frame_sch_idle.setVisible(cur_sch == "idle")
+
+    def _on_widget_opacity_slider(self, val: int):
+        self.lbl_widget_opac.setText(f"Monitör Arka Plan Saydamlığı (Opaklık): <b>%{val}</b>")
+        flt = round(val / 100.0, 2)
+        self.config.set("desktop_widget_opacity", flt)
+        self._notify_widget_appearance()
+
+    def _on_widget_layout_changed(self):
+        lm = self.combo_widget_layout.currentData()
+        if lm:
+            self.config.set("desktop_widget_layout", lm)
+            self._notify_widget_appearance()
+
+    def _on_widget_theme_changed(self):
+        theme_key = self.combo_widget_theme.currentData()
+        if theme_key == "custom_rgb":
+            cur_hex = self.config.get("desktop_widget_custom_color", "#00d2ff")
+            col = QColorDialog.getColor(QColor(cur_hex), self, "Masaüstü Monitörü Tema Rengi Seç")
+            if col.isValid():
+                self.config.set("desktop_widget_custom_color", col.name())
+            else:
+                prev_theme = self.config.get("desktop_widget_theme", "neon_cyan")
+                idx = self.combo_widget_theme.findData(prev_theme)
+                if idx >= 0:
+                    self.combo_widget_theme.blockSignals(True)
+                    self.combo_widget_theme.setCurrentIndex(idx)
+                    self.combo_widget_theme.blockSignals(False)
+                return
+        if theme_key:
+            self.config.set("desktop_widget_theme", theme_key)
+            self._notify_widget_appearance()
+
+    def _on_widget_ct_toggled(self, state: int):
+        ct = (state == Qt.Checked)
+        self.config.set("desktop_widget_click_through", ct)
+        main_win = self.window()
+        if hasattr(main_win, 'desktop_widget') and main_win.desktop_widget:
+            main_win.desktop_widget.set_click_through(ct)
+        if hasattr(main_win, 'act_tray_ct'):
+            main_win.act_tray_ct.blockSignals(True)
+            main_win.act_tray_ct.setChecked(ct)
+            main_win.act_tray_ct.blockSignals(False)
+
+    def _on_widget_snap_toggled(self, state: int):
+        snap = (state == Qt.Checked)
+        self.config.set("desktop_widget_snap_to_edge", snap)
+
+    def _on_widget_modular_toggle(self, key: str, state: int):
+        enabled = (state == Qt.Checked)
+        self.config.set(key, enabled)
+        self._notify_widget_appearance()
+
+    def _notify_widget_appearance(self):
+        main_win = self.window()
+        if hasattr(main_win, 'desktop_widget') and main_win.desktop_widget:
+            main_win.desktop_widget.apply_appearance()
+
+    def _toggle_desktop_widget_action(self):
+        main_win = self.window()
+        if hasattr(main_win, 'toggle_desktop_widget'):
+            main_win.toggle_desktop_widget()
+        elif hasattr(main_win, 'desktop_widget') and main_win.desktop_widget:
+            if main_win.desktop_widget.isVisible():
+                main_win.desktop_widget.hide()
+            else:
+                main_win.desktop_widget.show()
 
     def _run_auto_clean_manual(self):
         self.btn_run_auto_clean_now.setEnabled(False)

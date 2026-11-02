@@ -6,8 +6,9 @@ Windows telemetry & privacy settings.
 import os
 import winreg
 import ctypes
+import subprocess
 from dataclasses import dataclass
-from core.utils import safe_remove_file, log_debug
+from core.utils import safe_remove_file, log_debug, get_system32_path
 
 @dataclass
 class PrivacyTraceItem:
@@ -92,6 +93,56 @@ class PrivacyTweaker:
                 root=winreg.HKEY_LOCAL_MACHINE,
                 sub_key=r"SOFTWARE\Policies\Microsoft\Windows\AppPrivacy",
                 value_name="LetAppsAccessLocation",
+                enabled_val=2,  # Force deny
+                disabled_val=0
+            ),
+            SystemTweak(
+                id="cortana",
+                name="Cortana Sesli Asistanı ve Arka Plan Ajanını Kapat",
+                description="Kullanılmayan Cortana servisinin arka planda mikrofon ve veri dinlemesini engeller.",
+                root=winreg.HKEY_LOCAL_MACHINE,
+                sub_key=r"SOFTWARE\Policies\Microsoft\Windows\Windows Search",
+                value_name="AllowCortana",
+                enabled_val=0,
+                disabled_val=1
+            ),
+            SystemTweak(
+                id="ceip",
+                name="Windows Müşteri Deneyimi Geliştirme Programını (CEIP) Kapat",
+                description="Microsoft sunucularına otomatik kullanım istatistiği yüklenmesini durdurur.",
+                root=winreg.HKEY_LOCAL_MACHINE,
+                sub_key=r"SOFTWARE\Policies\Microsoft\SQMClient\Windows",
+                value_name="CEIPEnable",
+                enabled_val=0,
+                disabled_val=1
+            ),
+            SystemTweak(
+                id="consumer_features",
+                name="Windows Tüketici Deneyimleri ve Tanıtım Önerilerini Kapat",
+                description="Başlat menüsünde ve bildirimlerde sponsorlu reklam ve uygulama önerilerini engeller.",
+                root=winreg.HKEY_LOCAL_MACHINE,
+                sub_key=r"SOFTWARE\Policies\Microsoft\Windows\CloudContent",
+                value_name="DisableWindowsConsumerFeatures",
+                enabled_val=1,
+                disabled_val=0
+            ),
+            SystemTweak(
+                id="feedback_frequency",
+                name="Windows Tanılama Geri Bildirim Sıklığını Kapat",
+                description="Windows'un periyodik anket ve geri bildirim pencereleri göstermesini engeller.",
+                root=winreg.HKEY_CURRENT_USER,
+                sub_key=r"Software\Microsoft\Siuf\Rules",
+                value_name="NumberOfSIUFInPeriod",
+                enabled_val=0,
+                disabled_val=1
+            ),
+            SystemTweak(
+                id="app_diagnostics",
+                name="Uygulamaların Tanılama Bilgilerine Erişimini Kısıtla",
+                description="Üçüncü parti yazılımların sistem tanılama ve log verilerinize erişmesini engeller.",
+                root=winreg.HKEY_LOCAL_MACHINE,
+                sub_key=r"SOFTWARE\Policies\Microsoft\Windows\AppPrivacy",
+                value_name="LetAppsGetDiagnosticInfo",
                 enabled_val=2,  # Force deny
                 disabled_val=0
             )
@@ -237,3 +288,68 @@ class PrivacyTweaker:
         except Exception as e:
             log_debug(f"PrivacyTweaker: Failed applying {tweak.id}: {e}")
             return False
+
+    def are_all_anti_spy_enabled(self) -> bool:
+        """Checks if all telemetry and privacy protection tweaks are active."""
+        statuses = self.check_tweak_statuses()
+        return all(t.current_enabled for t in statuses)
+
+    def apply_all_anti_spy(self, enable: bool = True) -> tuple[int, int, list[str]]:
+        """
+        1-Click Anti-Spy master switch.
+        Enables or disables all privacy & telemetry restriction tweaks,
+        and shuts down telemetry background services (DiagTrack, dmwappushservice).
+        Returns (success_count, failed_count, stopped_services).
+        """
+        success = 0
+        failed = 0
+        stopped_services = []
+
+        for tweak in self.tweaks:
+            if self.apply_tweak(tweak, enable):
+                success += 1
+            else:
+                failed += 1
+
+        # Manage telemetry services (stop & disable on enable=True, restore & start on enable=False)
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        telemetry_svcs = [
+            ("DiagTrack", "Bağlı Kullanıcı Deneyimleri ve Telemetri (DiagTrack)"),
+            ("dmwappushservice", "WAP Gönderimi İleti Yönlendirme (dmwappushservice)")
+        ]
+        if enable:
+            for svc_name, friendly in telemetry_svcs:
+                try:
+                    subprocess.run(
+                        [get_system32_path("net"), "stop", svc_name, "/y"],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                        timeout=5, creationflags=flags
+                    )
+                    subprocess.run(
+                        [get_system32_path("sc"), "config", svc_name, "start=disabled"],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                        timeout=5, creationflags=flags
+                    )
+                    stopped_services.append(friendly)
+                except Exception:
+                    pass
+        else:
+            for svc_name, friendly in telemetry_svcs:
+                try:
+                    subprocess.run(
+                        [get_system32_path("sc"), "config", svc_name, "start=auto"],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                        timeout=5, creationflags=flags
+                    )
+                    subprocess.run(
+                        [get_system32_path("net"), "start", svc_name],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                        timeout=5, creationflags=flags
+                    )
+                    stopped_services.append(friendly)
+                except Exception:
+                    pass
+
+        return success, failed, stopped_services
+
+

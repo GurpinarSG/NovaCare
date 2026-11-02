@@ -100,6 +100,29 @@ class NetworkRepairWorker(QThread):
         finally:
             self.finished.emit(ok, msg)
 
+class DnsApplyWorker(QThread):
+    finished = pyqtSignal(bool, str, str, str, str)  # ok, msg, action, adapter, srv_name
+
+    def __init__(self, optimizer: NetworkOptimizer, action: str, adapter: str, primary: str = "", secondary: str = "", srv_name: str = ""):
+        super().__init__()
+        self.optimizer = optimizer
+        self.action = action
+        self.adapter = adapter
+        self.primary = primary
+        self.secondary = secondary
+        self.srv_name = srv_name
+
+    def run(self):
+        try:
+            if self.action == "set":
+                ok, msg = self.optimizer.set_dns(self.adapter, self.primary, self.secondary)
+            else:
+                ok, msg = self.optimizer.reset_dns_to_dhcp(self.adapter)
+            self.finished.emit(ok, msg, self.action, self.adapter, self.srv_name)
+        except Exception as e:
+            log_debug(f"DnsApplyWorker error: {e}")
+            self.finished.emit(False, str(e), self.action, self.adapter, self.srv_name)
+
 class NetworkView(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -108,6 +131,7 @@ class NetworkView(QWidget):
         self.repair_worker = None
         self.speed_worker = None
         self.meta_worker = None
+        self.dns_apply_worker = None
         self.dns_results: list[DNSServerInfo] = []
         self._init_ui()
         self._load_network_info()
@@ -307,6 +331,53 @@ class NetworkView(QWidget):
         r_layout.addLayout(r_btns)
 
         layout.addWidget(repair_card)
+
+        # 3.5. Gaming Ping & Latency Tuner Card
+        ping_card = QFrame()
+        ping_card.setObjectName("CardFrame")
+        p_layout = QVBoxLayout(ping_card)
+        p_layout.setContentsMargins(18, 14, 18, 14)
+        p_layout.setSpacing(10)
+
+        p_top = QHBoxLayout()
+        p_top.setSpacing(12)
+        lbl_p_title = QLabel("🎮  Oyun Ping ve Gecikme Optimize Edici (Gaming Ping Tuner)")
+        lbl_p_title.setStyleSheet("font-size: 14px; font-weight: 700;")
+        p_top.addWidget(lbl_p_title)
+        p_top.addStretch()
+
+        self.lbl_ping_badge = QLabel("Denetleniyor...")
+        self.lbl_ping_badge.setStyleSheet("font-size: 11.5px; font-weight: 600; padding: 4px 10px; border-radius: 6px;")
+        p_top.addWidget(self.lbl_ping_badge)
+        p_layout.addLayout(p_top)
+
+        lbl_p_desc = QLabel(
+            "Online oyunlarda (FPS, MOBA, Battle Royale) paket gecikmesini düşürür: Windows TCP ACK bekleme süresini (TcpAckFrequency) sıfırlar, "
+            "Nagle algoritmasını (TCPNoDelay) kapatarak paketleri anında iletir ve arka plan multimedya ağ kısıtlamasını kaldırır."
+        )
+        lbl_p_desc.setStyleSheet(f"font-size: 12px; color: {TEXT_SECONDARY};")
+        lbl_p_desc.setWordWrap(True)
+        p_layout.addWidget(lbl_p_desc)
+
+        p_btns = QHBoxLayout()
+        p_btns.setSpacing(10)
+
+        self.btn_opt_ping = QPushButton("⚡  Oyun Pingini Optimize Et (TCPNoDelay)")
+        self.btn_opt_ping.setCursor(Qt.PointingHandCursor)
+        self.btn_opt_ping.setProperty("class", "primary-btn")
+        self.btn_opt_ping.clicked.connect(self._handle_optimize_ping)
+        p_btns.addWidget(self.btn_opt_ping)
+
+        self.btn_restore_ping = QPushButton("🔄  Varsayılan Ağ Ayarlarına Dön")
+        self.btn_restore_ping.setCursor(Qt.PointingHandCursor)
+        self.btn_restore_ping.setProperty("class", "secondary-btn")
+        self.btn_restore_ping.clicked.connect(self._handle_restore_ping)
+        p_btns.addWidget(self.btn_restore_ping)
+
+        p_btns.addStretch()
+        p_layout.addLayout(p_btns)
+
+        layout.addWidget(ping_card)
 
         # 4. DNS Benchmark & Switcher Card
         dns_card = QFrame()
@@ -567,6 +638,8 @@ class NetworkView(QWidget):
             self.combo_adapters.addItem("Ağ Bağdaştırıcısı Bulunamadı", "")
             self.lbl_current_dns.setText("Mevcut DNS: Ağ Bağdaştırıcısı Yok")
 
+        self._refresh_ping_tuner_ui()
+
     def _on_adapter_changed(self):
         adapter = self.combo_adapters.currentData()
         if adapter:
@@ -663,12 +736,18 @@ class NetworkView(QWidget):
             QMessageBox.warning(self, "Hata", "Geçerli bir ağ bağdaştırıcısı seçilmedi.")
             return
 
-        ok, msg = self.optimizer.set_dns(adapter, srv.primary, srv.secondary)
-        if ok:
-            QMessageBox.information(self, "Başarılı", f"{srv.name} bağdaştırıcıya uygulandı!\n\nBirincil: {srv.primary}\nİkincil: {srv.secondary}")
-            self._update_current_dns_label(adapter)
-        else:
-            QMessageBox.critical(self, "Hata", msg)
+        if self.dns_apply_worker and self.dns_apply_worker.isRunning():
+            return
+
+        self.combo_adapters.setEnabled(False)
+        self.table.setEnabled(False)
+        self.btn_apply_fastest.setEnabled(False)
+        self.btn_reset_dhcp.setEnabled(False)
+        self.lbl_current_dns.setText(f"DNS Uygulanıyor: {srv.name}...")
+
+        self.dns_apply_worker = DnsApplyWorker(self.optimizer, "set", adapter, srv.primary, srv.secondary, srv.name)
+        self.dns_apply_worker.finished.connect(self._on_dns_apply_finished)
+        self.dns_apply_worker.start()
 
     def _apply_fastest_dns(self):
         if not self.dns_results:
@@ -683,10 +762,34 @@ class NetworkView(QWidget):
         adapter = self.combo_adapters.currentData()
         if not adapter:
             return
-        ok, msg = self.optimizer.reset_dns_to_dhcp(adapter)
+
+        if self.dns_apply_worker and self.dns_apply_worker.isRunning():
+            return
+
+        self.combo_adapters.setEnabled(False)
+        self.table.setEnabled(False)
+        self.btn_apply_fastest.setEnabled(False)
+        self.btn_reset_dhcp.setEnabled(False)
+        self.lbl_current_dns.setText("DHCP'ye Geçiliyor...")
+
+        self.dns_apply_worker = DnsApplyWorker(self.optimizer, "reset_dhcp", adapter)
+        self.dns_apply_worker.finished.connect(self._on_dns_apply_finished)
+        self.dns_apply_worker.start()
+
+    def _on_dns_apply_finished(self, ok: bool, msg: str, action: str, adapter: str, srv_name: str):
+        self.combo_adapters.setEnabled(True)
+        self.table.setEnabled(True)
+        self.btn_apply_fastest.setEnabled(True)
+        self.btn_reset_dhcp.setEnabled(True)
+        self._update_current_dns_label(adapter)
+
         if ok:
-            QMessageBox.information(self, "Başarılı", f"{adapter} bağdaştırıcısı otomatik (DHCP) DNS moduna geçirildi.")
-            self._update_current_dns_label(adapter)
+            if action == "set":
+                primary = self.dns_apply_worker.primary if self.dns_apply_worker else ""
+                secondary = self.dns_apply_worker.secondary if self.dns_apply_worker else ""
+                QMessageBox.information(self, "Başarılı", f"{srv_name} bağdaştırıcıya uygulandı!\n\nBirincil: {primary}\nİkincil: {secondary}")
+            else:
+                QMessageBox.information(self, "Başarılı", f"{adapter} bağdaştırıcısı otomatik (DHCP) DNS moduna geçirildi.")
         else:
             QMessageBox.critical(self, "Hata", msg)
 
@@ -722,3 +825,36 @@ class NetworkView(QWidget):
         adapter = self.combo_adapters.currentData()
         if adapter:
             self._update_current_dns_label(adapter)
+
+    def _refresh_ping_tuner_ui(self):
+        """Refreshes status badge and buttons for Gaming Ping Tuner."""
+        is_opt = self.optimizer.is_gaming_ping_optimized()
+        if is_opt:
+            self.lbl_ping_badge.setText("🟢  Oyun Ping Profili Devrede (Düşük Gecikme)")
+            self.lbl_ping_badge.setStyleSheet(f"background: rgba(16, 185, 129, 0.15); color: {COLOR_SUCCESS}; font-weight: 700; padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(16, 185, 129, 0.3);")
+            self.btn_opt_ping.setEnabled(False)
+            self.btn_restore_ping.setEnabled(True)
+        else:
+            self.lbl_ping_badge.setText("⚪  Standart Windows Ağ Profili (Gecikmeli ACK)")
+            self.lbl_ping_badge.setStyleSheet("background: rgba(148, 163, 184, 0.12); color: #94A3B8; font-weight: 600; padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(148, 163, 184, 0.25);")
+            self.btn_opt_ping.setEnabled(True)
+            self.btn_restore_ping.setEnabled(False)
+
+    def _handle_optimize_ping(self):
+        self.btn_opt_ping.setEnabled(False)
+        ok, msg = self.optimizer.optimize_gaming_ping()
+        if ok:
+            QMessageBox.information(self, "Oyun Pingi Optimize Edildi", msg)
+        else:
+            QMessageBox.warning(self, "İşlem Başarısız", msg)
+        self._refresh_ping_tuner_ui()
+
+    def _handle_restore_ping(self):
+        self.btn_restore_ping.setEnabled(False)
+        ok, msg = self.optimizer.restore_default_ping_settings()
+        if ok:
+            QMessageBox.information(self, "Varsayılanlara Döndürüldü", msg)
+        else:
+            QMessageBox.warning(self, "İşlem Başarısız", msg)
+        self._refresh_ping_tuner_ui()
+

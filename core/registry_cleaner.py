@@ -4,9 +4,11 @@ Scans for invalid shortcuts, missing shared DLLs, obsolete startup keys, broken 
 and safely creates a rollback backup before fixing any issues.
 """
 import os
+import shutil
 import winreg
 import json
 import time
+
 from functools import lru_cache
 from dataclasses import dataclass, asdict
 from typing import Callable, Optional
@@ -137,8 +139,11 @@ class RegistryCleaner:
                             if val_type in (winreg.REG_SZ, winreg.REG_EXPAND_SZ):
                                 expanded = os.path.expandvars(str(val_data))
                                 exe_path = self._clean_path_string(expanded)
-                                if exe_path and not os.path.exists(exe_path) and not exe_path.lower().startswith(('rundll32', 'regsvr32', 'cmd', 'powershell')):
-                                    self.issues.append(RegistryIssue(
+                                if exe_path:
+                                    exists = os.path.exists(exe_path) or bool(shutil.which(exe_path))
+                                    if not exists and not exe_path.lower().startswith(('rundll32', 'regsvr32', 'cmd', 'powershell')):
+                                        self.issues.append(RegistryIssue(
+
                                         id=f"startup_{root_name}_{val_name}_{i}",
                                         category="Geçersiz Başlangıç Kaydı",
                                         root_name=root_name,
@@ -245,8 +250,9 @@ class RegistryCleaner:
                                             category="Bozuk Kaldırma Bilgisi",
                                             root_name=root_name,
                                             sub_key=full_sub,
-                                            value_name="UninstallString",
+                                            value_name="",
                                             value_data=str(uninst_str),
+
                                             value_type=utype,
                                             reason=f"Kaldırma programı mevcut değil ({disp_name}): {clean_p}"
                                         ))
@@ -384,24 +390,32 @@ class RegistryCleaner:
 
             try:
                 root = self._get_root_key(issue.root_name)
-                try:
-                    with winreg.OpenKey(root, issue.sub_key, 0, winreg.KEY_SET_VALUE) as key:
-                        winreg.DeleteValue(key, issue.value_name)
+                # Leftover uninstaller entries: delete entire uninstaller subkey to avoid orphaned Add/Remove Programs entry
+                if issue.id.startswith("uninst_") or issue.category == "Bozuk Kaldırma Bilgisi" or (not issue.value_name and "\\" in issue.sub_key):
+                    if delete_registry_key_tree(root, issue.sub_key):
                         fixed_count += 1
                         successfully_fixed_ids.add(issue.id)
-                except Exception:
-                    # If deleting default value failed and subkey is an empty orphaned container, delete key
-                    if not issue.value_name and "\\" in issue.sub_key:
-                        if delete_registry_key_tree(root, issue.sub_key):
+                    else:
+                        raise OSError(f"Could not safely delete registry key tree: {issue.sub_key}")
+                else:
+                    try:
+                        with winreg.OpenKey(root, issue.sub_key, 0, winreg.KEY_SET_VALUE) as key:
+                            winreg.DeleteValue(key, issue.value_name)
                             fixed_count += 1
                             successfully_fixed_ids.add(issue.id)
+                    except Exception:
+                        if not issue.value_name and "\\" in issue.sub_key:
+                            if delete_registry_key_tree(root, issue.sub_key):
+                                fixed_count += 1
+                                successfully_fixed_ids.add(issue.id)
+                            else:
+                                raise OSError(f"Could not safely delete registry key tree: {issue.sub_key}")
                         else:
-                            raise OSError(f"Could not safely delete registry key tree: {issue.sub_key}")
-                    else:
-                        raise
+                            raise
             except Exception as e:
                 log_debug(f"RegistryCleaner: Failed fixing issue {issue.id}: {e}")
                 failed_count += 1
+
 
         # Remove fixed items from issues using O(N+M) set lookup
         self.issues = [i for i in self.issues if i.id not in successfully_fixed_ids]

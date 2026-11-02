@@ -3,6 +3,7 @@ NovaCare System Suite - Memory Optimizer & Process Manager View
 Real-time RAM/CPU meters, RAM working set trimmer, and threaded process manager.
 Optimized for zero-lag background loading and smooth high-performance UI rendering.
 """
+from typing import Optional
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QProgressBar,
     QTableWidget, QTableWidgetItem, QHeaderView, QLineEdit, QMessageBox, QFrame,
@@ -27,12 +28,29 @@ class ProcessLoaderWorker(QThread):
         except Exception:
             self.finished.emit([])
 
+class RamBoostWorker(QThread):
+    progress = pyqtSignal(str)
+    finished = pyqtSignal(int, int)  # freed_bytes, count
+
+    def __init__(self, booster: Optional[MemoryBooster] = None):
+        super().__init__()
+        self.booster = booster or MemoryBooster()
+
+    def run(self):
+        try:
+            self.progress.emit("RAM belleği optimize ediliyor...")
+            freed, count = self.booster.optimize_ram()
+            self.finished.emit(freed, count)
+        except Exception:
+            self.finished.emit(0, 0)
+
 class MemoryView(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.booster = MemoryBooster()
         self.all_processes: list[ProcessInfo] = []
         self.loader_worker = None
+        self.boost_worker = None
         self._is_loading = False
 
         # Debounce timer for search
@@ -233,18 +251,23 @@ class MemoryView(QWidget):
         self.lbl_proc_count.setText(f"Toplam Süreç: {len(filtered)}")
 
     def _boost_ram(self):
+        if self.boost_worker and self.boost_worker.isRunning():
+            return
         self.btn_boost.setEnabled(False)
         self.btn_boost.setText("⏳  Bellek Boşaltılıyor...")
 
-        freed_bytes, count = self.booster.optimize_ram()
-        freed_str = format_bytes(freed_bytes)
+        self.boost_worker = RamBoostWorker(self.booster)
+        self.boost_worker.finished.connect(self._on_boost_finished)
+        self.boost_worker.start()
 
+    def _on_boost_finished(self, freed_bytes: int, count: int):
         self.btn_boost.setText("⚡  RAM'İ HIZLANDIR\nVE BOŞALT")
         self.btn_boost.setEnabled(True)
 
         self._on_timer_tick()
         self.refresh_processes()
 
+        freed_str = format_bytes(freed_bytes)
         QMessageBox.information(
             self,
             "RAM Hızlandırma Başarılı",

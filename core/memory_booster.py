@@ -34,7 +34,11 @@ class MemoryBooster:
     def get_system_metrics(self) -> dict:
         """Returns current CPU, RAM, and disk utilization metrics."""
         vm = psutil.virtual_memory()
-        cpu = psutil.cpu_percent(interval=None)
+        try:
+            from core.hardware_monitor import HardwareMonitor
+            cpu = HardwareMonitor().get_cpu_percent()
+        except Exception:
+            cpu = psutil.cpu_percent(interval=None)
         swap = psutil.swap_memory()
         return {
             "cpu_percent": cpu,

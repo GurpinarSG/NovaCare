@@ -376,8 +376,12 @@ class AppUninstaller:
                 continue
 
         # 3. Check registry software keys
-        for root, rname in [(winreg.HKEY_CURRENT_USER, "HKCU"), (winreg.HKEY_LOCAL_MACHINE, "HKLM")]:
-            soft_path = r"Software"
+        reg_targets = [
+            (winreg.HKEY_CURRENT_USER, "HKCU", r"Software"),
+            (winreg.HKEY_LOCAL_MACHINE, "HKLM", r"Software"),
+            (winreg.HKEY_LOCAL_MACHINE, "HKLM", r"Software\WOW6432Node")
+        ]
+        for root, rname, soft_path in reg_targets:
             try:
                 with winreg.OpenKey(root, soft_path, 0, winreg.KEY_READ) as k:
                     count, _, _ = winreg.QueryInfoKey(k)
@@ -388,20 +392,20 @@ class AppUninstaller:
                             if matches_app(low_sub):
                                 leftovers.append(LeftoverItem(
                                     item_type="registry",
-                                    path=f"{rname}\\Software\\{sub_k}",
+                                    path=f"{rname}\\{soft_path}\\{sub_k}",
                                     details="Kayıt Defteri Anahtarı",
                                     selected=False
                                 ))
                             elif publisher_name and low_sub == publisher_name:
                                 try:
-                                    with winreg.OpenKey(root, f"Software\\{sub_k}", 0, winreg.KEY_READ) as pub_k:
+                                    with winreg.OpenKey(root, f"{soft_path}\\{sub_k}", 0, winreg.KEY_READ) as pub_k:
                                         pub_count, _, _ = winreg.QueryInfoKey(pub_k)
                                         for pi in range(pub_count):
                                             pub_sub = winreg.EnumKey(pub_k, pi)
                                             if matches_app(pub_sub.lower()):
                                                 leftovers.append(LeftoverItem(
                                                     item_type="registry",
-                                                    path=f"{rname}\\Software\\{sub_k}\\{pub_sub}",
+                                                    path=f"{rname}\\{soft_path}\\{sub_k}\\{pub_sub}",
                                                     details="Kayıt Defteri Anahtarı",
                                                     selected=False
                                                 ))

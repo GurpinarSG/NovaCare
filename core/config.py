@@ -12,6 +12,8 @@ from core.security import encrypt_string, decrypt_string, get_embedded_token
 
 import re
 
+FALLBACK_VERSION = "1.2.9"
+
 def parse_version_content(content: str) -> tuple[str, str]:
     """
     Parses VERSION file content, returning (version_number, update_notes).
@@ -26,19 +28,38 @@ def parse_version_content(content: str) -> tuple[str, str]:
     """
     lines = content.strip().splitlines()
     if not lines:
-        return "1.2.4", ""
+        return FALLBACK_VERSION, ""
     first_line = lines[0].strip()
     m = re.search(r'(\d+\.\d+(?:\.\d+)?)', first_line)
     if m:
         ver = m.group(1)
     else:
-        ver = first_line.lstrip("vV").strip() or "1.2.4"
+        ver = first_line.lstrip("vV").strip() or FALLBACK_VERSION
 
     notes_lines = lines[1:]
     while notes_lines and notes_lines[0].strip() in ('---', '===', '***', '###', ''):
         notes_lines.pop(0)
     notes = "\n".join(notes_lines).strip()
     return ver, notes
+
+def parse_version_tuple(v_str: str) -> tuple[int, ...]:
+    cleaned = re.sub(r'^[vV]', '', str(v_str).strip())
+    # Match the leading version number segment like "1.2.4"
+    m = re.match(r'^(\d+(?:\.\d+)*)', cleaned)
+    if m:
+        return tuple(int(p) for p in m.group(1).split('.'))
+    parts = re.findall(r'\d+', cleaned)
+    if not parts:
+        return (0, 0, 0)
+    return tuple(int(p) for p in parts)
+
+def is_newer_version(latest_str: str, current_str: str) -> bool:
+    v_latest = parse_version_tuple(latest_str)
+    v_curr = parse_version_tuple(current_str)
+    max_len = max(len(v_latest), len(v_curr))
+    v_latest_padded = v_latest + (0,) * (max_len - len(v_latest))
+    v_curr_padded = v_curr + (0,) * (max_len - len(v_curr))
+    return v_latest_padded > v_curr_padded
 
 def load_version_and_notes() -> tuple[str, str]:
     """Reads both version number and update notes from VERSION file."""
@@ -57,7 +78,7 @@ def load_version_and_notes() -> tuple[str, str]:
                 return parse_version_content(vf.read())
     except Exception:
         pass
-    return "1.2.4", ""
+    return FALLBACK_VERSION, ""
 
 def load_base_version() -> str:
     """Reads clean base version string from VERSION file or settings.json."""
@@ -70,14 +91,13 @@ def load_base_version() -> str:
                 data = json.load(f)
                 s_ver = data.get('version', '').lstrip('vV').strip()
                 if s_ver:
-                    from core.updater import is_newer_version
                     if is_newer_version(s_ver, ver):
                         return s_ver
     except Exception:
         pass
     return ver
 
-VERSION = "1.2.7"
+VERSION = "1.2.9"
 CURRENT_VERSION = load_base_version() or VERSION
 DEFAULT_GITHUB_REPO = "GurpinarSG/NovaCare"
 DEFAULT_GITHUB_TOKEN = "" # NEVER hardcode tokens in distributed code
@@ -115,7 +135,6 @@ class ConfigManager:
         """Returns clean base version string like '0.0.1' from VERSION file."""
         base_file_ver = load_base_version()
         stored_ver = self.settings.get("version", "").lstrip("vV").strip()
-        from core.updater import is_newer_version
         if stored_ver and base_file_ver:
             if is_newer_version(stored_ver, base_file_ver):
                 return stored_ver
@@ -130,7 +149,7 @@ class ConfigManager:
                 self.settings["version"] = base_file_ver
                 self._save(self.settings)
             return base_file_ver
-        return stored_ver or "1.2.4"
+        return stored_ver or FALLBACK_VERSION
 
     def get_display_version(self) -> str:
         """Returns formatted version string for UI display, e.g. 'v1.0.0 (Derleme: c77c7b8)'."""
@@ -175,7 +194,26 @@ class ConfigManager:
             "auto_clean_notify": True,
             "last_auto_clean_time": "",
             "last_auto_clean_display": "Henüz yapılmadı",
-            "last_auto_clean_freed_bytes": 0
+            "last_auto_clean_freed_bytes": 0,
+            "auto_clean_target_day": 6,
+            "auto_clean_target_hour": 3,
+            "auto_clean_idle_minutes": 10,
+            "desktop_widget_opacity": 0.90,
+            "desktop_widget_layout": "card", # "card", "horizontal", "vertical"
+            "desktop_widget_theme": "neon_cyan", # "cyberpunk_purple", "neon_cyan", "oled_black", "minimal_white", "custom_rgb"
+            "desktop_widget_custom_color": "#38BDF8",
+            "desktop_widget_click_through": False,
+            "desktop_widget_snap_to_edge": True,
+            "widget_show_cpu": True,
+            "widget_show_ram": True,
+            "widget_show_gpu": True,
+            "widget_show_disk_io": True,
+            "widget_show_net": True,
+            "widget_show_top_app": True,
+            "widget_show_uptime": True,
+            "widget_show_quick_actions": True,
+            "gaming_ping_tuner_enabled": False,
+            "silent_mode_enabled": False
         }
 
     def _load(self) -> dict:

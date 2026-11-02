@@ -22,6 +22,19 @@ _EXCLUDED_NAMES = frozenset({
 })
 _SHIELD_SENSITIVE_PARTS = ('settings.json', 'local storage', 'session storage', 'local state', 'preferences', 'module_data')
 
+class JunkFilePath(str):
+    """
+    Path string that retains precomputed file size to eliminate redundant os.path.getsize() calls.
+    Inherits from str so all string operations (such as .startswith, os.path.normpath, etc.)
+    work seamlessly and existing test assertions pass.
+    """
+    size: int
+
+    def __new__(cls, path: str, size: int = 0):
+        s = super().__new__(cls, path)
+        s.size = int(size)
+        return s
+
 @dataclass
 class CleanerCategory:
     id: str
@@ -186,9 +199,10 @@ class JunkCleaner:
                             if entry.is_file() and entry.name.lower().startswith('thumbcache_'):
                                 try:
                                     st = entry.stat()
-                                    cat.size += st.st_size
+                                    sz = st.st_size
+                                    cat.size += sz
                                     cat.file_count += 1
-                                    cat.found_files.append(entry.path)
+                                    cat.found_files.append(JunkFilePath(entry.path, sz))
                                 except OSError:
                                     pass
                     except OSError:
@@ -239,7 +253,7 @@ class JunkCleaner:
                             sz = entry.stat().st_size
                             cat.size += sz
                             cat.file_count += 1
-                            cat.found_files.append(entry.path)
+                            cat.found_files.append(JunkFilePath(entry.path, sz))
                         elif entry.is_dir(follow_symlinks=False):
                             self._scan_folder_recursive(entry.path, cat, depth + 1)
                     except (PermissionError, FileNotFoundError, OSError):
@@ -307,12 +321,19 @@ class JunkCleaner:
                     if any(sens in norm_fp for sens in _SHIELD_SENSITIVE_PARTS):
                         continue
 
-                    try:
-                        sz = os.path.getsize(f_path)
-                    except Exception:
-                        sz = 0
+                    if isinstance(f_path, tuple):
+                        target_file, sz = f_path
+                    elif hasattr(f_path, 'size'):
+                        target_file = str(f_path)
+                        sz = getattr(f_path, 'size', 0)
+                    else:
+                        target_file = str(f_path)
+                        try:
+                            sz = os.path.getsize(target_file)
+                        except Exception:
+                            sz = 0
 
-                    if safe_remove_file(f_path):
+                    if safe_remove_file(target_file):
                         total_freed += sz
                         cleaned_count += 1
                         consecutive_locks = 0

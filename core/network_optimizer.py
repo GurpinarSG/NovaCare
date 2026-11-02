@@ -325,3 +325,147 @@ class NetworkOptimizer:
         except Exception as e:
             return False, str(e)
 
+    def get_active_adapter_guids(self) -> list[str]:
+        """Finds network interface GUIDs with active network configuration."""
+        guids = []
+        try:
+            base_sub = r"SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces"
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, base_sub, 0, winreg.KEY_READ) as k:
+                sub_count = winreg.QueryInfoKey(k)[0]
+                for i in range(sub_count):
+                    g = winreg.EnumKey(k, i)
+                    try:
+                        with winreg.OpenKey(k, g, 0, winreg.KEY_READ) as if_k:
+                            has_ip = False
+                            for vname in ("IPAddress", "DhcpIPAddress"):
+                                try:
+                                    val, _ = winreg.QueryValueEx(if_k, vname)
+                                    if val and (
+                                        (isinstance(val, list) and any(x and x != "0.0.0.0" for x in val))
+                                        or (isinstance(val, str) and val.strip() and val.strip() != "0.0.0.0")
+                                    ):
+                                        has_ip = True
+                                        break
+                                except OSError:
+                                    pass
+                            if has_ip:
+                                guids.append(g)
+                    except OSError:
+                        continue
+        except Exception as e:
+            log_debug(f"NetworkOptimizer get_active_adapter_guids error: {e}")
+        return guids
+
+    def is_gaming_ping_optimized(self) -> bool:
+        """Checks if TCPNoDelay, immediate ACK, and gaming network throttling are active."""
+        try:
+            with winreg.OpenKey(
+                winreg.HKEY_LOCAL_MACHINE,
+                r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile",
+                0, winreg.KEY_READ
+            ) as k:
+                val, _ = winreg.QueryValueEx(k, "NetworkThrottlingIndex")
+                if val != 0xffffffff:
+                    return False
+        except OSError:
+            return False
+
+        guids = self.get_active_adapter_guids()
+        if not guids:
+            return False
+
+        for g in guids:
+            sub = rf"SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\{g}"
+            try:
+                with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, sub, 0, winreg.KEY_READ) as if_k:
+                    val_ack, _ = winreg.QueryValueEx(if_k, "TcpAckFrequency")
+                    val_del, _ = winreg.QueryValueEx(if_k, "TCPNoDelay")
+                    if val_ack == 1 and val_del == 1:
+                        return True
+            except OSError:
+                continue
+        return False
+
+    def optimize_gaming_ping(self) -> tuple[bool, str]:
+        """
+        Optimizes Windows network stack for minimal gaming ping:
+        - Sets TCPNoDelay=1 (Disables Nagle's algorithm)
+        - Sets TcpAckFrequency=1 (Sends ACK immediately without 200ms delay)
+        - Sets TcpDelAckTicks=0
+        - Sets NetworkThrottlingIndex=0xffffffff (Disables multimedia network throttling)
+        - Sets SystemResponsiveness=0 (100% CPU/network priority to games)
+        """
+        try:
+            # 1. SystemProfile Network Throttling & Responsiveness
+            sys_profile = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile"
+            with winreg.CreateKey(winreg.HKEY_LOCAL_MACHINE, sys_profile) as k:
+                winreg.SetValueEx(k, "NetworkThrottlingIndex", 0, winreg.REG_DWORD, 0xffffffff)
+                winreg.SetValueEx(k, "SystemResponsiveness", 0, winreg.REG_DWORD, 0)
+
+            # 2. Gaming Task Priorities
+            games_task = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games"
+            with winreg.CreateKey(winreg.HKEY_LOCAL_MACHINE, games_task) as k:
+                winreg.SetValueEx(k, "GPU Priority", 0, winreg.REG_DWORD, 8)
+                winreg.SetValueEx(k, "Priority", 0, winreg.REG_DWORD, 6)
+                winreg.SetValueEx(k, "Scheduling Category", 0, winreg.REG_SZ, "High")
+                winreg.SetValueEx(k, "SFIO Priority", 0, winreg.REG_SZ, "High")
+
+            # 3. Global MSMQ NoDelay
+            try:
+                with winreg.CreateKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\MSMQ\Parameters") as k:
+                    winreg.SetValueEx(k, "TCPNoDelay", 0, winreg.REG_DWORD, 1)
+            except OSError:
+                pass
+
+            # 4. Interface-level TCP ACK Frequency & TCPNoDelay
+            guids = self.get_active_adapter_guids()
+            count = 0
+            for g in guids:
+                sub = rf"SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\{g}"
+                try:
+                    with winreg.CreateKey(winreg.HKEY_LOCAL_MACHINE, sub) as if_k:
+                        winreg.SetValueEx(if_k, "TcpAckFrequency", 0, winreg.REG_DWORD, 1)
+                        winreg.SetValueEx(if_k, "TCPNoDelay", 0, winreg.REG_DWORD, 1)
+                        winreg.SetValueEx(if_k, "TcpDelAckTicks", 0, winreg.REG_DWORD, 0)
+                        count += 1
+                except OSError as e:
+                    log_debug(f"Failed setting ping tweaks for interface {g}: {e}")
+
+            self.flush_dns()
+            return True, f"Oyun gecikme optimizasyonu aktif edildi ({count} ağ adaptörü TCPNoDelay ve anında ACK ile hızlandırıldı)."
+        except PermissionError:
+            return False, "Yönetici yetkisi gerekli. Lütfen NovaCare'i Yönetici olarak çalıştırın."
+        except Exception as e:
+            return False, str(e)
+
+    def restore_default_ping_settings(self) -> tuple[bool, str]:
+        """Restores Windows standard TCP ACK frequency and network throttling defaults."""
+        try:
+            # 1. Restore standard SystemProfile defaults (10 and 20)
+            sys_profile = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile"
+            with winreg.CreateKey(winreg.HKEY_LOCAL_MACHINE, sys_profile) as k:
+                winreg.SetValueEx(k, "NetworkThrottlingIndex", 0, winreg.REG_DWORD, 10)
+                winreg.SetValueEx(k, "SystemResponsiveness", 0, winreg.REG_DWORD, 20)
+
+            # 2. Remove or reset interface overrides
+            guids = self.get_active_adapter_guids()
+            for g in guids:
+                sub = rf"SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\{g}"
+                try:
+                    with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, sub, 0, winreg.KEY_SET_VALUE) as if_k:
+                        for vname in ("TcpAckFrequency", "TCPNoDelay", "TcpDelAckTicks"):
+                            try:
+                                winreg.DeleteValue(if_k, vname)
+                            except OSError:
+                                pass
+                except OSError:
+                    continue
+
+            self.flush_dns()
+            return True, "Ağ gecikmesi ve TCP ayarları Windows standart varsayılanlarına döndürüldü."
+        except PermissionError:
+            return False, "Yönetici yetkisi gerekli. Lütfen NovaCare'i Yönetici olarak çalıştırın."
+        except Exception as e:
+            return False, str(e)
+
+

@@ -65,11 +65,23 @@ def format_bytes(bytes_count: int | float) -> str:
         return f"{int(val)} {_UNITS[unit_index]}"
     return f"{val:.2f} {_UNITS[unit_index]}"
 
+def to_long_path(path: str) -> str:
+    r"""Prepends \\?\ or \\?\UNC\ prefix to Windows absolute paths exceeding MAX_PATH (240+ chars)."""
+    if os.name == 'nt' and path and not path.startswith('\\\\?\\') and len(path) >= 240 and os.path.isabs(path):
+        norm = os.path.normpath(path)
+        if norm.startswith('\\\\?\\'):
+            return norm
+        if norm.startswith('\\\\'):
+            return '\\\\?\\UNC\\' + norm.lstrip('\\')
+        return '\\\\?\\' + norm
+    return path
+
 def is_reparse_point(entry_or_path) -> bool:
     """
     Checks if a file or directory is a Windows NTFS Junction, Reparse Point, or Symlink.
     st_reparse_tag != 0 on Windows indicates a reparse point (junctions, mount points, appexec links).
     Prevents infinite recursion and memory exhaustion on recursive junctions like AppData\\Local\\Application Data.
+    Safe against paths exceeding MAX_PATH (260 characters).
     """
     try:
         if hasattr(entry_or_path, 'is_symlink') and entry_or_path.is_symlink():
@@ -77,9 +89,10 @@ def is_reparse_point(entry_or_path) -> bool:
         if hasattr(entry_or_path, 'stat'):
             st = entry_or_path.stat(follow_symlinks=False)
             return getattr(st, 'st_reparse_tag', 0) != 0
-        if os.path.islink(entry_or_path):
+        target = to_long_path(entry_or_path) if isinstance(entry_or_path, str) else entry_or_path
+        if os.path.islink(target):
             return True
-        st = os.lstat(entry_or_path)
+        st = os.lstat(target)
         return getattr(st, 'st_reparse_tag', 0) != 0
     except Exception:
         return False
@@ -112,17 +125,6 @@ def get_folder_size(path: str) -> tuple[int, int]:
             continue
 
     return total_size, total_files
-
-def to_long_path(path: str) -> str:
-    r"""Prepends \\?\ or \\?\UNC\ prefix to Windows absolute paths exceeding MAX_PATH (240+ chars)."""
-    if os.name == 'nt' and path and not path.startswith('\\\\?\\') and len(path) >= 240 and os.path.isabs(path):
-        norm = os.path.normpath(path)
-        if norm.startswith('\\\\?\\'):
-            return norm
-        if norm.startswith('\\\\'):
-            return '\\\\?\\UNC\\' + norm.lstrip('\\')
-        return '\\\\?\\' + norm
-    return path
 
 def safe_remove_file(file_path: str) -> bool:
     """

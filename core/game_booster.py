@@ -7,11 +7,13 @@ state when gaming session ends.
 import os
 import sys
 import re
+import time
 import json
 import subprocess
 import psutil
 import ctypes
 import uuid
+from typing import Optional
 from core.config import ConfigManager
 from core.memory_booster import MemoryBooster
 from core.utils import log_debug, get_system32_path, get_console_encoding
@@ -45,6 +47,8 @@ class GameBooster:
             except Exception:
                 pass
         return False
+
+    is_game_mode_active = is_active
 
     def get_current_power_scheme(self) -> tuple[str, str]:
         """
@@ -216,6 +220,9 @@ class GameBooster:
             "restored_services": restarted_count
         }
 
+    enable_game_mode = activate
+    restore_normal_mode = deactivate
+
 # Pre-defined registry of popular games for instant detection
 POPULAR_GAMES_DATABASE = [
     {"name": "Counter-Strike 2", "exe": "cs2.exe"},
@@ -243,10 +250,17 @@ POPULAR_GAMES_MAP = {g["exe"].lower(): g["name"] for g in POPULAR_GAMES_DATABASE
 
 class GameProfileManager:
     """Manages game profiles, auto-boost configuration, and local library scanning."""
+    _cached_profiles: Optional[list[dict]] = None
+    _last_profiles_fetch: float = 0.0
+
     def __init__(self):
         self.config = ConfigManager()
 
     def get_profiles(self) -> list[dict]:
+        now = time.time()
+        if GameProfileManager._cached_profiles is not None and (now - GameProfileManager._last_profiles_fetch < 60.0):
+            return GameProfileManager._cached_profiles
+
         profiles = self.config.get("game_profiles", [])
         if profiles:
             # Filter out legacy placeholder games that don't have valid paths and don't exist
@@ -262,11 +276,17 @@ class GameProfileManager:
                     filtered.append(p)
             if len(filtered) != len(profiles):
                 self.save_profiles(filtered)
+            GameProfileManager._cached_profiles = filtered
+            GameProfileManager._last_profiles_fetch = now
             return filtered
+        GameProfileManager._cached_profiles = []
+        GameProfileManager._last_profiles_fetch = now
         return []
 
     def save_profiles(self, profiles: list[dict]):
         self.config.set("game_profiles", profiles)
+        GameProfileManager._cached_profiles = profiles
+        GameProfileManager._last_profiles_fetch = time.time()
 
     def add_profile(self, name: str, exe: str, path: str = "", auto_boost: bool = True) -> dict:
         clean_name = name.strip()

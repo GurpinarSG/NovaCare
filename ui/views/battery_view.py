@@ -3,6 +3,7 @@ NovaCare System Suite - Battery Health & Power Diagnostics View
 Live battery telemetry, wear level, design vs full capacity, charge cycles,
 power plan switcher, and 1-click official Windows Battery Report generation.
 """
+import os
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QProgressBar,
     QFrame, QScrollArea, QMessageBox, QGridLayout
@@ -32,6 +33,20 @@ class BatteryHardwareWorker(QThread):
         finally:
             self.finished.emit(hw)
 
+class BatteryReportWorker(QThread):
+    finished = pyqtSignal(bool, str)  # ok, path_or_error
+
+    def __init__(self, reporter: BatteryReporter):
+        super().__init__()
+        self.reporter = reporter
+
+    def run(self):
+        try:
+            path = self.reporter.generate_html_report()
+            self.finished.emit(True, path)
+        except Exception as e:
+            self.finished.emit(False, str(e))
+
 class BatteryView(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -39,6 +54,7 @@ class BatteryView(QWidget):
         self.has_battery = is_battery_present()
         self.last_info: BatteryInfo | None = None
         self.hw_worker = None
+        self.report_worker = None
         self._init_ui()
         if self.has_battery:
             # Auto-refresh timer every 10 seconds (ultra-fast, non-blocking psutil query)
@@ -300,17 +316,29 @@ class BatteryView(QWidget):
             pass
 
     def _generate_and_open_report(self):
-        try:
-            self.btn_gen_report.setEnabled(False)
-            self.btn_gen_report.setText("⏳ Rapor Hazırlanıyor...")
-            report_path = self.reporter.open_html_report()
+        if self.report_worker and self.report_worker.isRunning():
+            return
+        self.btn_gen_report.setEnabled(False)
+        self.btn_gen_report.setText("⏳ Rapor Hazırlanıyor...")
+
+        self.report_worker = BatteryReportWorker(self.reporter)
+        self.report_worker.finished.connect(self._on_report_finished)
+        self.report_worker.start()
+
+    def _on_report_finished(self, ok: bool, result: str):
+        self.btn_gen_report.setEnabled(True)
+        self.btn_gen_report.setText("📊  Resmi Windows Pil Raporunu Aç (.HTML)")
+
+        if ok:
+            if os.path.exists(result):
+                try:
+                    os.startfile(result)
+                except Exception:
+                    pass
             QMessageBox.information(
                 self,
                 "Pil Raporu Hazırlandı",
-                f"Resmi Windows Pil Tanılama Raporu başarıyla oluşturuldu ve varsayılan tarayıcınızda açıldı!\n\nDosya Konumu:\n{report_path}"
+                f"Resmi Windows Pil Tanılama Raporu başarıyla oluşturuldu ve varsayılan tarayıcınızda açıldı!\n\nDosya Konumu:\n{result}"
             )
-        except Exception as e:
-            QMessageBox.critical(self, "Hata", f"Pil raporu oluşturulurken bir hata meydana geldi:\n{e}")
-        finally:
-            self.btn_gen_report.setEnabled(True)
-            self.btn_gen_report.setText("📊  Resmi Windows Pil Raporunu Aç (.HTML)")
+        else:
+            QMessageBox.critical(self, "Hata", f"Pil raporu oluşturulurken bir hata meydana geldi:\n{result}")

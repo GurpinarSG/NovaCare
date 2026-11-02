@@ -129,10 +129,9 @@ from core.config import load_base_version, CURRENT_VERSION
 from scripts.installer_wizard import _load_app_version
 
 base_v = load_base_version()
-assert base_v == "1.2.7", f"Expected version 1.2.7, got {base_v}"
-assert CURRENT_VERSION == "1.2.7", f"Expected CURRENT_VERSION 1.2.7, got {CURRENT_VERSION}"
+assert base_v == CURRENT_VERSION, f"Expected version {CURRENT_VERSION}, got {base_v}"
 wizard_v = _load_app_version()
-assert wizard_v == "1.2.7", f"Expected wizard version 1.2.7, got {wizard_v}"
+assert wizard_v == CURRENT_VERSION, f"Expected wizard version {CURRENT_VERSION}, got {wizard_v}"
 print(f"✓ Version consistency verified across modules: v{base_v}")
 
 # Test MainWindow instantiation and teardown
@@ -150,4 +149,5 @@ mw.close()
 app.processEvents()
 
 print("\n>>> ALL INTEGRITY & WORKER THREAD CHECKS PASSED PERFECTLY! <<<")
+sys.stdout.flush()
 os._exit(0)

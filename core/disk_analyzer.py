@@ -8,7 +8,7 @@ import psutil
 from dataclasses import dataclass
 from typing import Callable, Optional
 import heapq
-from core.utils import format_bytes, safe_remove_file, is_reparse_point
+from core.utils import format_bytes, safe_remove_file, is_reparse_point, to_long_path
 
 @dataclass
 class PartitionInfo:
@@ -155,15 +155,35 @@ class DiskAnalyzer:
 
         return [entry[2] for entry in sorted(heap, key=lambda x: x[0], reverse=True)]
 
+    def delete_file_safely(self, file_path: str) -> tuple[bool, str]:
+        """Safely delete a large file, preventing deletion of critical system or app files."""
+        if not file_path or not isinstance(file_path, str):
+            return False, "Geçersiz dosya yolu."
+        long_target = to_long_path(file_path)
+        if not os.path.isfile(long_target):
+            return False, "Dosya bulunamadı veya bir dizin."
+        if is_critical_system_file(file_path):
+            return False, "Kritik sistem veya uygulama dosyaları güvenlik nedeniyle silinemez."
+        try:
+            if safe_remove_file(file_path):
+                return True, "Dosya başarıyla silindi."
+            return False, "Dosya silinirken hata oluştu veya dosya başka bir işlem tarafından kilitlenmiş."
+        except Exception as e:
+            return False, f"Silme hatası: {e}"
+
     def delete_file(self, file_path: str) -> bool:
         """Safely delete a large file, preventing deletion of critical system or app files."""
-        if is_critical_system_file(file_path):
-            return False
-        return safe_remove_file(file_path)
+        ok, _ = self.delete_file_safely(file_path)
+        return ok
 
 
 CRITICAL_SYSTEM_FILES = frozenset({
     'pagefile.sys', 'hiberfil.sys', 'swapfile.sys', 'dumpstack.log'
+})
+
+PROTECTED_FOLDER_NAMES = frozenset({
+    '$recycle.bin', 'system volume information', 'program files',
+    'program files (x86)', 'programdata', 'windows'
 })
 
 def is_critical_system_file(path: str) -> bool:
@@ -171,13 +191,21 @@ def is_critical_system_file(path: str) -> bool:
     Determines if a given path is a protected Windows system file or NovaCare core file
     that must never be deleted via Disk Analyzer.
     Checks both direct path and canonical resolved realpath to protect against symlinks.
+    Protects Windows system root, Program Files, ProgramData, Recycle Bin, and NovaCare directories.
+    Handles long-path prefixes (\\\\?\\ and \\\\?\\UNC\\) safely.
     """
     if not path or not isinstance(path, str):
         return True
     try:
-        norm_path = os.path.normcase(os.path.abspath(path))
+        clean_path = path
+        if clean_path.startswith('\\\\?\\UNC\\'):
+            clean_path = '\\\\' + clean_path[8:]
+        elif clean_path.startswith('\\\\?\\'):
+            clean_path = clean_path[4:]
+
+        norm_path = os.path.normcase(os.path.abspath(clean_path))
         try:
-            norm_real = os.path.normcase(os.path.realpath(path))
+            norm_real = os.path.normcase(os.path.realpath(clean_path))
         except Exception:
             norm_real = norm_path
 
@@ -185,6 +213,18 @@ def is_critical_system_file(path: str) -> bool:
 
         sys_root = os.environ.get('SystemRoot', r'C:\Windows')
         norm_sys_root = os.path.normcase(os.path.abspath(sys_root))
+
+        prog_files = os.environ.get('ProgramFiles', r'C:\Program Files')
+        norm_prog_files = os.path.normcase(os.path.abspath(prog_files))
+
+        prog_files_x86 = os.environ.get('ProgramFiles(x86)', r'C:\Program Files (x86)')
+        norm_prog_files_x86 = os.path.normcase(os.path.abspath(prog_files_x86))
+
+        prog_w6432 = os.environ.get('ProgramW6432', '')
+        norm_prog_w6432 = os.path.normcase(os.path.abspath(prog_w6432)) if prog_w6432 else None
+
+        prog_data = os.environ.get('ProgramData', os.environ.get('ALLUSERSPROFILE', r'C:\ProgramData'))
+        norm_prog_data = os.path.normcase(os.path.abspath(prog_data))
 
         app_dir = os.path.normcase(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -197,38 +237,32 @@ def is_critical_system_file(path: str) -> bool:
         if local_appdata:
             novacare_data = os.path.normcase(os.path.abspath(os.path.join(local_appdata, 'NovaCare')))
 
+        protected_trees = [
+            norm_sys_root, norm_prog_files, norm_prog_files_x86, norm_prog_data, app_dir
+        ]
+        if norm_prog_w6432:
+            protected_trees.append(norm_prog_w6432)
+        if exe_dir:
+            protected_trees.append(exe_dir)
+        if novacare_data:
+            protected_trees.append(novacare_data)
+
         for candidate in candidates:
             fname = os.path.basename(candidate)
             # 1. Prohibited root system files
             if fname in CRITICAL_SYSTEM_FILES:
                 return True
 
-            # 2. Windows SystemRoot (%SystemRoot%) protection
-            try:
-                if os.path.commonpath([candidate, norm_sys_root]) == norm_sys_root:
+            # 2. Directory segment check (protects $Recycle.Bin, System Volume Information, Program Files, etc. across any drive)
+            parts = [seg.strip() for seg in candidate.replace('/', '\\').split('\\') if seg.strip()]
+            for part in parts:
+                if part in PROTECTED_FOLDER_NAMES:
                     return True
-            except ValueError:
-                pass
 
-            # 3. NovaCare application directory
-            try:
-                if os.path.commonpath([candidate, app_dir]) == app_dir:
-                    return True
-            except ValueError:
-                pass
-
-            # 4. Executable directory if running frozen
-            if exe_dir:
+            # 3. Explicit base protected directory trees (SystemRoot, Program Files, ProgramData, App Dir, etc.)
+            for tree in protected_trees:
                 try:
-                    if os.path.commonpath([candidate, exe_dir]) == exe_dir:
-                        return True
-                except ValueError:
-                    pass
-
-            # 5. NovaCare LocalAppData directory
-            if novacare_data:
-                try:
-                    if os.path.commonpath([candidate, novacare_data]) == novacare_data:
+                    if os.path.commonpath([candidate, tree]) == tree:
                         return True
                 except ValueError:
                     pass
@@ -236,3 +270,7 @@ def is_critical_system_file(path: str) -> bool:
         return False
     except Exception:
         return True
+
+# Compatibility alias
+is_protected_system_file = is_critical_system_file
+

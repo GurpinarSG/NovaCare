@@ -107,6 +107,22 @@ class CookieCleanWorker(QThread):
         finally:
             self.finished.emit(deleted, preserved, locked)
 
+class AntiSpyApplyWorker(QThread):
+    finished = pyqtSignal(int, int, list, bool)  # success, failed, svcs, enable
+
+    def __init__(self, tweaker: PrivacyTweaker, enable: bool):
+        super().__init__()
+        self.tweaker = tweaker
+        self.enable = enable
+
+    def run(self):
+        try:
+            success, failed, svcs = self.tweaker.apply_all_anti_spy(enable=self.enable)
+            self.finished.emit(success, failed, svcs, self.enable)
+        except Exception as e:
+            log_debug(f"AntiSpyApplyWorker error: {e}")
+            self.finished.emit(0, 0, [], self.enable)
+
 class CookieWhitelistDialog(QDialog):
     def __init__(self, shield: CookieShield, parent=None):
         super().__init__(parent)
@@ -267,6 +283,7 @@ class PrivacyView(QWidget):
         self.telemetry_worker = None
         self.cookie_scan_worker = None
         self.cookie_clean_worker = None
+        self.antispy_worker = None
         self.cookie_data: dict = {}
 
         self._init_ui()
@@ -517,11 +534,41 @@ class PrivacyView(QWidget):
         tweaks_layout.setContentsMargins(14, 14, 14, 14)
         tweaks_layout.setSpacing(12)
 
-        lbl_tweaks_desc = QLabel("Windows 10/11 telemetri politikalarını, kişiselleştirilmiş reklam kimliğini ve tanılama veri gönderimlerini kontrol edin.")
+        lbl_tweaks_desc = QLabel(
+            "Windows 10/11 telemetri politikalarını, Cortana'yı, kişiselleştirilmiş reklam kimliğini ve DiagTrack tanılama servislerini tek tıkla engelleyin."
+        )
         lbl_tweaks_desc.setStyleSheet(f"color: {theme['TEXT_SECONDARY']}; font-size: 12px;")
         tweaks_layout.addWidget(lbl_tweaks_desc)
 
+        # Anti-Spy Master Action Bar
+        as_bar = QFrame()
+        as_bar.setObjectName("ToolbarFrame")
+        as_lay = QHBoxLayout(as_bar)
+        as_lay.setContentsMargins(12, 8, 12, 8)
+        as_lay.setSpacing(10)
+
+        self.btn_antispy_all = QPushButton("🛡️  Tüm Telemetriyi Engelle (Anti-Spy)")
+        self.btn_antispy_all.setProperty("class", "primary-btn")
+        self.btn_antispy_all.setCursor(Qt.PointingHandCursor)
+        self.btn_antispy_all.clicked.connect(lambda: self._apply_all_antispy(True))
+        as_lay.addWidget(self.btn_antispy_all)
+
+        self.btn_antispy_restore = QPushButton("🔄  Varsayılana Döndür")
+        self.btn_antispy_restore.setProperty("class", "secondary-btn")
+        self.btn_antispy_restore.setCursor(Qt.PointingHandCursor)
+        self.btn_antispy_restore.clicked.connect(lambda: self._apply_all_antispy(False))
+        as_lay.addWidget(self.btn_antispy_restore)
+
+        as_lay.addStretch()
+
+        self.lbl_antispy_status = QLabel("Durum: Denetleniyor...")
+        self.lbl_antispy_status.setStyleSheet("font-weight: 700; font-size: 12px;")
+        as_lay.addWidget(self.lbl_antispy_status)
+
+        tweaks_layout.addWidget(as_bar)
+
         scroll_tw = QScrollArea()
+        self.scroll_tw = scroll_tw
         scroll_tw.setWidgetResizable(True)
         scroll_tw.setFrameShape(QFrame.NoFrame)
         scroll_tw.setStyleSheet("background: transparent; border: none;")
@@ -533,7 +580,7 @@ class PrivacyView(QWidget):
         scroll_tw.setWidget(scroll_tw_widget)
         tweaks_layout.addWidget(scroll_tw)
 
-        self.tabs.addTab(tab_tweaks, "⚙️  Windows Ayarları")
+        self.tabs.addTab(tab_tweaks, "🛡️  Anti-Spy & Telemetri Kalkanı")
 
         main_layout.addWidget(self.tabs)
 
@@ -849,6 +896,16 @@ class PrivacyView(QWidget):
         theme = get_active_theme_colors()
         self.tweaks = self.tweaker.check_tweak_statuses()
 
+        all_active = all(t.current_enabled for t in self.tweaks)
+        active_count = sum(1 for t in self.tweaks if t.current_enabled)
+        if hasattr(self, 'lbl_antispy_status'):
+            if all_active:
+                self.lbl_antispy_status.setText("🟢  Tam Koruma Aktif (Telemetri Engellendi)")
+                self.lbl_antispy_status.setStyleSheet(f"color: {theme['COLOR_SUCCESS']}; font-weight: 700;")
+            else:
+                self.lbl_antispy_status.setText(f"⚠️  Kısmi Koruma ({active_count}/{len(self.tweaks)} Aktif)")
+                self.lbl_antispy_status.setStyleSheet(f"color: {theme['COLOR_WARNING']}; font-weight: 700;")
+
         for tweak in self.tweaks:
             row_frame = QFrame()
             row_frame.setStyleSheet(f"background-color: transparent; background: transparent; border: none; border-bottom: 1px solid {theme['BORDER_COLOR']}; padding-bottom: 8px;")
@@ -882,6 +939,7 @@ class PrivacyView(QWidget):
         success = self.tweaker.apply_tweak(tweak, enable)
         if success:
             checkbox.setText("Etkinleştirilmiş" if enable else "Kapatılmış")
+            self._refresh_tweaks()
         else:
             checkbox.blockSignals(True)
             checkbox.setChecked(not enable)
@@ -891,3 +949,40 @@ class PrivacyView(QWidget):
                 "Yetki Hatası",
                 f"'{tweak.name}' ayarı uygulanamadı. Bu ayar için Yönetici (Administrator) izni gereklidir."
             )
+
+    def _apply_all_antispy(self, enable: bool):
+        if self.antispy_worker and self.antispy_worker.isRunning():
+            return
+
+        self.btn_antispy_all.setEnabled(False)
+        self.btn_antispy_restore.setEnabled(False)
+        if hasattr(self, 'scroll_tw'):
+            self.scroll_tw.setEnabled(False)
+        if hasattr(self, 'lbl_antispy_status'):
+            self.lbl_antispy_status.setText("⏳ Anti-Spy kuralları ve servisler uygulanıyor..." if enable else "⏳ Varsayılan ayarlara dönülüyor...")
+
+        self.antispy_worker = AntiSpyApplyWorker(self.tweaker, enable)
+        self.antispy_worker.finished.connect(self._on_antispy_finished)
+        self.antispy_worker.start()
+
+    def _on_antispy_finished(self, success: int, failed: int, svcs: list, enable: bool):
+        self.btn_antispy_all.setEnabled(True)
+        self.btn_antispy_restore.setEnabled(True)
+        if hasattr(self, 'scroll_tw'):
+            self.scroll_tw.setEnabled(True)
+
+        if enable:
+            svc_note = f"\n\nDurdurulan telemetri servisleri: {len(svcs)}" if svcs else ""
+            QMessageBox.information(
+                self,
+                "Anti-Spy Kalkanı Devrede",
+                f"Tüm Windows telemetri ve veri toplama politikaları başarıyla engellendi! ({success} kural aktif edildi){svc_note}"
+            )
+        else:
+            QMessageBox.information(
+                self,
+                "Varsayılana Döndürüldü",
+                f"Gizlilik ayarları standart Windows varsayılanlarına döndürüldü ({success} kural sıfırlandı)."
+            )
+        self._refresh_tweaks()
+

@@ -9,7 +9,7 @@ from PyQt5.QtWidgets import (
     QLabel, QStackedWidget, QButtonGroup, QFrame, QSystemTrayIcon,
     QMenu, QAction, QApplication, QMessageBox
 )
-from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal
+from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal, QEvent
 from PyQt5.QtGui import QIcon, QPixmap, QPainter, QColor, QFont
 from ui.styles import get_stylesheet, get_active_theme_colors, apply_native_titlebar_theme
 from ui.views import (
@@ -296,8 +296,12 @@ class MainWindow(QMainWindow):
         
         log_debug("Init view: DashboardView")
         self.view_dashboard = DashboardView(self)
-        if hasattr(self.view_dashboard, 'overlay_widget') and hasattr(self.view_dashboard.overlay_widget, 'request_restore_main'):
-            self.view_dashboard.overlay_widget.request_restore_main.connect(self._restore_from_widget)
+        if hasattr(self.view_dashboard, 'overlay_widget'):
+            w = self.view_dashboard.overlay_widget
+            if hasattr(w, 'request_restore_main'):
+                w.request_restore_main.connect(self._restore_from_widget)
+            if hasattr(w, 'clickThroughToggled'):
+                w.clickThroughToggled.connect(self._on_widget_click_through_changed)
         log_debug("Init view: JunkView")
         self.view_junk = JunkView(self)
         log_debug("Init view: RegistryView")
@@ -372,13 +376,24 @@ class MainWindow(QMainWindow):
             self.stack.setCurrentIndex(settings_idx)
 
     def showEvent(self, event):
-        super().showEvent(event)
+        try:
+            super().showEvent(event)
+        except Exception:
+            pass
+        self._resume_view_timers()
         try:
             colors = get_active_theme_colors(self.current_theme)
             is_dark = (colors.get("NAME") == "dark")
             apply_native_titlebar_theme(int(self.winId()), is_dark)
         except Exception:
             pass
+
+    def hideEvent(self, event):
+        try:
+            super().hideEvent(event)
+        except Exception:
+            pass
+        self._pause_view_timers()
 
     def apply_theme(self, theme_mode: str):
         """Applies theme dynamically across the entire application and all views."""
@@ -413,6 +428,31 @@ class MainWindow(QMainWindow):
         self.auto_check_thread.finished.connect(self._on_auto_update_result)
         self.auto_check_thread.start()
 
+    def notify_tray(self, title: str, message: str, icon=QSystemTrayIcon.Information, timeout: int = 4000, force: bool = False):
+        """Displays system tray balloon notification unless Silent Mode is active."""
+        if not force and self.config.get("silent_mode_enabled", False):
+            return
+        if hasattr(self, 'tray_icon') and self.tray_icon.isVisible():
+            self.tray_icon.showMessage(title, message, icon, timeout)
+
+    def _on_widget_click_through_changed(self, enabled: bool):
+        if hasattr(self, 'act_tray_ct'):
+            self.act_tray_ct.blockSignals(True)
+            self.act_tray_ct.setChecked(enabled)
+            self.act_tray_ct.blockSignals(False)
+        if hasattr(self, 'view_settings') and hasattr(self.view_settings, 'chk_widget_ct'):
+            self.view_settings.chk_widget_ct.blockSignals(True)
+            self.view_settings.chk_widget_ct.setChecked(enabled)
+            self.view_settings.chk_widget_ct.blockSignals(False)
+        if enabled:
+            self.notify_tray(
+                "NovaCare Monitör",
+                "Tıklamayı Geçir (Click-Through) modu devrede.\nKapatmak için sistem tepsisindeki sağ tık menüsünü kullanın.",
+                QSystemTrayIcon.Information,
+                3500,
+                force=True
+            )
+
     def _on_auto_update_result(self, result):
         if isinstance(result, UpdateInfo) and result.available:
             settings_idx = len(self.nav_buttons) - 1
@@ -434,14 +474,12 @@ class MainWindow(QMainWindow):
                 self.auto_install_thread.finished.connect(lambda batch: self._on_auto_install_finished(batch, result))
                 self.auto_install_thread.start()
             else:
-                # Show system tray notification
-                if hasattr(self, 'tray_icon'):
-                    self.tray_icon.showMessage(
-                        "NovaCare Güncellemesi Mevcut",
-                        f"Yeni sürüm ({result.latest_version}) yayınlandı.",
-                        QSystemTrayIcon.Information,
-                        5000
-                    )
+                self.notify_tray(
+                    "NovaCare Güncellemesi Mevcut",
+                    f"Yeni sürüm ({result.latest_version}) yayınlandı.",
+                    QSystemTrayIcon.Information,
+                    5000
+                )
 
                 if self.config.get("notify_on_update", True):
                     ans = QMessageBox.information(
@@ -462,13 +500,12 @@ class MainWindow(QMainWindow):
 
         self.prepared_update_batch = batch_path
 
-        if hasattr(self, 'tray_icon'):
-            self.tray_icon.showMessage(
-                "NovaCare Güncellemesi Hazır",
-                f"Yeni sürüm ({info.latest_version}) arka planda otomatik olarak hazırlandı.",
-                QSystemTrayIcon.Information,
-                5000
-            )
+        self.notify_tray(
+            "NovaCare Güncellemesi Hazır",
+            f"Yeni sürüm ({info.latest_version}) arka planda otomatik olarak hazırlandı.",
+            QSystemTrayIcon.Information,
+            5000
+        )
 
         if self.config.get("notify_on_update", True):
             ans = QMessageBox.question(
@@ -487,10 +524,10 @@ class MainWindow(QMainWindow):
         self.auto_clean_worker = None
         # Initial check 12 seconds after launch
         QTimer.singleShot(12000, self._check_and_run_auto_clean)
-        # Recurring check every 1 hour (3600 seconds)
+        # Recurring check every 60 seconds (non-blocking idle and scheduled time verification)
         self.auto_clean_timer = QTimer(self)
         self.auto_clean_timer.timeout.connect(self._check_and_run_auto_clean)
-        self.auto_clean_timer.start(3600 * 1000)
+        self.auto_clean_timer.start(60 * 1000)
 
     def _check_and_run_auto_clean(self):
         if hasattr(self, 'auto_clean_worker') and self.auto_clean_worker and self.auto_clean_worker.isRunning():
@@ -504,10 +541,10 @@ class MainWindow(QMainWindow):
     def _on_background_auto_clean_finished(self, res: dict):
         if not res.get("triggered", False):
             return
-        if self.config.get("auto_clean_notify", True) and hasattr(self, 'tray_icon') and self.tray_icon.isVisible():
+        if self.config.get("auto_clean_notify", True):
             total = res.get("total_freed_str", "0 B")
             files = res.get("cleaned_files_count", 0)
-            self.tray_icon.showMessage(
+            self.notify_tray(
                 "NovaCare Otomatik Bakım Tamamlandı",
                 f"Sisteminiz optimize edildi: {total} alan boşaltıldı ({files} dosya temizlendi).",
                 QSystemTrayIcon.Information,
@@ -525,24 +562,22 @@ class MainWindow(QMainWindow):
     def _on_game_started(self, game_name: str):
         if hasattr(self, 'view_dashboard'):
             self.view_dashboard._sync_game_mode_ui()
-        if hasattr(self, 'tray_icon') and self.tray_icon.isVisible():
-            self.tray_icon.showMessage(
-                "🎮 Oyun Algılandı!",
-                f"'{game_name}' açıldı. NovaCare otomatik olarak Oyun & Nihai Performans Moduna geçti!",
-                QSystemTrayIcon.Information,
-                4000
-            )
+        self.notify_tray(
+            "🎮 Oyun Algılandı!",
+            f"'{game_name}' açıldı. NovaCare otomatik olarak Oyun & Nihai Performans Moduna geçti!",
+            QSystemTrayIcon.Information,
+            4000
+        )
 
     def _on_game_stopped(self, game_name: str):
         if hasattr(self, 'view_dashboard'):
             self.view_dashboard._sync_game_mode_ui()
-        if hasattr(self, 'tray_icon') and self.tray_icon.isVisible():
-            self.tray_icon.showMessage(
-                "🎮 Oyun Kapatıldı",
-                f"'{game_name}' oturumu sonlandı. NovaCare sistemi standart moda ve önceki güç planına geri döndürdü.",
-                QSystemTrayIcon.Information,
-                4000
-            )
+        self.notify_tray(
+            "🎮 Oyun Kapatıldı",
+            f"'{game_name}' oturumu sonlandı. NovaCare sistemi standart moda ve önceki güç planına geri döndürdü.",
+            QSystemTrayIcon.Information,
+            4000
+        )
 
     def _setup_tray(self):
         self.tray_icon = QSystemTrayIcon(self.app_icon, self)
@@ -552,16 +587,22 @@ class MainWindow(QMainWindow):
         self.tray_menu.setStyleSheet(get_stylesheet(self.current_theme))
 
         act_show = QAction("⚡  NovaCare'i Göster", self)
-        act_show.triggered.connect(self.showNormal)
+        act_show.triggered.connect(self._restore_from_tray)
         self.tray_menu.addAction(act_show)
 
-        act_boost = QAction("🧠  Hızlı RAM Temizle", self)
+        act_boost = QAction("🚀  Hızlı RAM Temizle", self)
         act_boost.triggered.connect(self._tray_boost_ram)
         self.tray_menu.addAction(act_boost)
 
         act_widget = QAction("📌  Masaüstü Widget'ını Aç / Kapat", self)
         act_widget.triggered.connect(self.toggle_desktop_widget)
         self.tray_menu.addAction(act_widget)
+
+        self.act_tray_ct = QAction("🖱️  Widget Tıklama Geçirgenliği (Click-Through)", self)
+        self.act_tray_ct.setCheckable(True)
+        self.act_tray_ct.setChecked(self.config.get("desktop_widget_click_through", False))
+        self.act_tray_ct.toggled.connect(self._tray_toggle_click_through)
+        self.tray_menu.addAction(self.act_tray_ct)
 
         self.tray_menu.addSeparator()
 
@@ -573,20 +614,50 @@ class MainWindow(QMainWindow):
         self.tray_icon.activated.connect(self._on_tray_activated)
         self.tray_icon.show()
 
+    @property
+    def desktop_widget(self):
+        """Reference to the floating DesktopPerformanceWidget instance."""
+        if hasattr(self, 'view_dashboard') and hasattr(self.view_dashboard, 'overlay_widget'):
+            return self.view_dashboard.overlay_widget
+        return None
+
+    def _tray_toggle_click_through(self, checked: bool):
+        self.config.set("desktop_widget_click_through", checked)
+        if self.desktop_widget:
+            self.desktop_widget.set_click_through(checked)
+        if hasattr(self, 'view_settings') and hasattr(self.view_settings, 'chk_widget_ct'):
+            self.view_settings.chk_widget_ct.blockSignals(True)
+            self.view_settings.chk_widget_ct.setChecked(checked)
+            self.view_settings.chk_widget_ct.blockSignals(False)
+
     def _exit_application(self):
         self._force_exit = True
-        QApplication.instance().quit()
+        self.close()
+        self.cleanup_workers()
+        app = QApplication.instance()
+        if app:
+            app.quit()
+
+    def _restore_from_tray(self):
+        self.showNormal()
+        self.activateWindow()
+        self._resume_view_timers()
 
     def _on_tray_activated(self, reason):
         if reason == QSystemTrayIcon.DoubleClick:
-            self.showNormal()
-            self.activateWindow()
+            self._restore_from_tray()
 
     def _tray_boost_ram(self):
-        booster = MemoryBooster()
-        freed, count = booster.optimize_ram()
+        if hasattr(self, '_tray_boost_worker') and self._tray_boost_worker and self._tray_boost_worker.isRunning():
+            return
+        from ui.views.memory_view import RamBoostWorker
+        self._tray_boost_worker = RamBoostWorker()
+        self._tray_boost_worker.finished.connect(self._on_tray_boost_finished)
+        self._tray_boost_worker.start()
+
+    def _on_tray_boost_finished(self, freed: int, count: int):
         from core.utils import format_bytes
-        self.tray_icon.showMessage(
+        self.notify_tray(
             "RAM Hızlandırıldı",
             f"{format_bytes(freed)} bellek başarıyla boşaltıldı!",
             QSystemTrayIcon.Information,
@@ -624,10 +695,15 @@ class MainWindow(QMainWindow):
                 self.auto_clean_timer.stop()
             if hasattr(self, 'view_dashboard') and hasattr(self.view_dashboard, 'timer') and self.view_dashboard.timer.isActive():
                 self.view_dashboard.timer.stop()
-            if hasattr(self, 'view_memory') and hasattr(self.view_memory, 'timer') and self.view_memory.timer.isActive():
-                self.view_memory.timer.stop()
+            if hasattr(self, 'view_memory'):
+                if hasattr(self.view_memory, 'timer') and self.view_memory.timer.isActive():
+                    self.view_memory.timer.stop()
+                if hasattr(self.view_memory, 'search_timer') and self.view_memory.search_timer.isActive():
+                    self.view_memory.search_timer.stop()
             if hasattr(self, 'view_hardware_health') and hasattr(self.view_hardware_health, 'timer') and self.view_hardware_health.timer.isActive():
                 self.view_hardware_health.timer.stop()
+            if hasattr(self, 'view_battery') and hasattr(self.view_battery, 'timer') and self.view_battery.timer.isActive():
+                self.view_battery.timer.stop()
 
             # 3. Stop main window worker threads
             if self.auto_check_thread and self.auto_check_thread.isRunning():
@@ -639,22 +715,25 @@ class MainWindow(QMainWindow):
             if hasattr(self, 'auto_clean_worker') and self.auto_clean_worker and self.auto_clean_worker.isRunning():
                 self.auto_clean_worker.quit()
                 self.auto_clean_worker.wait(300)
+            if hasattr(self, '_tray_boost_worker') and self._tray_boost_worker and self._tray_boost_worker.isRunning():
+                self._tray_boost_worker.quit()
+                self._tray_boost_worker.wait(300)
 
             # 4. Stop all subview workers
             for view_attr, worker_attrs in [
                 ('view_dashboard', ['scan_worker', 'fix_worker', 'game_mode_worker']),
                 ('view_junk', ['scan_thread', 'clean_thread']),
                 ('view_registry', ['scan_thread', 'fix_thread']),
-                ('view_memory', ['loader_worker']),
+                ('view_memory', ['loader_worker', 'boost_worker']),
                 ('view_startup', ['scan_worker']),
                 ('view_uninstaller', ['scan_worker']),
                 ('view_hardware_health', ['scan_worker']),
-                ('view_battery', ['hw_worker']),
-                ('view_disk', ['scan_thread']),
-                ('view_privacy', ['scan_worker', 'remove_worker', 'telemetry_worker', 'cookie_scan_worker', 'cookie_clean_worker']),
+                ('view_battery', ['hw_worker', 'report_worker']),
+                ('view_disk', ['scan_thread', 'dup_thread']),
+                ('view_privacy', ['scan_worker', 'remove_worker', 'telemetry_worker', 'cookie_scan_worker', 'cookie_clean_worker', 'antispy_worker']),
                 ('view_rescue', ['rp_worker']),
-                ('view_network', ['speed_worker', 'meta_worker', 'benchmark_worker', 'repair_worker']),
-                ('view_settings', ['check_thread', 'download_thread', 'manual_clean_worker']),
+                ('view_network', ['speed_worker', 'meta_worker', 'benchmark_worker', 'repair_worker', 'dns_apply_worker']),
+                ('view_settings', ['check_thread', 'download_thread', 'manual_clean_worker', 'autostart_worker']),
             ]:
                 if hasattr(self, view_attr):
                     view_obj = getattr(self, view_attr)
@@ -678,15 +757,54 @@ class MainWindow(QMainWindow):
 
             # 6. Close overlay widget
             if hasattr(self, 'view_dashboard') and hasattr(self.view_dashboard, 'overlay_widget') and self.view_dashboard.overlay_widget:
+                if hasattr(self.view_dashboard.overlay_widget, 'timer') and self.view_dashboard.overlay_widget.timer.isActive():
+                    self.view_dashboard.overlay_widget.timer.stop()
                 self.view_dashboard.overlay_widget.close()
         except Exception:
             pass
+
+    def _pause_view_timers(self):
+        """Pauses view background timers when main window is hidden/minimized to save CPU and battery."""
+        for v_name in ('view_dashboard', 'view_memory', 'view_hardware_health', 'view_battery'):
+            if hasattr(self, v_name):
+                view = getattr(self, v_name)
+                if hasattr(view, 'timer') and view.timer.isActive():
+                    view.timer.stop()
+
+        if not (self.desktop_widget and self.desktop_widget.isVisible()):
+            from core.hardware_monitor import HardwareMonitor
+            HardwareMonitor().set_throttled(True)
+
+    def _resume_view_timers(self):
+        """Resumes view timers when main window is restored to foreground."""
+        from core.hardware_monitor import HardwareMonitor
+        HardwareMonitor().set_throttled(False)
+
+        if hasattr(self, 'view_dashboard') and hasattr(self.view_dashboard, 'timer') and not self.view_dashboard.timer.isActive():
+            self.view_dashboard.timer.start()
+            if hasattr(self.view_dashboard, '_update_live_meters'):
+                self.view_dashboard._update_live_meters()
+        if hasattr(self, 'view_memory') and hasattr(self.view_memory, 'timer') and not self.view_memory.timer.isActive():
+            self.view_memory.timer.start(3500)
+        if hasattr(self, 'view_hardware_health') and hasattr(self.view_hardware_health, 'timer') and not self.view_hardware_health.timer.isActive():
+            self.view_hardware_health.timer.start(5000)
+        if hasattr(self, 'view_battery') and hasattr(self.view_battery, 'timer') and not self.view_battery.timer.isActive():
+            if getattr(self.view_battery, 'has_battery', False):
+                self.view_battery.timer.start(10000)
+
+    def changeEvent(self, event):
+        if event.type() == QEvent.WindowStateChange:
+            if self.isMinimized():
+                self._pause_view_timers()
+            else:
+                self._resume_view_timers()
+        super().changeEvent(event)
 
     def closeEvent(self, event):
         if not getattr(self, '_force_exit', False) and self.config.get("close_to_tray", True):
             event.ignore()
             self.hide()
-            from core.memory_booster import MemoryBooster
+            self._pause_view_timers()
             MemoryBooster.trim_own_memory()
             if hasattr(self, 'tray_icon') and self.tray_icon.isVisible():
                 self.tray_icon.showMessage(

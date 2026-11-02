@@ -259,10 +259,25 @@ class StartupManager:
                 root = self._get_root_key(item.root_name or "HKCU")
                 with winreg.OpenKey(root, item.source_key_or_path, 0, winreg.KEY_SET_VALUE) as k:
                     winreg.DeleteValue(k, item.name)
+                for appr in (r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run",
+                             r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run32"):
+                    try:
+                        with winreg.OpenKey(root, appr, 0, winreg.KEY_SET_VALUE) as ak:
+                            winreg.DeleteValue(ak, item.name)
+                    except OSError:
+                        pass
                 return True
             elif item.location_type == "registry_disabled":
                 with winreg.OpenKey(winreg.HKEY_CURRENT_USER, self.DISABLED_KEY, 0, winreg.KEY_SET_VALUE) as dis_key:
                     winreg.DeleteValue(dis_key, item.name)
+                root = self._get_root_key(item.root_name or "HKCU")
+                for appr in (r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run",
+                             r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run32"):
+                    try:
+                        with winreg.OpenKey(root, appr, 0, winreg.KEY_SET_VALUE) as ak:
+                            winreg.DeleteValue(ak, item.name)
+                    except OSError:
+                        pass
                 return True
         except Exception as e:
             log_debug(f"StartupManager.delete_item failed for {item.name}: {e}")

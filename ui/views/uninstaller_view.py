@@ -108,6 +108,12 @@ class BatchUninstallWorker(QThread):
 
     def cancel(self):
         self._is_canceled = True
+        proc = self._current_process
+        if proc and proc.poll() is None:
+            try:
+                proc.terminate()
+            except Exception:
+                pass
 
     def run(self):
         total = len(self.apps)
@@ -128,23 +134,34 @@ class BatchUninstallWorker(QThread):
                     # Wait for uninstaller process to finish
                     while proc.poll() is None:
                         if self._is_canceled:
+                            try:
+                                proc.terminate()
+                                proc.wait(timeout=1.0)
+                            except Exception:
+                                pass
                             break
                         self.msleep(400)
 
-                    if proc.returncode == 0 or proc.returncode is None:
+                    if self._is_canceled:
+                        success = False
+                        msg = "Kullanıcı tarafından iptal edildi"
+                    elif proc.returncode == 0:
                         success = True
                         msg = "Başarıyla tamamlandı"
                         uninstalled.append(app)
                     else:
-                        success = True
-                        msg = f"Tamamlandı (Kod: {proc.returncode})"
-                        uninstalled.append(app)
+                        success = (proc.returncode in (0, 3010))
+                        msg = f"Tamamlandı (Kod: {proc.returncode})" if success else f"Hata ile sonlandı (Kod: {proc.returncode})"
+                        if success:
+                            uninstalled.append(app)
                 except Exception as e:
                     success = False
                     msg = str(e)
 
                 self._current_process = None
                 self.app_finished.emit(idx, app, success, msg)
+                if self._is_canceled:
+                    break
                 self.msleep(600)  # Brief pause between sequential uninstallers
         except Exception as e:
             log_debug(f"BatchUninstallWorker error: {e}")

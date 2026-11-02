@@ -247,12 +247,17 @@ class CookieShield:
             b_type = t['type']
             exe = t['exe']
 
-            if self.is_browser_running(exe, running_procs):
+            is_running = self.is_browser_running(exe, running_procs)
+            if is_running:
                 locked_browsers.add(browser_name)
-                # Try reading anyway in case read sharing is open
+                # When browser is running, avoid waiting for full 1.0s SQLite lock timeout per profile
+                sql_timeout = 0.05
+            else:
+                sql_timeout = 1.0
+
             con = None
             try:
-                con = sqlite3.connect(db_path, timeout=1.0)
+                con = sqlite3.connect(db_path, timeout=sql_timeout)
                 cur = con.cursor()
 
                 if b_type == 'chromium':

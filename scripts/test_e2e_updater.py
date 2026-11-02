@@ -488,6 +488,158 @@ def test_batch_script_cleanup_and_uac_elevation():
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
 
+def test_live_generated_updater_execution():
+    print("[11/11] Testing live execution of generated apply_update.bat (PowerShell & CMD fallback)...")
+    base_tmp = tempfile.mkdtemp(prefix="NC_LiveExec_")
+    try:
+        # Part A: Test primary path (PowerShell updater engine via apply_update.bat)
+        mock_app = os.path.join(base_tmp, "Masaüstü Test", "NovaCare")
+        os.makedirs(mock_app, exist_ok=True)
+
+        old_exe = os.path.join(mock_app, "NovaCare.exe")
+        with open(old_exe, "wb") as f:
+            f.write(b"MZ_OLD_VERSION_1_2_4")
+
+        old_v = os.path.join(mock_app, "VERSION")
+        with open(old_v, "w", encoding="utf-8") as f:
+            f.write("1.2.4\n---\nOld Version")
+
+        marker_file = os.path.join(mock_app, "ps_launched.txt")
+        mock_launcher = os.path.join(mock_app, "NovaCare.bat")
+        with open(mock_launcher, "w", encoding="utf-8") as f:
+            f.write('@echo LAUNCHED > "%~dp0ps_launched.txt"\nexit\n')
+
+        dummy_zip = os.path.join(base_tmp, "update_payload.zip")
+        with zipfile.ZipFile(dummy_zip, "w") as zf:
+            zf.writestr("NovaCare.exe", b"MZ_NEW_VERSION_1_2_9_PAYLOAD")
+            zf.writestr("VERSION", "1.2.9\n---\nNew Release Notes")
+            zf.writestr("new_asset.txt", "asset content")
+
+        class MockResp:
+            status_code = 200
+            headers = {"content-length": str(os.path.getsize(dummy_zip))}
+            def iter_content(self, chunk_size=65536):
+                with open(dummy_zip, "rb") as f:
+                    while chunk := f.read(chunk_size):
+                        yield chunk
+            def raise_for_status(self): pass
+
+        updater = GitHubUpdater("GurpinarSG/NovaCare", token="", current_version="1.2.4")
+        update_temp = os.path.join(base_tmp, "UpdateTemp_PS")
+
+        with patch.object(updater, '_safe_request_get', return_value=MockResp()):
+            bat_path = updater.download_and_prepare_update(
+                "https://github.com/GurpinarSG/NovaCare/releases/download/v1.2.9/NovaCare_Update.zip",
+                new_version="1.2.9",
+                target_app_root=mock_app,
+                parent_pid=0,
+                custom_temp_dir=update_temp
+            )
+
+        with open(bat_path, "rb") as bf:
+            bat_b = bf.read()
+            assert b'\x0b' not in bat_b, "apply_update.bat contains vertical tab 0x0b!"
+            assert b'\x0c' not in bat_b, "apply_update.bat contains form feed 0x0c!"
+
+        ps1_path = bat_path.replace(".bat", ".ps1")
+        with open(ps1_path, "rb") as pf:
+            ps1_b = pf.read()
+            assert b'\x0b' not in ps1_b, "apply_update.ps1 contains vertical tab 0x0b!"
+
+        # Execute apply_update.bat via cmd.exe /c
+        p = subprocess.run(["cmd.exe", "/c", bat_path], capture_output=True, text=True, errors="replace")
+        assert p.returncode == 0, f"apply_update.bat failed with code {p.returncode}: {p.stderr}"
+
+        with open(old_exe, "rb") as f:
+            assert f.read() == b"MZ_NEW_VERSION_1_2_9_PAYLOAD", "NovaCare.exe was not updated to new payload!"
+
+        with open(old_v, "r", encoding="utf-8") as f:
+            v_content = f.read()
+            assert v_content.startswith("1.2.9"), f"VERSION file was not updated to 1.2.9: {v_content}"
+
+        assert os.path.exists(os.path.join(mock_app, "new_asset.txt")), "new_asset.txt must be copied"
+
+        update_log_path = os.path.join(update_temp, "update.log")
+        assert os.path.exists(update_log_path), f"update.log must exist at {update_log_path}"
+        with open(update_log_path, "r", encoding="utf-8", errors="replace") as lf:
+            log_text = lf.read()
+            assert "NovaCare Update Started" in log_text or "NovaCare PowerShell Updater started" in log_text
+
+        import time
+        for _ in range(20):
+            if os.path.exists(marker_file):
+                break
+            time.sleep(0.2)
+        if not os.path.exists(marker_file):
+            print("UPDATE LOG CONTENTS:\n", log_text)
+        assert os.path.exists(marker_file), f"Mock launcher was not executed by PowerShell updater! Log: {log_text}"
+
+        # Part B: Test CMD fallback execution (delete apply_update.ps1 to trigger fallback)
+        mock_app_cmd = os.path.join(base_tmp, "Masaüstü CMD", "NovaCare")
+        os.makedirs(mock_app_cmd, exist_ok=True)
+
+        old_exe_cmd = os.path.join(mock_app_cmd, "NovaCare.exe")
+        with open(old_exe_cmd, "wb") as f:
+            f.write(b"MZ_OLD_VERSION_CMD")
+
+        old_v_cmd = os.path.join(mock_app_cmd, "VERSION")
+        with open(old_v_cmd, "w", encoding="utf-8") as f:
+            f.write("1.2.4\n---\nOld Version")
+
+        marker_cmd = os.path.join(mock_app_cmd, "cmd_launched.txt")
+        mock_launcher_cmd = os.path.join(mock_app_cmd, "NovaCare.bat")
+        with open(mock_launcher_cmd, "w", encoding="utf-8") as f:
+            f.write('@echo LAUNCHED > "%~dp0cmd_launched.txt"\nexit\n')
+
+        update_temp_cmd = os.path.join(base_tmp, "UpdateTemp_CMD")
+
+        with patch.object(updater, '_safe_request_get', return_value=MockResp()):
+            bat_path_cmd = updater.download_and_prepare_update(
+                "https://github.com/GurpinarSG/NovaCare/releases/download/v1.2.9/NovaCare_Update.zip",
+                new_version="1.2.9",
+                target_app_root=mock_app_cmd,
+                parent_pid=0,
+                custom_temp_dir=update_temp_cmd
+            )
+
+        ps1_fallback = bat_path_cmd.replace(".bat", ".ps1")
+        if os.path.exists(ps1_fallback):
+            os.remove(ps1_fallback)
+
+        p_cmd = subprocess.run(["cmd.exe", "/c", bat_path_cmd], capture_output=True, text=True, errors="replace")
+        assert p_cmd.returncode == 0, f"CMD fallback apply_update.bat failed with code {p_cmd.returncode}: {p_cmd.stderr}"
+
+        with open(old_exe_cmd, "rb") as f:
+            assert f.read() == b"MZ_NEW_VERSION_1_2_9_PAYLOAD", "CMD fallback did not update NovaCare.exe!"
+
+        with open(old_v_cmd, "r", encoding="utf-8") as f:
+            v_content = f.read()
+            assert v_content.startswith("1.2.9"), f"CMD fallback did not update VERSION file: {v_content}"
+
+        update_log_cmd = os.path.join(update_temp_cmd, "update.log")
+        assert os.path.exists(update_log_cmd), f"update.log must exist at {update_log_cmd}"
+        with open(update_log_cmd, "r", encoding="utf-8", errors="replace") as lf:
+            log_text_cmd = lf.read()
+            assert "Native CMD Updater running" in log_text_cmd
+
+        for _ in range(20):
+            if os.path.exists(marker_cmd):
+                break
+            time.sleep(0.2)
+        assert os.path.exists(marker_cmd), "Mock launcher was not executed by CMD fallback updater!"
+
+        # Verify settings.json was updated with new version in CMD fallback
+        cfg_path = os.path.join(os.environ.get('LOCALAPPDATA', os.path.expanduser('~')), 'NovaCare', 'settings.json')
+        if os.path.exists(cfg_path):
+            with open(cfg_path, 'r', encoding='utf-8') as f:
+                import json
+                s_data = json.load(f)
+                assert s_data.get('version') == '1.2.9', f"settings.json version must be 1.2.9, got {s_data.get('version')}"
+
+        print("  [✔] Generated apply_update.bat live execution (PowerShell & CMD fallback) verified perfectly.")
+    finally:
+        shutil.rmtree(base_tmp, ignore_errors=True)
+
 if __name__ == "__main__":
     print("=" * 65)
     print("  NovaCare End-to-End Updater Verification Test Suite")
@@ -502,6 +654,7 @@ if __name__ == "__main__":
     test_file_lock_retry_loop()
     test_standalone_exe_payload_isolation()
     test_batch_script_cleanup_and_uac_elevation()
+    test_live_generated_updater_execution()
     print("\n" + "=" * 65)
-    print("  ALL 10 END-TO-END UPDATER TESTS PASSED PERFECTLY!")
+    print("  ALL 11 END-TO-END UPDATER TESTS PASSED PERFECTLY!")
     print("=" * 65)

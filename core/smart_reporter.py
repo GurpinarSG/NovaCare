@@ -240,7 +240,8 @@ class SmartReporter:
                         power_on_days=None,
                         read_errors=0,
                         write_errors=0,
-                        bad_sectors_status="S.M.A.R.T. Durumu: Normal"
+                        bad_sectors_status="S.M.A.R.T. Durumu: Normal",
+                        operational_status="OK"
                     ))
             except Exception:
                 pass

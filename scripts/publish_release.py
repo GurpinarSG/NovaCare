@@ -224,7 +224,7 @@ def upload_release_asset(upload_url: str, file_path: str, asset_name: str, conte
             else:
                 raise e
 
-def create_release(tag_name: str, release_title: Optional[str] = None, changelog: Optional[str] = None):
+def create_release(tag_name: str, release_title: Optional[str] = None, changelog: Optional[str] = None, force_rebuild: bool = True):
     if not TOKEN:
         print("[X] HATA: GitHub sürümü oluşturmak için yetki tokeni bulunamadı.")
         print("    Çözüm Seçenekleri:")
@@ -233,9 +233,26 @@ def create_release(tag_name: str, release_title: Optional[str] = None, changelog
         print("    3. Tokeni yerel kasaya kaydetmek için: python scripts/publish_release.py --save-token <token>")
         return False
 
-    clean_tag = tag_name.lstrip("vV")
+    clean_tag = tag_name.lstrip("vV").strip()
     title = release_title or f"NovaCare System Care Suite v{clean_tag}"
     body = changelog or get_changelog_for_tag(tag_name)
+
+    # Ensure VERSION file is updated to match <tag>
+    v_file = os.path.join(ROOT_DIR, "VERSION")
+    try:
+        existing_notes = ""
+        if os.path.exists(v_file):
+            with open(v_file, "r", encoding="utf-8-sig", errors="replace") as vf:
+                from core.config import parse_version_content
+                _, existing_notes = parse_version_content(vf.read())
+        new_v_content = f"{clean_tag}\n"
+        if existing_notes:
+            new_v_content += f"---\n{existing_notes}\n"
+        with open(v_file, "w", encoding="utf-8") as vf:
+            vf.write(new_v_content)
+        print(f"[✔] VERSION dosyası güncellendi: v{clean_tag}")
+    except Exception as e:
+        print(f"[!] VERSION dosyası güncellenirken hata oluştu: {e}")
 
     print("=" * 65)
     print(f"  GitHub Sürümü Oluşturuluyor: {tag_name}")
@@ -287,8 +304,8 @@ def create_release(tag_name: str, release_title: Optional[str] = None, changelog
 
     # Ensure freshly compiled core executable and setup installer
     print("[*] Derlenmiş dosyaların güncelliği kontrol ediliyor...")
-    must_build_exe = False
-    must_build_setup = False
+    must_build_exe = force_rebuild
+    must_build_setup = force_rebuild
 
     core_exe_candidates = [
         os.path.join(ROOT_DIR, "NovaCare.exe"),
@@ -296,29 +313,30 @@ def create_release(tag_name: str, release_title: Optional[str] = None, changelog
     ]
     core_exe = next((c for c in core_exe_candidates if os.path.exists(c)), None)
 
-    if not core_exe:
-        must_build_exe = True
-    else:
-        exe_mtime = os.path.getmtime(core_exe)
-        for check_item in [os.path.join(ROOT_DIR, "main.py"), os.path.join(ROOT_DIR, "VERSION")]:
-            if os.path.exists(check_item) and os.path.getmtime(check_item) > exe_mtime:
-                must_build_exe = True
-                break
-        if not must_build_exe:
-            for chk_d in ["core", "ui", "assets"]:
-                d_full = os.path.join(ROOT_DIR, chk_d)
-                if os.path.exists(d_full):
-                    for r, _, fnames in os.walk(d_full):
-                        for fn in fnames:
-                            if fn.endswith(('.py', '.png', '.ico', '.pem')):
-                                if os.path.getmtime(os.path.join(r, fn)) > exe_mtime:
-                                    must_build_exe = True
-                                    break
-                        if must_build_exe:
-                            break
+    if not force_rebuild:
+        if not core_exe:
+            must_build_exe = True
+        else:
+            exe_mtime = os.path.getmtime(core_exe)
+            for check_item in [os.path.join(ROOT_DIR, "main.py"), os.path.join(ROOT_DIR, "VERSION")]:
+                if os.path.exists(check_item) and os.path.getmtime(check_item) > exe_mtime:
+                    must_build_exe = True
+                    break
+            if not must_build_exe:
+                for chk_d in ["core", "ui", "assets"]:
+                    d_full = os.path.join(ROOT_DIR, chk_d)
+                    if os.path.exists(d_full):
+                        for r, _, fnames in os.walk(d_full):
+                            for fn in fnames:
+                                if fn.endswith(('.py', '.png', '.ico', '.pem')):
+                                    if os.path.getmtime(os.path.join(r, fn)) > exe_mtime:
+                                        must_build_exe = True
+                                        break
+                            if must_build_exe:
+                                break
 
     if must_build_exe:
-        print("  [!] Kaynak kodlar derlenmiş NovaCare.exe'den daha yeni. Otomatik olarak derleniyor...")
+        print(f"  [!] NovaCare.exe otomatik olarak derleniyor (force_rebuild={force_rebuild})...")
         from scripts.build_exe import build_executable
         build_executable(onefile=True)
         must_build_setup = True
@@ -330,7 +348,7 @@ def create_release(tag_name: str, release_title: Optional[str] = None, changelog
     ]
     cur_setup = next((s for s in setup_candidates if os.path.exists(s)), None)
     if not cur_setup or must_build_setup or (core_exe and os.path.exists(core_exe) and os.path.getmtime(core_exe) > os.path.getmtime(cur_setup)):
-        print("  [!] Kurulum sihirbazı paketleniyor...")
+        print(f"  [!] Kurulum sihirbazı paketleniyor (force_rebuild={force_rebuild})...")
         from scripts.build_installer import build_installer
         build_installer()
 
@@ -338,9 +356,9 @@ def create_release(tag_name: str, release_title: Optional[str] = None, changelog
     setup_file = os.path.join(rel_folder, f"NovaCare_Setup_v{clean_tag}.exe")
     if not os.path.exists(setup_file) or must_build_setup:
         for candidate in [
+            os.path.join(ROOT_DIR, "dist", f"NovaCare_Setup_v{clean_tag}.exe"),
             os.path.join(ROOT_DIR, f"NovaCare_Setup_v{clean_tag}.exe"),
-            os.path.join(ROOT_DIR, "NovaCare_Setup.exe"),
-            os.path.join(ROOT_DIR, "dist", f"NovaCare_Setup_v{clean_tag}.exe")
+            os.path.join(ROOT_DIR, "NovaCare_Setup.exe")
         ]:
             if os.path.exists(candidate):
                 import shutil
@@ -354,8 +372,8 @@ def create_release(tag_name: str, release_title: Optional[str] = None, changelog
     # Auto-generate NovaCare_Update.zip and Portable zip from compiled NovaCare.exe
     core_exe = None
     for cand in [
-        os.path.join(ROOT_DIR, "NovaCare.exe"),
-        os.path.join(ROOT_DIR, "dist", "NovaCare.exe")
+        os.path.join(ROOT_DIR, "dist", "NovaCare.exe"),
+        os.path.join(ROOT_DIR, "NovaCare.exe")
     ]:
         if os.path.exists(cand):
             core_exe = cand
@@ -456,4 +474,4 @@ if __name__ == "__main__":
         push_files_to_github(commit_msg=args.message)
 
     if args.release:
-        create_release(tag_name=args.release)
+        create_release(tag_name=args.release, force_rebuild=True)

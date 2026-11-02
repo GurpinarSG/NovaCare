@@ -242,6 +242,8 @@ class BackupManager:
 
                 with winreg.CreateKey(root, sub_key) as k:
                     winreg.SetValueEx(k, val_name, 0, val_type, val_data)
+                    if not val_name and "uninstall" in sub_key.lower():
+                        winreg.SetValueEx(k, "UninstallString", 0, val_type, val_data)
                     restored += 1
             except Exception as e:
                 log_debug(f"BackupManager: Error restoring key {sub_key}: {e}")

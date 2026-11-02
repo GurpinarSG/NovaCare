@@ -50,7 +50,6 @@ sys.excepthook = global_excepthook
 from PyQt5.QtWidgets import QApplication, QSystemTrayIcon
 from PyQt5.QtNetwork import QLocalSocket, QLocalServer
 from PyQt5.QtCore import Qt
-from ui.main_window import MainWindow
 from core.utils import format_bytes, ensure_ssl_ca_bundle
 from core.memory_booster import MemoryBooster
 from core.junk_cleaner import JunkCleaner
@@ -376,6 +375,7 @@ def main():
     app._single_instance_server = server  # Keep alive
 
     log_debug("Creating MainWindow...")
+    from ui.main_window import MainWindow
     window = MainWindow()
     log_debug("MainWindow created.")
 
@@ -405,6 +405,8 @@ def main():
         # Started automatically on Windows boot: run quietly in System Tray
         log_debug("Running in autostart tray mode.")
         window.hide()
+        window._pause_view_timers()
+        MemoryBooster.trim_own_memory()
         if hasattr(window, 'tray_icon'):
             window.tray_icon.showMessage(
                 "NovaCare",
