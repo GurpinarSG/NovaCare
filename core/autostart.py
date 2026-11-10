@@ -121,6 +121,7 @@ def set_autostart(enable: bool) -> bool:
                 log_debug(f"Autostart: schtasks creation fallback failed: {e2}")
                 task_created = False
 
+        run_key_created = False
         if task_created:
             # Task scheduler is active and elevated; remove duplicate HKCU Run entry so Windows won't launch 2 instances
             try:
@@ -133,10 +134,11 @@ def set_autostart(enable: bool) -> bool:
             try:
                 with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE) as key:
                     winreg.SetValueEx(key, APP_NAME, 0, winreg.REG_SZ, cmd_str)
+                    run_key_created = True
             except Exception as e:
                 log_debug(f"Autostart: HKCU Run fallback failed: {e}")
 
-        return True
+        return bool(task_created or run_key_created)
     else:
         # 1. Delete from Windows Task Scheduler
         try:
@@ -152,6 +154,8 @@ def set_autostart(enable: bool) -> bool:
             pass
 
         return True
+
+set_autostart_enabled = set_autostart
 
 def ensure_default_autostart():
     """Ensures autostart is active by default on user system with proper elevated task scheduler integration."""

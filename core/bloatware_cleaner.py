@@ -181,8 +181,9 @@ class BloatwareCleaner:
                 # Stop service
                 subprocess.run([get_system32_path("net"), "stop", svc_name, "/y"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5, creationflags=flags)
                 # Set startup type to disabled
-                subprocess.run([get_system32_path("sc"), "config", svc_name, "start=disabled"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5, creationflags=flags)
-                disabled_services.append(friendly)
+                res = subprocess.run([get_system32_path("sc"), "config", svc_name, "start=disabled"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5, creationflags=flags)
+                if res.returncode == 0:
+                    disabled_services.append(friendly)
             except Exception:
                 continue
 

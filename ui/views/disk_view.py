@@ -8,14 +8,14 @@ import subprocess
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QProgressBar,
     QTableWidget, QTableWidgetItem, QHeaderView, QComboBox, QMessageBox,
-    QFrame, QAbstractItemView, QTabWidget, QFileDialog, QCheckBox
+    QFrame, QAbstractItemView, QTabWidget, QFileDialog, QCheckBox, QSizePolicy
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QColor
 from core.disk_analyzer import DiskAnalyzer, LargeFileInfo
 from core.duplicate_finder import DuplicateFinder, DuplicateGroup
 from core.utils import log_debug, format_bytes
-from ui.styles import BG_CARD, BORDER_COLOR, COLOR_ACCENT, COLOR_SUCCESS, COLOR_WARNING, TEXT_SECONDARY
+from ui.styles import BG_CARD, BORDER_COLOR, COLOR_ACCENT, COLOR_SUCCESS, COLOR_WARNING
 
 class LargeFileScanThread(QThread):
     progress = pyqtSignal(str, int)
@@ -27,21 +27,28 @@ class LargeFileScanThread(QThread):
         self.target_dir = target_dir
         self.min_size_mb = min_size_mb
         self.limit = limit
+        self._is_cancelled = False
+
+    def cancel(self):
+        self._is_cancelled = True
+        self.requestInterruption()
 
     def run(self):
         files = []
         try:
-            files = self.analyzer.scan_largest_files(
-                self.target_dir,
-                limit=self.limit,
-                min_size_mb=self.min_size_mb,
-                progress_callback=lambda path, count: self.progress.emit(path, count),
-                cancel_check=self.isInterruptionRequested
-            )
+            if not self._is_cancelled:
+                files = self.analyzer.scan_largest_files(
+                    self.target_dir,
+                    limit=self.limit,
+                    min_size_mb=self.min_size_mb,
+                    progress_callback=lambda path, count: self.progress.emit(path, count),
+                    cancel_check=lambda: self._is_cancelled or self.isInterruptionRequested()
+                )
         except Exception as e:
             log_debug(f"LargeFileScanThread error: {e}")
         finally:
-            self.finished.emit(files)
+            if not self._is_cancelled:
+                self.finished.emit(files)
 
 class DuplicateScanThread(QThread):
     progress = pyqtSignal(str, int, int)
@@ -52,20 +59,27 @@ class DuplicateScanThread(QThread):
         self.finder = finder
         self.target_dirs = target_dirs
         self.min_size_bytes = min_size_bytes
+        self._is_cancelled = False
+
+    def cancel(self):
+        self._is_cancelled = True
+        self.requestInterruption()
 
     def run(self):
         groups = []
         try:
-            groups = self.finder.scan_duplicates(
-                self.target_dirs,
-                min_size_bytes=self.min_size_bytes,
-                progress_callback=lambda p, s, d: self.progress.emit(p, s, d),
-                cancel_check=self.isInterruptionRequested
-            )
+            if not self._is_cancelled:
+                groups = self.finder.scan_duplicates(
+                    self.target_dirs,
+                    min_size_bytes=self.min_size_bytes,
+                    progress_callback=lambda p, s, d: self.progress.emit(p, s, d),
+                    cancel_check=lambda: self._is_cancelled or self.isInterruptionRequested()
+                )
         except Exception as e:
             log_debug(f"DuplicateScanThread error: {e}")
         finally:
-            self.finished.emit(groups)
+            if not self._is_cancelled:
+                self.finished.emit(groups)
 
 class DiskView(QWidget):
     def __init__(self, parent=None):
@@ -82,7 +96,7 @@ class DiskView(QWidget):
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(24, 18, 24, 18)
+        layout.setContentsMargins(24, 20, 24, 20)
         layout.setSpacing(12)
 
         # Header
@@ -119,15 +133,19 @@ class DiskView(QWidget):
         self.drives_layout.setSpacing(14)
         tab_lay.addWidget(self.drives_container)
 
-        # Toolbar
+        # Toolbar (Flexible 2-row layout for 940x580 responsive support)
         toolbar = QFrame()
         toolbar.setObjectName("ToolbarFrame")
-        tb_layout = QHBoxLayout(toolbar)
-        tb_layout.setContentsMargins(10, 8, 10, 8)
+        tb_layout = QVBoxLayout(toolbar)
+        tb_layout.setContentsMargins(12, 10, 12, 10)
+        tb_layout.setSpacing(8)
 
+        # Row 1: Target drive & Minimum size filter
+        row1 = QHBoxLayout()
+        row1.setSpacing(8)
         lbl_target = QLabel("Hedef:")
         self.combo_target = QComboBox()
-        self.combo_target.setMinimumWidth(220)
+        self.combo_target.setMinimumWidth(200)
 
         lbl_size = QLabel("Min Boyut:")
         self.combo_min_size = QComboBox()
@@ -135,6 +153,17 @@ class DiskView(QWidget):
         self.combo_min_size.setCurrentIndex(1) # 100 MB
         self.combo_min_size.setFixedWidth(90)
 
+        row1.addWidget(lbl_target)
+        row1.addWidget(self.combo_target)
+        row1.addSpacing(8)
+        row1.addWidget(lbl_size)
+        row1.addWidget(self.combo_min_size)
+        row1.addStretch()
+        tb_layout.addLayout(row1)
+
+        # Row 2: Action buttons
+        row2 = QHBoxLayout()
+        row2.setSpacing(8)
         self.btn_scan = QPushButton("🔍  Büyük Dosyaları Tara")
         self.btn_scan.setProperty("class", "primary-btn")
         self.btn_scan.clicked.connect(self._start_scan)
@@ -147,22 +176,18 @@ class DiskView(QWidget):
         self.btn_delete.setProperty("class", "danger-btn")
         self.btn_delete.clicked.connect(self._delete_file)
 
-        tb_layout.addWidget(lbl_target)
-        tb_layout.addWidget(self.combo_target)
-        tb_layout.addSpacing(8)
-        tb_layout.addWidget(lbl_size)
-        tb_layout.addWidget(self.combo_min_size)
-        tb_layout.addSpacing(8)
-        tb_layout.addWidget(self.btn_scan)
-        tb_layout.addWidget(self.btn_open)
-        tb_layout.addWidget(self.btn_delete)
-        tb_layout.addStretch()
+        row2.addWidget(self.btn_scan)
+        row2.addWidget(self.btn_open)
+        row2.addWidget(self.btn_delete)
+        row2.addStretch()
+        tb_layout.addLayout(row2)
+
         tab_lay.addWidget(toolbar)
 
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
         self.lbl_status = QLabel("")
-        self.lbl_status.setStyleSheet(f"color: {TEXT_SECONDARY};")
+        self.lbl_status.setObjectName("TextSecondary")
         self.lbl_status.setVisible(False)
         tab_lay.addWidget(self.progress_bar)
         tab_lay.addWidget(self.lbl_status)
@@ -181,6 +206,7 @@ class DiskView(QWidget):
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setSelectionMode(QTableWidget.SingleSelection)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table.setSortingEnabled(True)
         tab_lay.addWidget(self.table)
 
     def _build_duplicates_tab(self):
@@ -250,7 +276,8 @@ class DiskView(QWidget):
         self.dup_progress = QProgressBar()
         self.dup_progress.setVisible(False)
         self.lbl_dup_status = QLabel("MD5 tabanlı derin analiz ile aynı içeriğe sahip dosyaları bulun.")
-        self.lbl_dup_status.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 12px;")
+        self.lbl_dup_status.setObjectName("TextSecondary")
+        self.lbl_dup_status.setStyleSheet("font-size: 12px;")
         tab_lay.addWidget(self.dup_progress)
         tab_lay.addWidget(self.lbl_dup_status)
 
@@ -268,6 +295,7 @@ class DiskView(QWidget):
         self.dup_table.setAlternatingRowColors(True)
         self.dup_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.dup_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.dup_table.setSortingEnabled(True)
         self.dup_table.itemDoubleClicked.connect(self._on_dup_row_double_click)
         tab_lay.addWidget(self.dup_table)
 
@@ -302,17 +330,18 @@ class DiskView(QWidget):
                 border-radius: 8px;
                 padding: 10px 14px;
             """)
+            card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
             c_lay = QVBoxLayout(card)
             c_lay.setContentsMargins(8, 6, 8, 6)
             c_lay.setSpacing(4)
 
             top_row = QHBoxLayout()
             lbl_name = QLabel(f"<b>Sürücü ({part.mountpoint})</b> - {part.fstype}")
+            lbl_name.setWordWrap(True)
             lbl_pct = QLabel(f"<b>{part.percent}%</b>")
             lbl_pct.setStyleSheet(f"color: {COLOR_ACCENT}; font-size: 14px;")
-            top_row.addWidget(lbl_name)
-            top_row.addStretch()
-            top_row.addWidget(lbl_pct)
+            top_row.addWidget(lbl_name, 1)
+            top_row.addWidget(lbl_pct, 0, Qt.AlignRight | Qt.AlignVCenter)
             c_lay.addLayout(top_row)
 
             bar = QProgressBar()
@@ -321,7 +350,9 @@ class DiskView(QWidget):
             c_lay.addWidget(bar)
 
             lbl_detail = QLabel(f"Boş: {part.free_str} / Toplam: {part.total_str}")
-            lbl_detail.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 11px;")
+            lbl_detail.setObjectName("TextSecondary")
+            lbl_detail.setStyleSheet("font-size: 11px;")
+            lbl_detail.setWordWrap(True)
             c_lay.addWidget(lbl_detail)
 
             self.drives_layout.addWidget(card)
@@ -364,29 +395,37 @@ class DiskView(QWidget):
         self.large_files = files
 
         if not files:
+            self.table.setRowCount(0)
             self.lbl_status.setText("Belirtilen boyuttan büyük dosya bulunamadı.")
             return
 
         total_sz = sum(f.size_bytes for f in files)
         self.lbl_status.setText(f"Tarama tamamlandı! En büyük {len(files)} dosya listelendi (Toplam: {format_bytes(total_sz)}).")
 
-        self.table.setRowCount(len(files))
-        for row, f in enumerate(files):
-            self.table.setItem(row, 0, QTableWidgetItem(f.name))
-            self.table.setItem(row, 1, QTableWidgetItem(f.category))
-            sz_item = QTableWidgetItem(f.size_str)
-            sz_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            self.table.setItem(row, 2, sz_item)
-            self.table.setItem(row, 3, QTableWidgetItem(f.path))
+        self.table.setSortingEnabled(False)
+        try:
+            self.table.setRowCount(len(files))
+            for row, f in enumerate(files):
+                self.table.setItem(row, 0, QTableWidgetItem(f.name))
+                self.table.setItem(row, 1, QTableWidgetItem(f.category))
+                sz_item = QTableWidgetItem()
+                sz_item.setData(Qt.DisplayRole, f.size_str)
+                sz_item.setData(Qt.EditRole, f.size_bytes)
+                sz_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                self.table.setItem(row, 2, sz_item)
+                self.table.setItem(row, 3, QTableWidgetItem(f.path))
+        finally:
+            self.table.setSortingEnabled(True)
 
     def _open_file_location(self):
         row = self.table.currentRow()
-        if row < 0 or row >= len(self.large_files):
+        if row < 0 or row >= self.table.rowCount():
             QMessageBox.information(self, "Bilgi", "Lütfen konumunu açmak istediğiniz dosyayı seçin.")
             return
 
-        path = self.large_files[row].path
-        if os.path.exists(path):
+        p_item = self.table.item(row, 3)
+        path = p_item.text() if p_item else ""
+        if path and os.path.exists(path):
             norm = os.path.normpath(path)
             subprocess.Popen(f'explorer.exe /select,"{norm}"')
         else:
@@ -394,23 +433,31 @@ class DiskView(QWidget):
 
     def _delete_file(self):
         row = self.table.currentRow()
-        if row < 0 or row >= len(self.large_files):
+        if row < 0 or row >= self.table.rowCount():
             QMessageBox.information(self, "Bilgi", "Lütfen silmek istediğiniz dosyayı seçin.")
             return
 
-        target = self.large_files[row]
+        p_item = self.table.item(row, 3)
+        n_item = self.table.item(row, 0)
+        s_item = self.table.item(row, 2)
+        if not p_item:
+            return
+        target_path = p_item.text()
+        target_name = n_item.text() if n_item else os.path.basename(target_path)
+        target_size = s_item.text() if s_item else ""
+
         ans = QMessageBox.question(
             self,
             "Dosyayı Sil",
-            f"<b>{target.name}</b> ({target.size_str}) dosyasını kalıcı olarak silmek istediğinizden emin misiniz?\n\nKonum: {target.path}",
+            f"<b>{target_name}</b> ({target_size}) dosyasını kalıcı olarak silmek istediğinizden emin misiniz?\n\nKonum: {target_path}",
             QMessageBox.Yes | QMessageBox.No
         )
         if ans == QMessageBox.Yes:
-            ok, msg = self.analyzer.delete_file_safely(target.path)
+            ok, msg = self.analyzer.delete_file_safely(target_path)
             if ok:
                 QMessageBox.information(self, "Başarılı", "Dosya başarıyla silindi.")
                 self.table.removeRow(row)
-                self.large_files.pop(row)
+                self.large_files = [f for f in self.large_files if f.path != target_path]
             else:
                 QMessageBox.warning(self, "Hata", f"Dosya silinemedi: {msg}")
 
@@ -449,6 +496,7 @@ class DiskView(QWidget):
         self.duplicate_groups = groups
 
         if not groups:
+            self.dup_table.setRowCount(0)
             self.lbl_dup_status.setText("Tebrikler! Belirtilen konumda yinelenen dosya bulunamadı.")
             return
 
@@ -462,49 +510,55 @@ class DiskView(QWidget):
         self._render_duplicate_table()
 
     def _render_duplicate_table(self):
-        total_rows = sum(len(g.files) for g in self.duplicate_groups)
-        self.dup_table.setRowCount(total_rows)
+        self.dup_table.setSortingEnabled(False)
+        try:
+            total_rows = sum(len(g.files) for g in self.duplicate_groups)
+            self.dup_table.setRowCount(total_rows)
 
-        cur_row = 0
-        for grp in self.duplicate_groups:
-            for item in grp.files:
-                # Checkbox
-                chk = QCheckBox()
-                chk.setChecked(item.selected and not item.is_original)
-                chk.setEnabled(not item.is_original) # Prevent checking original by accident
-                chk.stateChanged.connect(lambda state, it=item: self._on_item_check_changed(it, state))
+            cur_row = 0
+            for grp in self.duplicate_groups:
+                for item in grp.files:
+                    # Checkbox
+                    chk = QCheckBox()
+                    chk.setChecked(item.selected and not item.is_original)
+                    chk.setEnabled(not item.is_original) # Prevent checking original by accident
+                    chk.stateChanged.connect(lambda state, it=item: self._on_item_check_changed(it, state))
 
-                cell_widget = QWidget()
-                cell_lay = QHBoxLayout(cell_widget)
-                cell_lay.setContentsMargins(10, 0, 0, 0)
-                cell_lay.setAlignment(Qt.AlignCenter)
-                cell_lay.addWidget(chk)
-                self.dup_table.setCellWidget(cur_row, 0, cell_widget)
+                    cell_widget = QWidget()
+                    cell_lay = QHBoxLayout(cell_widget)
+                    cell_lay.setContentsMargins(10, 0, 0, 0)
+                    cell_lay.setAlignment(Qt.AlignCenter)
+                    cell_lay.addWidget(chk)
+                    self.dup_table.setCellWidget(cur_row, 0, cell_widget)
 
-                # Name
-                item_name = QTableWidgetItem(os.path.basename(item.path))
-                self.dup_table.setItem(cur_row, 1, item_name)
+                    # Name
+                    item_name = QTableWidgetItem(os.path.basename(item.path))
+                    self.dup_table.setItem(cur_row, 1, item_name)
 
-                # Status
-                if item.is_original:
-                    status_lbl = "⭐ Orijinal Dosya (Korunuyor)"
-                    status_col = COLOR_SUCCESS
-                else:
-                    status_lbl = "⚠️ Yinelenen Kopya"
-                    status_col = COLOR_WARNING
+                    # Status
+                    if item.is_original:
+                        status_lbl = "⭐ Orijinal Dosya (Korunuyor)"
+                        status_col = COLOR_SUCCESS
+                    else:
+                        status_lbl = "⚠️ Yinelenen Kopya"
+                        status_col = COLOR_WARNING
 
-                it_status = QTableWidgetItem(status_lbl)
-                it_status.setForeground(QColor(status_col))
-                self.dup_table.setItem(cur_row, 2, it_status)
+                    it_status = QTableWidgetItem(status_lbl)
+                    it_status.setForeground(QColor(status_col))
+                    self.dup_table.setItem(cur_row, 2, it_status)
 
-                # Size
-                sz_item = QTableWidgetItem(format_bytes(item.size))
-                sz_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                self.dup_table.setItem(cur_row, 3, sz_item)
+                    # Size
+                    sz_item = QTableWidgetItem()
+                    sz_item.setData(Qt.DisplayRole, format_bytes(item.size))
+                    sz_item.setData(Qt.EditRole, item.size)
+                    sz_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                    self.dup_table.setItem(cur_row, 3, sz_item)
 
-                # Path
-                self.dup_table.setItem(cur_row, 4, QTableWidgetItem(item.path))
-                cur_row += 1
+                    # Path
+                    self.dup_table.setItem(cur_row, 4, QTableWidgetItem(item.path))
+                    cur_row += 1
+        finally:
+            self.dup_table.setSortingEnabled(True)
 
     def _on_item_check_changed(self, item, state: int):
         item.selected = (state == Qt.Checked)

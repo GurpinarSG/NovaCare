@@ -10,9 +10,6 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from core.junk_cleaner import JunkCleaner, CleanerCategory
 from core.utils import format_bytes, is_admin, log_debug
-from ui.styles import (
-    COLOR_ACCENT, COLOR_SUCCESS, COLOR_WARNING, TEXT_SECONDARY
-)
 
 class JunkScanThread(QThread):
     progress = pyqtSignal(str, int, int) # name, cur, total
@@ -21,18 +18,24 @@ class JunkScanThread(QThread):
     def __init__(self, cleaner: JunkCleaner):
         super().__init__()
         self.cleaner = cleaner
+        self._is_cancelled = False
+
+    def cancel(self):
+        self._is_cancelled = True
 
     def run(self):
         cats = []
         try:
-            cats = self.cleaner.scan_all(
-                progress_callback=lambda name, cur, tot: self.progress.emit(name, cur, tot)
-            )
+            if not self._is_cancelled:
+                cats = self.cleaner.scan_all(
+                    progress_callback=lambda name, cur, tot: self.progress.emit(name, cur, tot)
+                )
         except Exception as e:
             log_debug(f"JunkScanThread error: {e}")
             cats = self.cleaner.categories
         finally:
-            self.finished.emit(cats)
+            if not self._is_cancelled:
+                self.finished.emit(cats)
 
 class JunkCleanThread(QThread):
     progress = pyqtSignal(str, int, int)
@@ -42,19 +45,25 @@ class JunkCleanThread(QThread):
         super().__init__()
         self.cleaner = cleaner
         self.selected_ids = selected_ids
+        self._is_cancelled = False
+
+    def cancel(self):
+        self._is_cancelled = True
 
     def run(self):
         freed, cleaned, failed = 0, 0, 0
         try:
-            freed, cleaned, failed = self.cleaner.clean_categories(
-                self.selected_ids,
-                progress_callback=lambda name, cur, tot: self.progress.emit(name, cur, tot),
-                file_progress_callback=lambda name, cur_f, tot_f: self.progress.emit(f"{name} ({cur_f}/{tot_f})", 0, -1)
-            )
+            if not self._is_cancelled:
+                freed, cleaned, failed = self.cleaner.clean_categories(
+                    self.selected_ids,
+                    progress_callback=lambda name, cur, tot: self.progress.emit(name, cur, tot),
+                    file_progress_callback=lambda name, cur_f, tot_f: self.progress.emit(f"{name} ({cur_f}/{tot_f})", 0, -1)
+                )
         except Exception as e:
             log_debug(f"JunkCleanThread error: {e}")
         finally:
-            self.finished.emit(freed, cleaned, failed)
+            if not self._is_cancelled:
+                self.finished.emit(freed, cleaned, failed)
 
 class JunkView(QWidget):
     def __init__(self, parent=None):
@@ -67,7 +76,7 @@ class JunkView(QWidget):
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(28, 24, 28, 24)
+        layout.setContentsMargins(24, 20, 24, 20)
         layout.setSpacing(16)
 
         # Header
@@ -82,16 +91,7 @@ class JunkView(QWidget):
         # Admin Depth Banner
         self.admin_banner = QFrame()
         has_admin = is_admin()
-        bg_col = "rgba(16, 185, 129, 0.12)" if has_admin else "rgba(251, 191, 36, 0.12)"
-        border_col = "rgba(16, 185, 129, 0.35)" if has_admin else "rgba(251, 191, 36, 0.35)"
-        text_col = COLOR_SUCCESS if has_admin else COLOR_WARNING
-
-        self.admin_banner.setStyleSheet(f"""
-            background-color: {bg_col};
-            border: 1px solid {border_col};
-            border-radius: 8px;
-            padding: 8px 12px;
-        """)
+        self.admin_banner.setObjectName("AdminBannerSuccess" if has_admin else "AdminBannerWarning")
         ab_lay = QHBoxLayout(self.admin_banner)
         ab_lay.setContentsMargins(8, 4, 8, 4)
 
@@ -101,7 +101,7 @@ class JunkView(QWidget):
             "💡 <b>Daha İyi Temizlik İpucu:</b> Sistem korumalı bazı önbellekler standart modda atlanabilir. Maksimum derinlikte temizlik için NovaCare'i <b>Yönetici olarak</b> çalıştırın."
         )
         lbl_ab = QLabel(banner_msg)
-        lbl_ab.setStyleSheet(f"color: {text_col}; font-size: 12px;")
+        lbl_ab.setObjectName("AdminBannerSuccessText" if has_admin else "AdminBannerWarningText")
         lbl_ab.setWordWrap(True)
         ab_lay.addWidget(lbl_ab)
         layout.addWidget(self.admin_banner)
@@ -128,21 +128,24 @@ class JunkView(QWidget):
         self.chk_all.stateChanged.connect(self._toggle_select_all)
 
         self.lbl_summary = QLabel("Toplam Temizlenebilir: 0 B")
-        self.lbl_summary.setStyleSheet(f"color: {COLOR_ACCENT}; font-weight: 700; font-size: 14px;")
+        self.lbl_summary.setObjectName("TextAccent")
+        self.lbl_summary.setStyleSheet("font-weight: 700; font-size: 13px;")
+        self.lbl_summary.setWordWrap(True)
+        self.lbl_summary.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
         tb_layout.addWidget(self.btn_scan)
         tb_layout.addWidget(self.btn_clean)
-        tb_layout.addSpacing(16)
+        tb_layout.addSpacing(10)
         tb_layout.addWidget(self.chk_all)
-        tb_layout.addStretch()
-        tb_layout.addWidget(self.lbl_summary)
+        tb_layout.addSpacing(10)
+        tb_layout.addWidget(self.lbl_summary, 1, Qt.AlignRight | Qt.AlignVCenter)
         layout.addWidget(toolbar)
 
         # Progress bar & status
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
         self.lbl_status = QLabel("")
-        self.lbl_status.setStyleSheet(f"color: {TEXT_SECONDARY};")
+        self.lbl_status.setObjectName("TextSecondary")
         self.lbl_status.setVisible(False)
         layout.addWidget(self.progress_bar)
         layout.addWidget(self.lbl_status)

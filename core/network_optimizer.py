@@ -320,7 +320,10 @@ class NetworkOptimizer:
             subprocess.run([get_system32_path("netsh"), "winsock", "reset"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=8, creationflags=flags)
             subprocess.run([get_system32_path("netsh"), "int", "ip", "reset"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=8, creationflags=flags)
             subprocess.run([get_system32_path("ipconfig"), "/flushdns"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=8, creationflags=flags)
-            subprocess.run([get_system32_path("ipconfig"), "/renew"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=8, creationflags=flags)
+            try:
+                subprocess.run([get_system32_path("ipconfig"), "/renew"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15, creationflags=flags)
+            except Exception as e_renew:
+                log_debug(f"reset_network_stack: ipconfig /renew timeout or warning: {e_renew}")
             return True, "Winsock ve TCP/IP ağ yığını sıfırlandı. Ağ bağdaştırıcısı yenilendi."
         except Exception as e:
             return False, str(e)

@@ -19,8 +19,7 @@ from core.auto_cleaner import AutoCleaner
 from core.utils import format_bytes, is_admin, restart_as_admin, log_debug
 from core.autostart import is_autostart_enabled, set_autostart
 from ui.styles import (
-    COLOR_ACCENT, COLOR_SUCCESS, COLOR_WARNING, COLOR_DANGER,
-    TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED
+    COLOR_ACCENT, COLOR_SUCCESS, COLOR_WARNING, COLOR_DANGER
 )
 
 class ManualAutoCleanWorker(QThread):
@@ -29,16 +28,22 @@ class ManualAutoCleanWorker(QThread):
     def __init__(self):
         super().__init__()
         self.cleaner = AutoCleaner()
+        self._is_cancelled = False
+
+    def cancel(self):
+        self._is_cancelled = True
 
     def run(self):
         res = {"total_freed": 0, "cleaned_files": 0, "failed_files": 0, "cleaned_categories": 0, "errors": []}
         try:
-            res = self.cleaner.execute_cleanup()
+            if not self._is_cancelled:
+                res = self.cleaner.execute_cleanup()
         except Exception as e:
             log_debug(f"ManualAutoCleanWorker error: {e}")
             res["errors"].append(str(e))
         finally:
-            self.finished.emit(res)
+            if not self._is_cancelled:
+                self.finished.emit(res)
 
 class CheckUpdateThread(QThread):
     finished = pyqtSignal(object) # UpdateInfo or Exception
@@ -48,14 +53,21 @@ class CheckUpdateThread(QThread):
         self.repo = repo
         self.token = token
         self.mode = mode
+        self._is_cancelled = False
+
+    def cancel(self):
+        self._is_cancelled = True
 
     def run(self):
         updater = GitHubUpdater(self.repo, token=self.token)
         try:
-            info = updater.check_for_updates(mode=self.mode)
-            self.finished.emit(info)
+            if not self._is_cancelled:
+                info = updater.check_for_updates(mode=self.mode)
+                if not self._is_cancelled:
+                    self.finished.emit(info)
         except Exception as e:
-            self.finished.emit(e)
+            if not self._is_cancelled:
+                self.finished.emit(e)
 
 class DownloadUpdateThread(QThread):
     progress = pyqtSignal(int, int) # downloaded, total
@@ -69,20 +81,27 @@ class DownloadUpdateThread(QThread):
         self.new_version = new_version
         self.expected_sha256 = expected_sha256
         self.sha256sums_url = sha256sums_url
+        self._is_cancelled = False
+
+    def cancel(self):
+        self._is_cancelled = True
 
     def run(self):
         try:
-            batch_path = self.updater.download_and_prepare_update(
-                self.download_url,
-                new_commit_sha=self.new_commit_sha,
-                new_version=self.new_version,
-                expected_sha256=self.expected_sha256,
-                sha256sums_url=self.sha256sums_url,
-                progress_callback=lambda d, t: self.progress.emit(d, t)
-            )
-            self.finished.emit(batch_path)
+            if not self._is_cancelled:
+                batch_path = self.updater.download_and_prepare_update(
+                    self.download_url,
+                    new_commit_sha=self.new_commit_sha,
+                    new_version=self.new_version,
+                    expected_sha256=self.expected_sha256,
+                    sha256sums_url=self.sha256sums_url,
+                    progress_callback=lambda d, t: self.progress.emit(d, t) if not self._is_cancelled else None
+                )
+                if not self._is_cancelled:
+                    self.finished.emit(batch_path)
         except Exception as e:
-            self.finished.emit(f"ERROR:{e}")
+            if not self._is_cancelled:
+                self.finished.emit(f"ERROR:{e}")
 
 class AutostartWorker(QThread):
     finished = pyqtSignal(bool, bool)  # enable, success
@@ -90,13 +109,20 @@ class AutostartWorker(QThread):
     def __init__(self, enable: bool):
         super().__init__()
         self.enable = enable
+        self._is_cancelled = False
+
+    def cancel(self):
+        self._is_cancelled = True
 
     def run(self):
         try:
-            ok = set_autostart(self.enable)
-            self.finished.emit(self.enable, ok)
+            if not self._is_cancelled:
+                ok = set_autostart(self.enable)
+                if not self._is_cancelled:
+                    self.finished.emit(self.enable, ok)
         except Exception:
-            self.finished.emit(self.enable, False)
+            if not self._is_cancelled:
+                self.finished.emit(self.enable, False)
 
 class SettingsView(QWidget):
     def __init__(self, parent=None):
@@ -112,7 +138,7 @@ class SettingsView(QWidget):
 
     def _init_ui(self):
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(28, 24, 28, 24)
+        main_layout.setContentsMargins(24, 20, 24, 20)
         main_layout.setSpacing(18)
 
         # Header
@@ -133,6 +159,7 @@ class SettingsView(QWidget):
         scroll_content = QWidget()
         scroll_content.setStyleSheet("background-color: transparent; background: transparent;")
         content_layout = QVBoxLayout(scroll_content)
+        content_layout.setContentsMargins(0, 10, 0, 0)
         content_layout.setSpacing(20)
 
         # 1. Update Card
@@ -170,7 +197,8 @@ class SettingsView(QWidget):
         # Last checked timestamp
         last_chk = self.config.get("last_update_check", "Henüz denetlenmedi")
         self.lbl_last_checked = QLabel(f"Son Güncelleme Denetimi: {last_chk}")
-        self.lbl_last_checked.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 11px;")
+        self.lbl_last_checked.setObjectName("TextMuted")
+        self.lbl_last_checked.setStyleSheet("font-size: 11px;")
         u_layout.addWidget(self.lbl_last_checked)
 
         # Action Buttons
@@ -266,7 +294,8 @@ class SettingsView(QWidget):
         t_layout.addWidget(lbl_t_title)
 
         lbl_t_sub = QLabel("Program renk ve kontrast görünümünü bilgisayarınızla tam uyumlu çalışacak şekilde ayarlayın.")
-        lbl_t_sub.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 12px;")
+        lbl_t_sub.setObjectName("TextSecondary")
+        lbl_t_sub.setStyleSheet("font-size: 12px;")
         lbl_t_sub.setWordWrap(True)
         t_layout.addWidget(lbl_t_sub)
 
@@ -317,11 +346,12 @@ class SettingsView(QWidget):
         nv_layout.addWidget(self.lbl_nv_title)
 
         self.lbl_nv_details = QLabel("")
-        self.lbl_nv_details.setStyleSheet(f"color: {TEXT_PRIMARY}; font-size: 13px;")
+        self.lbl_nv_details.setStyleSheet("font-size: 13px;")
         nv_layout.addWidget(self.lbl_nv_details)
 
         lbl_log_head = QLabel("Sürüm Notları ve Değişiklikler:")
-        lbl_log_head.setStyleSheet(f"color: {TEXT_SECONDARY}; font-weight: 600;")
+        lbl_log_head.setObjectName("TextSecondary")
+        lbl_log_head.setStyleSheet("font-weight: 600;")
         nv_layout.addWidget(lbl_log_head)
 
         self.txt_changelog = QTextEdit()
@@ -336,7 +366,8 @@ class SettingsView(QWidget):
         nv_layout.addWidget(self.progress_download)
 
         self.lbl_download_status = QLabel("")
-        self.lbl_download_status.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 11px;")
+        self.lbl_download_status.setObjectName("TextSecondary")
+        self.lbl_download_status.setStyleSheet("font-size: 11px;")
         self.lbl_download_status.setVisible(False)
         nv_layout.addWidget(self.lbl_download_status)
 
@@ -361,7 +392,8 @@ class SettingsView(QWidget):
         ac_layout.addWidget(lbl_ac_title)
 
         lbl_ac_sub = QLabel("Bilgisayarınızın her zaman ilk günkü hızında kalması için gereksiz dosyaları ve RAM'i arka planda otomatik olarak temizleyin.")
-        lbl_ac_sub.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 12px;")
+        lbl_ac_sub.setObjectName("TextSecondary")
+        lbl_ac_sub.setStyleSheet("font-size: 12px;")
         ac_layout.addWidget(lbl_ac_sub)
 
         # Master toggle
@@ -508,7 +540,8 @@ class SettingsView(QWidget):
         stat_row.setSpacing(14)
         last_clean_disp = self.config.get("last_auto_clean_display", "Henüz yapılmadı")
         self.lbl_ac_last = QLabel(f"Son Otomatik Temizlik: <b>{last_clean_disp}</b>")
-        self.lbl_ac_last.setStyleSheet(f"font-size: 11px; color: {TEXT_MUTED};")
+        self.lbl_ac_last.setObjectName("TextMuted")
+        self.lbl_ac_last.setStyleSheet("font-size: 11px;")
         stat_row.addWidget(self.lbl_ac_last)
         stat_row.addStretch()
 
@@ -536,7 +569,8 @@ class SettingsView(QWidget):
         cw_layout.addWidget(lbl_cw_title)
 
         lbl_cw_sub = QLabel("Masaüstü donanım panelinizin saydamlığını, yatay/dikey boyut modunu, renk temasını ve görüntülenecek modüllerini özelleştirin.")
-        lbl_cw_sub.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 12px;")
+        lbl_cw_sub.setObjectName("TextSecondary")
+        lbl_cw_sub.setStyleSheet("font-size: 12px;")
         lbl_cw_sub.setWordWrap(True)
         cw_layout.addWidget(lbl_cw_sub)
 
@@ -684,7 +718,8 @@ class SettingsView(QWidget):
         w_lay.addWidget(self.chk_autostart_widget)
 
         lbl_w_hint = QLabel("Windows açıldığında masaüstünüzde CPU, GPU ve RAM sıcaklık & kullanım monitörünü otomatik olarak gösterir.")
-        lbl_w_hint.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 11px;")
+        lbl_w_hint.setObjectName("TextMuted")
+        lbl_w_hint.setStyleSheet("font-size: 11px;")
         lbl_w_hint.setWordWrap(True)
         w_lay.addWidget(lbl_w_hint)
 
@@ -753,7 +788,8 @@ class SettingsView(QWidget):
             "kilitli DLL/sistem kalıntıları ve <code>HKEY_LOCAL_MACHINE</code> kayıt defteri anahtarlarına tam erişim sağlar. "
             "Bu sayede standart temizlemeye kıyasla <b>çok daha derin, kapsamlı ve kalıcı</b> bir temizleme elde edilir."
         )
-        lbl_adm_desc.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 12px;")
+        lbl_adm_desc.setObjectName("TextSecondary")
+        lbl_adm_desc.setStyleSheet("font-size: 12px;")
         lbl_adm_desc.setWordWrap(True)
         adm_layout.addWidget(lbl_adm_desc)
 

@@ -13,7 +13,7 @@ import sys
 import ctypes
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QFrame, QMenu, QAction, QApplication, QColorDialog
+    QFrame, QMenu, QAction, QApplication, QColorDialog, QLayout
 )
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QCursor, QColor
@@ -62,7 +62,8 @@ THEME_PRESETS = {
         "secondary": "#34D399",
         "text": "#F8FAFC",
         "btn_bg": "#0284C7",
-        "btn_border": "#38BDF8"
+        "btn_border": "#38BDF8",
+        "btn_text": "#FFFFFF"
     },
     "cyberpunk_purple": {
         "name": "Cyberpunk Moru",
@@ -73,7 +74,8 @@ THEME_PRESETS = {
         "secondary": "#E879F9",
         "text": "#FDF4FF",
         "btn_bg": "#7E22CE",
-        "btn_border": "#C084FC"
+        "btn_border": "#C084FC",
+        "btn_text": "#FFFFFF"
     },
     "oled_black": {
         "name": "OLED Saf Siyah",
@@ -84,7 +86,8 @@ THEME_PRESETS = {
         "secondary": "#6EE7B7",
         "text": "#FFFFFF",
         "btn_bg": "#047857",
-        "btn_border": "#10B981"
+        "btn_border": "#10B981",
+        "btn_text": "#FFFFFF"
     },
     "minimal_white": {
         "name": "Minimal Beyaz",
@@ -95,7 +98,8 @@ THEME_PRESETS = {
         "secondary": "#0F172A",
         "text": "#0F172A",
         "btn_bg": "#E2E8F0",
-        "btn_border": "#94A3B8"
+        "btn_border": "#94A3B8",
+        "btn_text": "#0F172A"
     }
 }
 
@@ -204,36 +208,43 @@ class DesktopPerformanceWidget(QWidget):
         # 2. Modular Telemetry Labels
         self.lbl_cpu = QLabel("⚡ CPU: %0 (0.0 GHz)")
         self.lbl_cpu.setStyleSheet("font-size: 11px; font-weight: 600;")
+        self.lbl_cpu.setWordWrap(True)
         self.lbl_cpu.setVisible(self.config.get("widget_show_cpu", True))
         self.card_layout.addWidget(self.lbl_cpu)
 
         self.lbl_ram = QLabel("🧠 RAM: %0 (0.0 / 0.0 GB)")
         self.lbl_ram.setStyleSheet("font-size: 11px; font-weight: 600;")
+        self.lbl_ram.setWordWrap(True)
         self.lbl_ram.setVisible(self.config.get("widget_show_ram", True))
         self.card_layout.addWidget(self.lbl_ram)
 
         self.lbl_gpu = QLabel("🎮 GPU: %0 (- °C)")
         self.lbl_gpu.setStyleSheet("font-size: 11px; font-weight: 600;")
+        self.lbl_gpu.setWordWrap(True)
         self.lbl_gpu.setVisible(self.config.get("widget_show_gpu", True))
         self.card_layout.addWidget(self.lbl_gpu)
 
         self.lbl_disk = QLabel("💾 Disk: ↓ 0 B/s   ↑ 0 B/s")
         self.lbl_disk.setStyleSheet("font-size: 10.5px; font-weight: 600;")
+        self.lbl_disk.setWordWrap(True)
         self.lbl_disk.setVisible(self.config.get("widget_show_disk_io", True))
         self.card_layout.addWidget(self.lbl_disk)
 
         self.lbl_net = QLabel("🌐 Ağ:   ↓ 0 KB/s   ↑ 0 KB/s")
         self.lbl_net.setStyleSheet("font-size: 10.5px; font-weight: 600;")
+        self.lbl_net.setWordWrap(True)
         self.lbl_net.setVisible(self.config.get("widget_show_net", True))
         self.card_layout.addWidget(self.lbl_net)
 
         self.lbl_top = QLabel("🔥 Lider: -")
         self.lbl_top.setStyleSheet("font-size: 10.5px; font-weight: 600;")
+        self.lbl_top.setWordWrap(True)
         self.lbl_top.setVisible(self.config.get("widget_show_top_app", True))
         self.card_layout.addWidget(self.lbl_top)
 
         self.lbl_uptime = QLabel("⏱️ Açık Kalma: -")
         self.lbl_uptime.setStyleSheet("font-size: 10.5px; font-weight: 600;")
+        self.lbl_uptime.setWordWrap(True)
         self.lbl_uptime.setVisible(self.config.get("widget_show_uptime", True))
         self.card_layout.addWidget(self.lbl_uptime)
 
@@ -271,6 +282,7 @@ class DesktopPerformanceWidget(QWidget):
 
         self.quick_actions_frame.setVisible(self.config.get("widget_show_quick_actions", True))
         self.card_layout.addWidget(self.quick_actions_frame)
+        self.card_layout.setSizeConstraint(QLayout.SetMinimumSize)
 
         # Calculate appropriate height
         visible_count = sum([
@@ -285,7 +297,8 @@ class DesktopPerformanceWidget(QWidget):
         base_h = 55 + (visible_count * 20)
         if self.config.get("widget_show_quick_actions", True):
             base_h += 34
-        self.setFixedSize(260, max(130, base_h))
+        self.setMinimumSize(280, max(135, base_h))
+        self.resize(280, max(135, base_h))
 
     def _build_horizontal_layout(self):
         """Builds slim horizontal bar layout (perfect above taskbar)."""
@@ -379,8 +392,8 @@ class DesktopPerformanceWidget(QWidget):
             self.config.get("widget_show_uptime", True),
         ])
         has_qa = self.config.get("widget_show_quick_actions", True)
-        bar_w = 120 + (visible_count * 105) + (95 if has_qa else 0)
-        self.setFixedSize(max(420, bar_w), 36)
+        bar_w = 120 + (visible_count * 115) + (100 if has_qa else 0)
+        self.setFixedSize(max(440, bar_w), 36)
 
     def _build_vertical_layout(self):
         """Builds slim vertical strip layout (perfect for docking on screen edge)."""
@@ -501,6 +514,8 @@ class DesktopPerformanceWidget(QWidget):
         btn_bg = theme["btn_bg"]
         btn_border = theme["btn_border"]
 
+        btn_text = theme.get("btn_text", "#FFFFFF")
+
         # Custom RGB override if chosen
         if theme_key == "custom_rgb":
             custom_hex = self.config.get("desktop_widget_custom_color", "#38BDF8")
@@ -512,6 +527,17 @@ class DesktopPerformanceWidget(QWidget):
             border_col = c.name()
             btn_bg = c.name()
             btn_border = c.name()
+            btn_text = "#0F172A" if c.lightness() > 140 else "#FFFFFF"
+
+        # Supported hover background lightening/darkening rule
+        btn_c = QColor(btn_bg)
+        if btn_c.lightness() > 140:
+            btn_hover_bg = btn_c.darker(112).name()
+        else:
+            if btn_c.red() < 25 and btn_c.green() < 25 and btn_c.blue() < 25:
+                btn_hover_bg = "#262626"
+            else:
+                btn_hover_bg = btn_c.lighter(118).name()
 
         card_style = f"""
             QFrame#DesktopWidgetCard {{
@@ -526,7 +552,7 @@ class DesktopPerformanceWidget(QWidget):
             }}
             QPushButton {{
                 background-color: {btn_bg};
-                color: #FFFFFF;
+                color: {btn_text};
                 font-size: 10px;
                 font-weight: 700;
                 border-radius: 5px;
@@ -534,7 +560,7 @@ class DesktopPerformanceWidget(QWidget):
                 padding: 2px 6px;
             }}
             QPushButton:hover {{
-                opacity: 0.85;
+                background-color: {btn_hover_bg};
             }}
         """
         self.card.setStyleSheet(card_style)

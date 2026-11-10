@@ -305,7 +305,7 @@ class CookieShield:
             'targets': targets
         }
 
-    def clean_tracking_cookies(self) -> tuple[int, int, list[str]]:
+    def clean_tracking_cookies(self, cancel_callback=None) -> tuple[int, int, list[str]]:
         """
         Purges all non-whitelisted tracking and advertising cookies while strictly
         preserving protected user login sessions.
@@ -321,6 +321,8 @@ class CookieShield:
         locked_browsers = []
 
         for t in targets:
+            if cancel_callback and cancel_callback():
+                break
             browser_name = t['browser']
             db_path = t['path']
             b_type = t['type']

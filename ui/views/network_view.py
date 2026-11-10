@@ -7,7 +7,7 @@ and complete network stack (Winsock, TCP/IP, flushdns) repair.
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTableWidget,
     QTableWidgetItem, QHeaderView, QFrame, QScrollArea, QComboBox, QMessageBox,
-    QAbstractItemView, QSizePolicy, QProgressBar
+    QAbstractItemView, QSizePolicy, QProgressBar, QGridLayout, QLayout
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QColor
@@ -16,7 +16,7 @@ from core.speed_tester import SpeedTester, SpeedTestResult
 from core.utils import log_debug
 from ui.components import StatCard
 from ui.styles import (
-    get_active_theme_colors, TEXT_PRIMARY, TEXT_SECONDARY,
+    get_active_theme_colors,
     COLOR_ACCENT, COLOR_SUCCESS, COLOR_DANGER
 )
 
@@ -29,34 +29,48 @@ class SpeedTestWorker(QThread):
     def __init__(self):
         super().__init__()
         self.tester = SpeedTester()
+        self._is_cancelled = False
 
     def run(self):
         try:
             res = self.tester.run_full_test(
-                phase_callback=lambda p, m: self.phase_changed.emit(p, m),
-                progress_callback=lambda p, s, pct: self.speed_progress.emit(p, s, pct),
-                stats_callback=lambda k, v: self.stats_updated.emit(k, v)
+                phase_callback=lambda p, m: self.phase_changed.emit(p, m) if not self._is_cancelled else None,
+                progress_callback=lambda p, s, pct: self.speed_progress.emit(p, s, pct) if not self._is_cancelled else None,
+                stats_callback=lambda k, v: self.stats_updated.emit(k, v) if not self._is_cancelled else None
             )
-            self.finished.emit(res)
+            if not self._is_cancelled:
+                self.finished.emit(res)
         except Exception as e:
             log_debug(f"SpeedTestWorker error: {e}")
-            self.finished.emit(None)
+            if not self._is_cancelled:
+                self.finished.emit(None)
         finally:
             self.tester.close()
 
     def cancel(self):
+        self._is_cancelled = True
         self.tester.cancel()
 
 class MetaFetchWorker(QThread):
     finished = pyqtSignal(str, str)
 
+    def __init__(self):
+        super().__init__()
+        self._is_cancelled = False
+
+    def cancel(self):
+        self._is_cancelled = True
+
     def run(self):
         tester = SpeedTester()
         try:
-            ip, loc = tester.get_network_meta()
-            self.finished.emit(ip, loc)
+            if not self._is_cancelled:
+                ip, loc = tester.get_network_meta()
+                if not self._is_cancelled:
+                    self.finished.emit(ip, loc)
         except Exception:
-            self.finished.emit("Otomatik", "Türkiye / Avrupa Edge Sunucusu")
+            if not self._is_cancelled:
+                self.finished.emit("Otomatik", "Türkiye / Avrupa Edge Sunucusu")
         finally:
             tester.close()
 
@@ -66,15 +80,21 @@ class DNSBenchmarkWorker(QThread):
     def __init__(self):
         super().__init__()
         self.optimizer = NetworkOptimizer()
+        self._is_cancelled = False
+
+    def cancel(self):
+        self._is_cancelled = True
 
     def run(self):
         results = []
         try:
-            results = self.optimizer.benchmark_all_dns()
+            if not self._is_cancelled:
+                results = self.optimizer.benchmark_all_dns()
         except Exception as e:
             log_debug(f"DNSBenchmarkWorker error: {e}")
         finally:
-            self.finished.emit(results)
+            if not self._is_cancelled:
+                self.finished.emit(results)
 
 class NetworkRepairWorker(QThread):
     finished = pyqtSignal(bool, str)
@@ -83,22 +103,28 @@ class NetworkRepairWorker(QThread):
         super().__init__()
         self.action_type = action_type
         self.optimizer = NetworkOptimizer()
+        self._is_cancelled = False
+
+    def cancel(self):
+        self._is_cancelled = True
 
     def run(self):
         ok = False
         msg = "İşlem başlatılamadı"
         try:
-            if self.action_type == "flush":
-                ok, msg = self.optimizer.flush_dns()
-            elif self.action_type == "reset_stack":
-                ok, msg = self.optimizer.reset_network_stack()
-            else:
-                ok, msg = False, "Bilinmeyen işlem"
+            if not self._is_cancelled:
+                if self.action_type == "flush":
+                    ok, msg = self.optimizer.flush_dns()
+                elif self.action_type == "reset_stack":
+                    ok, msg = self.optimizer.reset_network_stack()
+                else:
+                    ok, msg = False, "Bilinmeyen işlem"
         except Exception as e:
             log_debug(f"NetworkRepairWorker error: {e}")
             ok, msg = False, f"Hata: {e}"
         finally:
-            self.finished.emit(ok, msg)
+            if not self._is_cancelled:
+                self.finished.emit(ok, msg)
 
 class DnsApplyWorker(QThread):
     finished = pyqtSignal(bool, str, str, str, str)  # ok, msg, action, adapter, srv_name
@@ -111,17 +137,24 @@ class DnsApplyWorker(QThread):
         self.primary = primary
         self.secondary = secondary
         self.srv_name = srv_name
+        self._is_cancelled = False
+
+    def cancel(self):
+        self._is_cancelled = True
 
     def run(self):
         try:
-            if self.action == "set":
-                ok, msg = self.optimizer.set_dns(self.adapter, self.primary, self.secondary)
-            else:
-                ok, msg = self.optimizer.reset_dns_to_dhcp(self.adapter)
-            self.finished.emit(ok, msg, self.action, self.adapter, self.srv_name)
+            if not self._is_cancelled:
+                if self.action == "set":
+                    ok, msg = self.optimizer.set_dns(self.adapter, self.primary, self.secondary)
+                else:
+                    ok, msg = self.optimizer.reset_dns_to_dhcp(self.adapter)
+                if not self._is_cancelled:
+                    self.finished.emit(ok, msg, self.action, self.adapter, self.srv_name)
         except Exception as e:
             log_debug(f"DnsApplyWorker error: {e}")
-            self.finished.emit(False, str(e), self.action, self.adapter, self.srv_name)
+            if not self._is_cancelled:
+                self.finished.emit(False, str(e), self.action, self.adapter, self.srv_name)
 
 class NetworkView(QWidget):
     def __init__(self, parent=None):
@@ -143,15 +176,17 @@ class NetworkView(QWidget):
         # Scroll Area for clean overflow
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         scroll.setObjectName("NetworkScroll")
         scroll.setStyleSheet("QScrollArea#NetworkScroll { background: transparent; border: none; } QWidget#NetworkContainer { background: transparent; }")
 
         container = QWidget()
         container.setObjectName("NetworkContainer")
         layout = QVBoxLayout(container)
-        layout.setContentsMargins(28, 20, 28, 20)
+        layout.setContentsMargins(24, 20, 24, 20)
         layout.setSpacing(16)
+        layout.setSizeConstraint(QLayout.SetMinimumSize)
 
         # 1. Header
         header = QVBoxLayout()
@@ -161,7 +196,7 @@ class NetworkView(QWidget):
         header.addWidget(lbl_title)
 
         lbl_sub = QLabel("Gerçek zamanlı internet hızınızı test edin, ağ bağlantınızı onarın ve en hızlı DNS sunucusunu tek tıkla aktif edin.")
-        lbl_sub.setStyleSheet(f"font-size: 13px; color: {TEXT_SECONDARY};")
+        lbl_sub.setObjectName("ViewSubtitle")
         lbl_sub.setWordWrap(True)
         header.addWidget(lbl_sub)
         layout.addLayout(header)
@@ -194,19 +229,16 @@ class NetworkView(QWidget):
         sp_top.addWidget(self.lbl_server_info)
         sp_layout.addLayout(sp_top)
 
-        # 4 Stat Cards Row: Download, Upload, Ping, Jitter
-        stats_layout = QHBoxLayout()
-        stats_layout.setSpacing(12)
+        # 4 Stat Cards Grid (Responsive 2x2 or 1x4)
+        self.stats_grid = QGridLayout()
+        self.stats_grid.setSpacing(10)
         self.card_dl = StatCard("⬇️", "İndirme (Download)", "-- Mbps", "Alınan veri bant genişliği")
         self.card_ul = StatCard("⬆️", "Yükleme (Upload)", "-- Mbps", "Gönderilen veri bant genişliği")
         self.card_ping = StatCard("⚡", "Gecikme (Ping)", "-- ms", "Sunucu tepki süresi")
         self.card_jitter = StatCard("〰️", "Dalgalanma (Jitter)", "-- ms", "Gecikme kararlılığı")
 
-        stats_layout.addWidget(self.card_dl, 1)
-        stats_layout.addWidget(self.card_ul, 1)
-        stats_layout.addWidget(self.card_ping, 1)
-        stats_layout.addWidget(self.card_jitter, 1)
-        sp_layout.addLayout(stats_layout)
+        sp_layout.addLayout(self.stats_grid)
+        self._relayout_stats(self.width())
 
         # Live speed & status indicator row
         live_row = QHBoxLayout()
@@ -217,7 +249,8 @@ class NetworkView(QWidget):
         live_row.addWidget(self.lbl_live_speed)
 
         self.lbl_speed_status = QLabel("Hız testine başlamak için butona tıklayın.")
-        self.lbl_speed_status.setStyleSheet(f"font-size: 12px; color: {TEXT_SECONDARY}; font-weight: 500;")
+        self.lbl_speed_status.setObjectName("TextSecondary")
+        self.lbl_speed_status.setStyleSheet("font-size: 12px; font-weight: 500;")
         live_row.addWidget(self.lbl_speed_status, 1)
 
         sp_layout.addLayout(live_row)
@@ -281,7 +314,7 @@ class NetworkView(QWidget):
         g_layout.addWidget(self.lbl_grade_title)
 
         self.lbl_grade_desc = QLabel("Bağlantınız yüksek hızlı 4K yayın ve rekabetçi çevrimiçi oyunlar için ideal.")
-        self.lbl_grade_desc.setStyleSheet(f"font-size: 12px; color: {TEXT_PRIMARY};")
+        self.lbl_grade_desc.setStyleSheet("font-size: 12px;")
         self.lbl_grade_desc.setWordWrap(True)
         g_layout.addWidget(self.lbl_grade_desc)
 
@@ -292,14 +325,17 @@ class NetworkView(QWidget):
         # 3. Network Repair & Flush Card
         repair_card = QFrame()
         repair_card.setObjectName("CardFrame")
+        repair_card.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
         r_layout = QVBoxLayout(repair_card)
         r_layout.setContentsMargins(18, 14, 18, 14)
         r_layout.setSpacing(10)
+        r_layout.setSizeConstraint(QLayout.SetMinimumSize)
 
         r_top = QHBoxLayout()
         r_top.setSpacing(12)
         lbl_r_title = QLabel("⚡  Hızlı Ağ Onarımı ve Çözümleyici")
         lbl_r_title.setStyleSheet("font-size: 14px; font-weight: 700;")
+        lbl_r_title.setWordWrap(True)
         r_top.addWidget(lbl_r_title)
 
         r_top.addStretch()
@@ -355,7 +391,8 @@ class NetworkView(QWidget):
             "Online oyunlarda (FPS, MOBA, Battle Royale) paket gecikmesini düşürür: Windows TCP ACK bekleme süresini (TcpAckFrequency) sıfırlar, "
             "Nagle algoritmasını (TCPNoDelay) kapatarak paketleri anında iletir ve arka plan multimedya ağ kısıtlamasını kaldırır."
         )
-        lbl_p_desc.setStyleSheet(f"font-size: 12px; color: {TEXT_SECONDARY};")
+        lbl_p_desc.setObjectName("TextSecondary")
+        lbl_p_desc.setStyleSheet("font-size: 12px;")
         lbl_p_desc.setWordWrap(True)
         p_layout.addWidget(lbl_p_desc)
 
@@ -857,4 +894,32 @@ class NetworkView(QWidget):
         else:
             QMessageBox.warning(self, "İşlem Başarısız", msg)
         self._refresh_ping_tuner_ui()
+
+    def _relayout_stats(self, width: int):
+        """Dynamically adapts speed test stat cards: 2x2 grid on narrower views, 1x4 on wide views."""
+        for card in (self.card_dl, self.card_ul, self.card_ping, self.card_jitter):
+            self.stats_grid.removeWidget(card)
+
+        if width < 740:
+            self.stats_grid.addWidget(self.card_dl, 0, 0)
+            self.stats_grid.addWidget(self.card_ul, 0, 1)
+            self.stats_grid.addWidget(self.card_ping, 1, 0)
+            self.stats_grid.addWidget(self.card_jitter, 1, 1)
+            self.stats_grid.setColumnStretch(0, 1)
+            self.stats_grid.setColumnStretch(1, 1)
+            self.stats_grid.setColumnStretch(2, 0)
+            self.stats_grid.setColumnStretch(3, 0)
+        else:
+            self.stats_grid.addWidget(self.card_dl, 0, 0)
+            self.stats_grid.addWidget(self.card_ul, 0, 1)
+            self.stats_grid.addWidget(self.card_ping, 0, 2)
+            self.stats_grid.addWidget(self.card_jitter, 0, 3)
+            self.stats_grid.setColumnStretch(0, 1)
+            self.stats_grid.setColumnStretch(1, 1)
+            self.stats_grid.setColumnStretch(2, 1)
+            self.stats_grid.setColumnStretch(3, 1)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._relayout_stats(event.size().width())
 

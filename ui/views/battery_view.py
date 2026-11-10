@@ -2,19 +2,19 @@
 NovaCare System Suite - Battery Health & Power Diagnostics View
 Live battery telemetry, wear level, design vs full capacity, charge cycles,
 power plan switcher, and 1-click official Windows Battery Report generation.
+Responsive layout optimized for all screen resolutions and DPI scaling factors.
 """
 import os
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QProgressBar,
-    QFrame, QScrollArea, QMessageBox, QGridLayout
+    QFrame, QScrollArea, QMessageBox, QGridLayout, QLayout, QSizePolicy
 )
 from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal
 from core.battery_reporter import BatteryReporter, BatteryInfo, is_battery_present
 from core.utils import log_debug
 from ui.components import StatCard
 from ui.styles import (
-    COLOR_ACCENT, COLOR_SUCCESS, COLOR_WARNING, COLOR_DANGER,
-    TEXT_PRIMARY, TEXT_SECONDARY
+    COLOR_ACCENT, COLOR_SUCCESS, COLOR_WARNING, COLOR_DANGER
 )
 
 class BatteryHardwareWorker(QThread):
@@ -23,15 +23,21 @@ class BatteryHardwareWorker(QThread):
     def __init__(self, reporter: BatteryReporter):
         super().__init__()
         self.reporter = reporter
+        self._is_cancelled = False
+
+    def cancel(self):
+        self._is_cancelled = True
 
     def run(self):
         hw = {}
         try:
-            hw = self.reporter.fetch_hardware_details()
+            if not self._is_cancelled:
+                hw = self.reporter.fetch_hardware_details()
         except Exception as e:
             log_debug(f"BatteryHardwareWorker error: {e}")
         finally:
-            self.finished.emit(hw)
+            if not self._is_cancelled:
+                self.finished.emit(hw)
 
 class BatteryReportWorker(QThread):
     finished = pyqtSignal(bool, str)  # ok, path_or_error
@@ -39,13 +45,20 @@ class BatteryReportWorker(QThread):
     def __init__(self, reporter: BatteryReporter):
         super().__init__()
         self.reporter = reporter
+        self._is_cancelled = False
+
+    def cancel(self):
+        self._is_cancelled = True
 
     def run(self):
         try:
-            path = self.reporter.generate_html_report()
-            self.finished.emit(True, path)
+            if not self._is_cancelled:
+                path = self.reporter.generate_html_report()
+                if not self._is_cancelled:
+                    self.finished.emit(True, path)
         except Exception as e:
-            self.finished.emit(False, str(e))
+            if not self._is_cancelled:
+                self.finished.emit(False, str(e))
 
 class BatteryView(QWidget):
     def __init__(self, parent=None):
@@ -87,77 +100,91 @@ class BatteryView(QWidget):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         scroll.setStyleSheet("background-color: transparent; background: transparent; border: none;")
         scroll.viewport().setStyleSheet("background-color: transparent; background: transparent; border: none;")
 
         container = QWidget()
         container.setStyleSheet("background-color: transparent; background: transparent;")
         main_layout = QVBoxLayout(container)
-        main_layout.setContentsMargins(28, 24, 28, 24)
-        main_layout.setSpacing(16)
+        main_layout.setContentsMargins(4, 8, 4, 12)
+        main_layout.setSpacing(14)
+        main_layout.setSizeConstraint(QLayout.SetMinimumSize)
 
-        # Header
-        lbl_title = QLabel("Windows Pil Sağlığı & Güç Raporlayıcı")
-        lbl_title.setObjectName("ViewTitle")
-        lbl_sub = QLabel("Dizüstü bilgisayarınızın pil aşınma durumunu, fabrika kapasitesini, kalan ömrünü analiz edin ve detaylı Windows pil raporunu oluşturun.")
-        lbl_sub.setObjectName("ViewSubtitle")
-        lbl_sub.setWordWrap(True)
-        main_layout.addWidget(lbl_title)
-        main_layout.addWidget(lbl_sub)
+        # 1. Compact Header Toolbar
+        hdr = QHBoxLayout()
+        hdr.setSpacing(12)
+        lbl_sec_title = QLabel("🔋  Windows Pil Aşınma Durumu & Güç Telemetrisi")
+        lbl_sec_title.setStyleSheet("font-size: 15px; font-weight: 700;")
+        lbl_sec_title.setWordWrap(True)
+        hdr.addWidget(lbl_sec_title, 1)
 
-        # 1. Top Stat Cards Row
-        stats_layout = QHBoxLayout()
-        stats_layout.setSpacing(12)
+        self.btn_refresh = QPushButton("🔄  Yenile")
+        self.btn_refresh.setCursor(Qt.PointingHandCursor)
+        self.btn_refresh.setProperty("class", "primary-btn")
+        self.btn_refresh.clicked.connect(lambda: self.refresh_metrics(query_hardware=True))
+        hdr.addWidget(self.btn_refresh, 0, Qt.AlignVCenter)
+        main_layout.addLayout(hdr)
+
+        # 2. Top Stat Cards Grid (Responsive 2x2 or 1x4)
+        self.stats_grid = QGridLayout()
+        self.stats_grid.setSpacing(10)
 
         self.card_charge = StatCard("🔋", "Şarj Seviyesi", "%0", "Durum Alınıyor...")
         self.card_health = StatCard("❤️", "Pil Sağlığı", "%100", "Aşınma: %0")
         self.card_capacity = StatCard("⚡", "Kapasite (mWh)", "0 / 0", "Fabrika / Tam Şarj")
         self.card_hardware = StatCard("💻", "Donanım & Model", "-", "-")
 
-        stats_layout.addWidget(self.card_charge, 1)
-        stats_layout.addWidget(self.card_health, 1)
-        stats_layout.addWidget(self.card_capacity, 1)
-        stats_layout.addWidget(self.card_hardware, 1)
-        main_layout.addLayout(stats_layout)
+        self.layout_stats_row = self.stats_grid
+        main_layout.addLayout(self.stats_grid)
+        self._relayout_stats(self.width() or 800)
 
-        # 2. Main Central Card: Health & Telemetry Detail
+        # 3. Main Central Card: Health & Telemetry Detail
         center_card = QFrame()
         center_card.setObjectName("CenterCard")
+        center_card.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
+        center_card.setMinimumHeight(220)
         c_layout = QVBoxLayout(center_card)
-        c_layout.setContentsMargins(24, 20, 24, 20)
-        c_layout.setSpacing(16)
+        c_layout.setContentsMargins(18, 14, 18, 14)
+        c_layout.setSpacing(14)
+        c_layout.setSizeConstraint(QLayout.SetMinimumSize)
 
         # Title & Subtitle inside CenterCard
         top_center = QHBoxLayout()
+        top_center.setSpacing(12)
         v_title = QVBoxLayout()
+        v_title.setSpacing(3)
         self.lbl_main_status = QLabel("Pil Sağlık Durumu: Mükemmel")
-        self.lbl_main_status.setStyleSheet(f"font-size: 17px; font-weight: 800; color: {COLOR_ACCENT};")
+        self.lbl_main_status.setStyleSheet(f"font-size: 16px; font-weight: 800; color: {COLOR_ACCENT};")
+        self.lbl_main_status.setWordWrap(True)
         self.lbl_runtime_desc = QLabel("Kalan Tahmini Süre: Hesaplanıyor...")
-        self.lbl_runtime_desc.setStyleSheet(f"font-size: 12px; color: {TEXT_SECONDARY};")
+        self.lbl_runtime_desc.setObjectName("TextSecondary")
+        self.lbl_runtime_desc.setStyleSheet("font-size: 12px;")
+        self.lbl_runtime_desc.setWordWrap(True)
         v_title.addWidget(self.lbl_main_status)
         v_title.addWidget(self.lbl_runtime_desc)
-        top_center.addLayout(v_title)
-        top_center.addStretch()
+        top_center.addLayout(v_title, 1)
 
         # Official Report Button
-        self.btn_gen_report = QPushButton("📊  Resmi Windows Pil Raporunu Aç (.HTML)")
+        self.btn_gen_report = QPushButton("📊  Resmi Windows Pil Raporu (.HTML)")
         self.btn_gen_report.setCursor(Qt.PointingHandCursor)
         self.btn_gen_report.setStyleSheet(f"""
             QPushButton {{
                 background-color: {COLOR_ACCENT};
                 color: #041326;
-                font-size: 13px;
-                font-weight: 800;
+                font-size: 12px;
+                font-weight: 700;
                 border: none;
                 border-radius: 8px;
-                padding: 10px 22px;
+                padding: 8px 16px;
             }}
             QPushButton:hover {{
                 background-color: #0EA5E9;
             }}
         """)
         self.btn_gen_report.clicked.connect(self._generate_and_open_report)
-        top_center.addWidget(self.btn_gen_report)
+        top_center.addWidget(self.btn_gen_report, 0, Qt.AlignVCenter)
         c_layout.addLayout(top_center)
 
         # Two Progress Bars: Charge & Health
@@ -166,9 +193,10 @@ class BatteryView(QWidget):
 
         # Charge Bar
         lbl_c_tag = QLabel("Anlık Pil Şarjı:")
-        lbl_c_tag.setStyleSheet(f"font-weight: 700; color: {TEXT_PRIMARY};")
+        lbl_c_tag.setStyleSheet("font-weight: 700;")
+        lbl_c_tag.setWordWrap(True)
         self.pbar_charge = QProgressBar()
-        self.pbar_charge.setFixedHeight(18)
+        self.pbar_charge.setFixedHeight(14)
         self.pbar_charge.setRange(0, 100)
         self.pbar_charge.setValue(0)
         self.lbl_charge_val = QLabel("%0")
@@ -180,9 +208,10 @@ class BatteryView(QWidget):
 
         # Health Bar
         lbl_h_tag = QLabel("Fabrika Sağlığı (Kapasite Koruma):")
-        lbl_h_tag.setStyleSheet(f"font-weight: 700; color: {TEXT_PRIMARY};")
+        lbl_h_tag.setStyleSheet("font-weight: 700;")
+        lbl_h_tag.setWordWrap(True)
         self.pbar_health = QProgressBar()
-        self.pbar_health.setFixedHeight(18)
+        self.pbar_health.setFixedHeight(14)
         self.pbar_health.setRange(0, 100)
         self.pbar_health.setValue(100)
         self.lbl_health_val = QLabel("%100")
@@ -195,10 +224,12 @@ class BatteryView(QWidget):
         bars_grid.setColumnStretch(1, 1)
         c_layout.addLayout(bars_grid)
 
-        # Detailed parameters grid (2 columns)
+        # Detailed parameters grid (2 columns with clean tile styling)
         param_grid = QGridLayout()
         param_grid.setSpacing(10)
-        param_grid.setContentsMargins(4, 8, 4, 4)
+        param_grid.setContentsMargins(0, 6, 0, 0)
+        param_grid.setColumnStretch(0, 1)
+        param_grid.setColumnStretch(1, 1)
 
         self.lbl_info_plan = QLabel("⚡ Aktif Güç Planı: -")
         self.lbl_info_cycle = QLabel("🔄 Şarj Döngü Sayısı: -")
@@ -206,7 +237,8 @@ class BatteryView(QWidget):
         self.lbl_info_chem = QLabel("🧪 Kimya / Teknoloji: -")
 
         for lbl in (self.lbl_info_plan, self.lbl_info_cycle, self.lbl_info_mfg, self.lbl_info_chem):
-            lbl.setStyleSheet(f"font-size: 12px; color: {TEXT_SECONDARY};")
+            lbl.setProperty("class", "param-tile")
+            lbl.setWordWrap(True)
 
         param_grid.addWidget(self.lbl_info_plan, 0, 0)
         param_grid.addWidget(self.lbl_info_cycle, 0, 1)
@@ -216,25 +248,30 @@ class BatteryView(QWidget):
 
         main_layout.addWidget(center_card)
 
-        # 3. Battery Health & Lifespan Extension Tips Card
+        # 4. Battery Health & Lifespan Extension Tips Card
         card_tips = QFrame()
         card_tips.setObjectName("CardFrame")
+        card_tips.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
+        card_tips.setMinimumHeight(140)
         t_layout = QVBoxLayout(card_tips)
-        t_layout.setContentsMargins(22, 18, 22, 18)
-        t_layout.setSpacing(10)
+        t_layout.setContentsMargins(18, 14, 18, 14)
+        t_layout.setSpacing(8)
+        t_layout.setSizeConstraint(QLayout.SetMinimumSize)
 
         lbl_tips_head = QLabel("💡  Lityum-İyon Pil Sağlığını ve Ömrünü Uzatma Kılavuzu")
-        lbl_tips_head.setStyleSheet(f"font-size: 15px; font-weight: 700; color: {COLOR_ACCENT};")
+        lbl_tips_head.setStyleSheet(f"font-size: 14px; font-weight: 700; color: {COLOR_ACCENT};")
+        lbl_tips_head.setWordWrap(True)
         t_layout.addWidget(lbl_tips_head)
 
         tips_text = (
             "• <b>%20 - %80 Kuralı:</b> Lityum pillerin en sağlıklı kimyasal döngüsü %20 ile %80 arasındadır. Pilin %0'a kadar tamamen tükenmesi veya sürekli %100'de sıcak çalışması aşınmayı hızlandırır.<br>"
-            "• <b>Sıcaklık Koruması:</b> Oyun oynarken veya ağır yük altındayken laptopun havalandırma deliklerinin kapanmamasına özen gösterin. Yüksek sıcaklık pillerin en büyük yıpranma nedenidir.<br>"
-            "• <b>Pil Kalibrasyonu:</b> 2-3 ayda bir pili %10 seviyesine kadar deşarj edip ardından kesintisiz tam şarja bırakmak, Windows pil yüzdesi sensörünü kalibre eder.<br>"
+            "• <b>Sıcaklık Koruması:</b> Ağır yük altındayken laptopun havalandırma deliklerinin kapanmamasına özen gösterin. Yüksek sıcaklık pillerin en büyük yıpranma nedenidir.<br>"
+            "• <b>Pil Kalibrasyonu:</b> 2-3 ayda bir pili %10 seviyesine kadar deşarj edip ardından kesintisiz tam şarja bırakmak, Windows pil sensörünü kalibre eder.<br>"
             "• <b>Resmi Rapor:</b> 'Resmi Windows Pil Raporu' butonuyla pilinizin son 3 günlük detaylı saatlik şarj/deşarj tablosunu ve tarihsel kapasite geçmişini görebilirsiniz."
         )
         lbl_tips_body = QLabel(tips_text)
-        lbl_tips_body.setStyleSheet(f"font-size: 12px; color: {TEXT_SECONDARY}; line-height: 1.5;")
+        lbl_tips_body.setObjectName("TextMuted")
+        lbl_tips_body.setStyleSheet("font-size: 11.5px; line-height: 1.5;")
         lbl_tips_body.setWordWrap(True)
         t_layout.addWidget(lbl_tips_body)
 
@@ -242,6 +279,34 @@ class BatteryView(QWidget):
 
         scroll.setWidget(container)
         root_layout.addWidget(scroll)
+
+    def _relayout_stats(self, width: int):
+        """Dynamically adapts battery cards: 2x2 grid on narrower views, 1x4 on wide views."""
+        for card in (self.card_charge, self.card_health, self.card_capacity, self.card_hardware):
+            self.stats_grid.removeWidget(card)
+
+        if width < 820:
+            self.stats_grid.addWidget(self.card_charge, 0, 0)
+            self.stats_grid.addWidget(self.card_health, 0, 1)
+            self.stats_grid.addWidget(self.card_capacity, 1, 0)
+            self.stats_grid.addWidget(self.card_hardware, 1, 1)
+            self.stats_grid.setColumnStretch(0, 1)
+            self.stats_grid.setColumnStretch(1, 1)
+            self.stats_grid.setColumnStretch(2, 0)
+            self.stats_grid.setColumnStretch(3, 0)
+        else:
+            self.stats_grid.addWidget(self.card_charge, 0, 0)
+            self.stats_grid.addWidget(self.card_health, 0, 1)
+            self.stats_grid.addWidget(self.card_capacity, 0, 2)
+            self.stats_grid.addWidget(self.card_hardware, 0, 3)
+            self.stats_grid.setColumnStretch(0, 1)
+            self.stats_grid.setColumnStretch(1, 1)
+            self.stats_grid.setColumnStretch(2, 1)
+            self.stats_grid.setColumnStretch(3, 1)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._relayout_stats(event.size().width())
 
     def _on_timer(self):
         if self.isVisible():
@@ -257,13 +322,13 @@ class BatteryView(QWidget):
                 self.card_charge.set_value("AC Güç", "Masaüstü (Şebeke)")
                 self.card_health.set_value("Harici Pil Yok", "Masaüstü Bilgisayar")
                 self.card_capacity.set_value("Sürekli", "220V Şebeke Beslemesi")
-                self.card_hardware.set_value(info.computer_model[:18], "Masaüstü Sistemi")
+                self.card_hardware.set_value(info.computer_model[:18] if info.computer_model else "Masaüstü", "Masaüstü Sistemi")
 
                 self.lbl_main_status.setText("Sistem Durumu: Masaüstü Bilgisayar (Sürekli Şebeke Gücü)")
-                self.lbl_main_status.setStyleSheet(f"font-size: 16px; font-weight: 800; color: {COLOR_SUCCESS};")
+                self.lbl_main_status.setStyleSheet(f"font-size: 15px; font-weight: 800; color: {COLOR_SUCCESS};")
                 self.lbl_runtime_desc.setText(f"Aktif Güç Planı: {info.active_power_plan} | Kesintisiz AC Besleme")
                 self.btn_gen_report.setEnabled(False)
-                self.btn_gen_report.setText("Masaüstü Sisteminde Pil Raporu Oluşturulamaz")
+                self.btn_gen_report.setText("Masaüstünde Pil Raporu Yok")
                 self.pbar_charge.setValue(100)
                 self.lbl_charge_val.setText("AC")
                 self.pbar_health.setValue(100)
@@ -296,7 +361,7 @@ class BatteryView(QWidget):
                 status_str = f"Pil Sağlığı: Kritik (%{info.health_percent:.1f} - Yüksek Aşınma)"
 
             self.lbl_main_status.setText(status_str)
-            self.lbl_main_status.setStyleSheet(f"font-size: 17px; font-weight: 800; color: {status_color};")
+            self.lbl_main_status.setStyleSheet(f"font-size: 16px; font-weight: 800; color: {status_color};")
             self.lbl_runtime_desc.setText(f"Kalan Tahmini Süre: {info.runtime_formatted}  |  Durum: {info.status_text}")
 
             self.pbar_charge.setValue(info.percent)
@@ -327,7 +392,7 @@ class BatteryView(QWidget):
 
     def _on_report_finished(self, ok: bool, result: str):
         self.btn_gen_report.setEnabled(True)
-        self.btn_gen_report.setText("📊  Resmi Windows Pil Raporunu Aç (.HTML)")
+        self.btn_gen_report.setText("📊  Resmi Windows Pil Raporu (.HTML)")
 
         if ok:
             if os.path.exists(result):

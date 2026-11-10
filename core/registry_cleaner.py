@@ -26,6 +26,7 @@ class RegistryIssue:
     value_type: int      # winreg.REG_SZ, etc.
     reason: str
     selected: bool = True
+    all_values: Optional[list] = None
 
 class RegistryCleaner:
     def __init__(self, backup_dir: Optional[str] = None):
@@ -239,12 +240,27 @@ class RegistryCleaner:
                                 try:
                                     uninst_str, utype = winreg.QueryValueEx(app_key, "UninstallString")
                                     clean_p = self._clean_path_string(os.path.expandvars(str(uninst_str)))
-                                    # Check if exe path doesn't exist and isn't msiexec
-                                    if clean_p and not os.path.exists(clean_p) and not 'msiexec' in clean_p.lower():
+                                    base_bin = os.path.basename(clean_p).lower()
+                                    SYSTEM_EXCLUDED_BINS = {"rundll32.exe", "msiexec.exe", "regsvr32.exe", "cmd.exe", "powershell.exe"}
+                                    # Check if exe path doesn't exist and isn't a known system launcher or in PATH
+                                    if clean_p and not os.path.exists(clean_p):
+                                        if base_bin in SYSTEM_EXCLUDED_BINS or shutil.which(clean_p) or shutil.which(base_bin):
+                                            continue
                                         try:
                                             disp_name, _ = winreg.QueryValueEx(app_key, "DisplayName")
                                         except OSError:
                                             disp_name = app_guid
+
+                                        # Collect all values of this uninstaller subkey for complete backup
+                                        all_vals = []
+                                        try:
+                                            _, val_count, _ = winreg.QueryInfoKey(app_key)
+                                            for vi in range(val_count):
+                                                vn, vd, vt = winreg.EnumValue(app_key, vi)
+                                                all_vals.append({"name": vn, "type": vt, "data": vd})
+                                        except OSError:
+                                            pass
+
                                         self.issues.append(RegistryIssue(
                                             id=f"uninst_{root_name}_{app_guid}_{i}",
                                             category="Bozuk Kaldırma Bilgisi",
@@ -252,9 +268,9 @@ class RegistryCleaner:
                                             sub_key=full_sub,
                                             value_name="",
                                             value_data=str(uninst_str),
-
                                             value_type=utype,
-                                            reason=f"Kaldırma programı mevcut değil ({disp_name}): {clean_p}"
+                                            reason=f"Kaldırma programı mevcut değil ({disp_name}): {clean_p}",
+                                            all_values=all_vals
                                         ))
                                 except OSError:
                                     pass
@@ -333,7 +349,29 @@ class RegistryCleaner:
         reg_file = os.path.join(self.backup_dir, f"Registry_Backup_{timestamp}.reg")
 
         # 1. JSON Backup with HMAC-SHA256 signature
-        data = [asdict(issue) for issue in issues_to_backup]
+        data = []
+        for issue in issues_to_backup:
+            item = asdict(issue)
+            all_vals = item.get("all_values")
+            # If all_values was not pre-populated, attempt to read existing values before deletion
+            if not all_vals and (issue.id.startswith("uninst_") or issue.category == "Bozuk Kaldırma Bilgisi" or (not issue.value_name and "uninstall" in issue.sub_key.lower())):
+                try:
+                    root = self._get_root_key(issue.root_name)
+                    with winreg.OpenKey(root, issue.sub_key, 0, winreg.KEY_READ) as k:
+                        _, val_count, _ = winreg.QueryInfoKey(k)
+                        vals = []
+                        for vi in range(val_count):
+                            vn, vd, vt = winreg.EnumValue(k, vi)
+                            vals.append({"name": vn, "type": vt, "data": vd})
+                        if vals:
+                            all_vals = vals
+                            item["all_values"] = vals
+                except OSError:
+                    pass
+            if all_vals:
+                item["subkey_values"] = all_vals
+            data.append(item)
+
         hmac_sig = compute_backup_hmac(data)
         payload = {
             "version": 1,
@@ -348,19 +386,43 @@ class RegistryCleaner:
         try:
             with open(reg_file, "w", encoding="utf-16") as rf:
                 rf.write("Windows Registry Editor Version 5.00\r\n\r\n")
-                for issue in issues_to_backup:
-                    rf.write(f"[{issue.root_name}\\{issue.sub_key}]\r\n")
-                    escaped_val = issue.value_name.replace('"', '\\"')
-                    val_prefix = f'"{escaped_val}"' if issue.value_name else '@'
-                    escaped_data = issue.value_data.replace('\\', '\\\\').replace('"', '\\"')
-                    if issue.value_type in (winreg.REG_DWORD, getattr(winreg, 'REG_DWORD_LITTLE_ENDIAN', 4)):
-                        try:
-                            val_int = int(issue.value_data, 16) if str(issue.value_data).startswith("0x") else int(issue.value_data)
-                            rf.write(f'{val_prefix}=dword:{val_int:08x}\r\n\r\n')
-                        except (ValueError, TypeError):
-                            rf.write(f'{val_prefix}="{escaped_data}"\r\n\r\n')
+                for issue_dict in data:
+                    r_name = issue_dict.get("root_name", "")
+                    s_key = issue_dict.get("sub_key", "")
+                    rf.write(f"[{r_name}\\{s_key}]\r\n")
+                    all_vals = issue_dict.get("all_values")
+                    if all_vals and isinstance(all_vals, list):
+                        for v in all_vals:
+                            vn = v.get("name", "")
+                            vd = v.get("data", "")
+                            vt = v.get("type", winreg.REG_SZ)
+                            esc_val = vn.replace('"', '\\"')
+                            val_prefix = f'"{esc_val}"' if vn else '@'
+                            esc_data = str(vd).replace('\\', '\\\\').replace('"', '\\"')
+                            if vt in (winreg.REG_DWORD, getattr(winreg, 'REG_DWORD_LITTLE_ENDIAN', 4)):
+                                try:
+                                    val_int = int(vd, 16) if str(vd).startswith("0x") else int(vd)
+                                    rf.write(f'{val_prefix}=dword:{val_int:08x}\r\n')
+                                except (ValueError, TypeError):
+                                    rf.write(f'{val_prefix}="{esc_data}"\r\n')
+                            else:
+                                rf.write(f'{val_prefix}="{esc_data}"\r\n')
+                        rf.write("\r\n")
                     else:
-                        rf.write(f'{val_prefix}="{escaped_data}"\r\n\r\n')
+                        vname = issue_dict.get("value_name", "")
+                        vdata = str(issue_dict.get("value_data", ""))
+                        vtype = issue_dict.get("value_type", winreg.REG_SZ)
+                        escaped_val = vname.replace('"', '\\"')
+                        val_prefix = f'"{escaped_val}"' if vname else '@'
+                        escaped_data = vdata.replace('\\', '\\\\').replace('"', '\\"')
+                        if vtype in (winreg.REG_DWORD, getattr(winreg, 'REG_DWORD_LITTLE_ENDIAN', 4)):
+                            try:
+                                val_int = int(vdata, 16) if str(vdata).startswith("0x") else int(vdata)
+                                rf.write(f'{val_prefix}=dword:{val_int:08x}\r\n\r\n')
+                            except (ValueError, TypeError):
+                                rf.write(f'{val_prefix}="{escaped_data}"\r\n\r\n')
+                        else:
+                            rf.write(f'{val_prefix}="{escaped_data}"\r\n\r\n')
         except Exception:
             pass
 

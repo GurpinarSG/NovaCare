@@ -20,8 +20,17 @@ def get_system_idle_seconds() -> float:
         lii = LASTINPUTINFO()
         lii.cbSize = ctypes.sizeof(LASTINPUTINFO)
         if ctypes.windll.user32.GetLastInputInfo(ctypes.byref(lii)):
-            millis = ctypes.windll.kernel32.GetTickCount() - lii.dwTime
-            return max(0.0, millis / 1000.0)
+            kernel32 = ctypes.windll.kernel32
+            if hasattr(kernel32, 'GetTickCount64'):
+                kernel32.GetTickCount64.restype = ctypes.c_ulonglong
+                curr = kernel32.GetTickCount64()
+                millis = (curr & 0xFFFFFFFF) - lii.dwTime
+                if millis < 0:
+                    millis += 0x100000000
+            else:
+                kernel32.GetTickCount.restype = ctypes.c_uint
+                millis = (kernel32.GetTickCount() - lii.dwTime) & 0xFFFFFFFF
+            return max(0.0, float(millis) / 1000.0)
     except Exception:
         pass
     return 0.0

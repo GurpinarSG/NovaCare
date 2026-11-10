@@ -14,7 +14,7 @@ from core.registry_cleaner import RegistryCleaner, RegistryIssue
 from core.registry_compactor import RegistryCompactor, RegistryHiveInfo
 from core.utils import is_admin, log_debug, format_bytes
 from ui.styles import (
-    COLOR_ACCENT, COLOR_SUCCESS, COLOR_WARNING, TEXT_SECONDARY
+    COLOR_ACCENT, COLOR_SUCCESS, COLOR_WARNING
 )
 
 class RegScanThread(QThread):
@@ -24,17 +24,23 @@ class RegScanThread(QThread):
     def __init__(self, cleaner: RegistryCleaner):
         super().__init__()
         self.cleaner = cleaner
+        self._is_cancelled = False
+
+    def cancel(self):
+        self._is_cancelled = True
 
     def run(self):
         issues = []
         try:
-            issues = self.cleaner.scan_all(
-                progress_callback=lambda name, cur, tot: self.progress.emit(name, cur, tot)
-            )
+            if not self._is_cancelled:
+                issues = self.cleaner.scan_all(
+                    progress_callback=lambda name, cur, tot: self.progress.emit(name, cur, tot)
+                )
         except Exception as e:
             log_debug(f"RegScanThread error: {e}")
         finally:
-            self.finished.emit(issues)
+            if not self._is_cancelled:
+                self.finished.emit(issues)
 
 class RegFixThread(QThread):
     progress = pyqtSignal(str, int, int)
@@ -44,18 +50,24 @@ class RegFixThread(QThread):
         super().__init__()
         self.cleaner = cleaner
         self.issues = issues
+        self._is_cancelled = False
+
+    def cancel(self):
+        self._is_cancelled = True
 
     def run(self):
         fixed, failed, bkp = 0, len(self.issues), ""
         try:
-            fixed, failed, bkp = self.cleaner.fix_issues(
-                self.issues,
-                progress_callback=lambda name, cur, tot: self.progress.emit(name, cur, tot)
-            )
+            if not self._is_cancelled:
+                fixed, failed, bkp = self.cleaner.fix_issues(
+                    self.issues,
+                    progress_callback=lambda name, cur, tot: self.progress.emit(name, cur, tot)
+                )
         except Exception as e:
             log_debug(f"RegFixThread error: {e}")
         finally:
-            self.finished.emit(fixed, failed, bkp)
+            if not self._is_cancelled:
+                self.finished.emit(fixed, failed, bkp)
 
 class RegistryView(QWidget):
     def __init__(self, parent=None):
@@ -70,7 +82,7 @@ class RegistryView(QWidget):
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(24, 18, 24, 18)
+        layout.setContentsMargins(24, 20, 24, 20)
         layout.setSpacing(12)
 
         # Header
@@ -108,16 +120,7 @@ class RegistryView(QWidget):
         # Admin Depth Banner
         self.admin_banner = QFrame()
         has_admin = is_admin()
-        bg_col = "rgba(16, 185, 129, 0.12)" if has_admin else "rgba(251, 191, 36, 0.12)"
-        border_col = "rgba(16, 185, 129, 0.35)" if has_admin else "rgba(251, 191, 36, 0.35)"
-        text_col = COLOR_SUCCESS if has_admin else COLOR_WARNING
-
-        self.admin_banner.setStyleSheet(f"""
-            background-color: {bg_col};
-            border: 1px solid {border_col};
-            border-radius: 8px;
-            padding: 8px 12px;
-        """)
+        self.admin_banner.setObjectName("AdminBannerSuccess" if has_admin else "AdminBannerWarning")
         ab_lay = QHBoxLayout(self.admin_banner)
         ab_lay.setContentsMargins(8, 4, 8, 4)
 
@@ -127,7 +130,7 @@ class RegistryView(QWidget):
             "💡 <b>Daha Derin Onarım İpucu:</b> Sistem genelindeki HKEY_LOCAL_MACHINE anahtarlarını onarmak için NovaCare'i <b>Yönetici olarak</b> çalıştırın."
         )
         lbl_ab = QLabel(banner_msg)
-        lbl_ab.setStyleSheet(f"color: {text_col}; font-size: 12px;")
+        lbl_ab.setObjectName("AdminBannerSuccessText" if has_admin else "AdminBannerWarningText")
         lbl_ab.setWordWrap(True)
         ab_lay.addWidget(lbl_ab)
         tab_lay.addWidget(self.admin_banner)
@@ -168,7 +171,7 @@ class RegistryView(QWidget):
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
         self.lbl_status = QLabel("")
-        self.lbl_status.setStyleSheet(f"color: {TEXT_SECONDARY};")
+        self.lbl_status.setObjectName("TextSecondary")
         self.lbl_status.setVisible(False)
         tab_lay.addWidget(self.progress_bar)
         tab_lay.addWidget(self.lbl_status)
@@ -208,7 +211,8 @@ class RegistryView(QWidget):
             "Programlar yüklenip kaldırıldıkça Windows kayıt defteri kovanlarında ölü hücreler (slack space) kalır. "
             "Kayıt defteri sıkıştırma işlemi bu boşlukları diske yazarak birleştirir, bellek kullanımını düşürür ve sistem açılışını hızlandırır."
         )
-        lbl_p.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 12px;")
+        lbl_p.setObjectName("TextSecondary")
+        lbl_p.setStyleSheet("font-size: 12px;")
         lbl_p.setWordWrap(True)
         d_lay.addWidget(lbl_p)
         tab_lay.addWidget(desc_card)

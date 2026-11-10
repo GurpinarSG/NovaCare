@@ -5,12 +5,11 @@ View and restore registry backups, create Windows restore points, and launch sys
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QTableWidget, QTableWidgetItem, QHeaderView, QMessageBox, QFrame,
-    QAbstractItemView
+    QAbstractItemView, QLayout, QSizePolicy
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from core.backup_manager import BackupManager, BackupEntry
 from core.utils import log_debug
-from ui.styles import TEXT_SECONDARY
 
 class RestorePointWorker(QThread):
     finished = pyqtSignal(bool)
@@ -19,15 +18,21 @@ class RestorePointWorker(QThread):
         super().__init__()
         self.mgr = mgr
         self.desc = desc
+        self._is_cancelled = False
+
+    def cancel(self):
+        self._is_cancelled = True
 
     def run(self):
         success = False
         try:
-            success = self.mgr.create_system_restore_point(self.desc)
+            if not self._is_cancelled:
+                success = self.mgr.create_system_restore_point(self.desc)
         except Exception as e:
             log_debug(f"RestorePointWorker error: {e}")
         finally:
-            self.finished.emit(success)
+            if not self._is_cancelled:
+                self.finished.emit(success)
 
 class RescueView(QWidget):
     def __init__(self, parent=None):
@@ -40,7 +45,7 @@ class RescueView(QWidget):
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(28, 24, 28, 24)
+        layout.setContentsMargins(24, 20, 24, 20)
         layout.setSpacing(18)
 
         # Header
@@ -55,20 +60,24 @@ class RescueView(QWidget):
         # Top System Restore Card
         top_card = QFrame()
         top_card.setObjectName("CardFrame")
+        top_card.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
         top_layout = QHBoxLayout(top_card)
-        top_layout.setContentsMargins(20, 16, 20, 16)
+        top_layout.setContentsMargins(18, 14, 18, 14)
+        top_layout.setSpacing(12)
+        top_layout.setSizeConstraint(QLayout.SetMinimumSize)
 
         v_desc = QVBoxLayout()
+        v_desc.setSpacing(3)
         lbl_r_title = QLabel("🛡️  Windows Sistem Geri Yükleme")
         lbl_r_title.setStyleSheet("font-size: 15px; font-weight: 700;")
+        lbl_r_title.setWordWrap(True)
         lbl_r_sub = QLabel("Önemli sistem değişiklikleri öncesinde tam bir Windows kurtarma noktası oluşturabilirsiniz.")
-        lbl_r_sub.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 12px;")
+        lbl_r_sub.setObjectName("TextSecondary")
+        lbl_r_sub.setStyleSheet("font-size: 12px;")
         lbl_r_sub.setWordWrap(True)
         v_desc.addWidget(lbl_r_title)
         v_desc.addWidget(lbl_r_sub)
-        top_layout.addLayout(v_desc)
-
-        top_layout.addStretch()
+        top_layout.addLayout(v_desc, 1)
 
         self.btn_create_point = QPushButton("➕  Geri Yükleme Noktası")
         self.btn_create_point.setToolTip("Yeni bir Windows Sistem Geri Yükleme Noktası oluşturur")
@@ -80,8 +89,8 @@ class RescueView(QWidget):
         self.btn_open_rstrui.setProperty("class", "secondary-btn")
         self.btn_open_rstrui.clicked.connect(self.mgr.open_system_restore_ui)
 
-        top_layout.addWidget(self.btn_create_point)
-        top_layout.addWidget(self.btn_open_rstrui)
+        top_layout.addWidget(self.btn_create_point, 0, Qt.AlignVCenter)
+        top_layout.addWidget(self.btn_open_rstrui, 0, Qt.AlignVCenter)
         layout.addWidget(top_card)
 
         # Backups Table Toolbar
@@ -147,6 +156,8 @@ class RescueView(QWidget):
             self.table.setUpdatesEnabled(True)
 
     def _create_restore_point(self):
+        if self.rp_worker and self.rp_worker.isRunning():
+            return
         self.btn_create_point.setEnabled(False)
         self.btn_create_point.setText("⏳  Oluşturuluyor...")
         self.rp_worker = RestorePointWorker(self.mgr, "NovaCare Sistem Bakım Noktası")

@@ -4,7 +4,7 @@ Includes Circular Health Gauge, Stat Cards, and Styled Category Items.
 Theme-aware dynamic rendering with seamless dark/light contrast support.
 """
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QSizePolicy
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QSizePolicy, QLayout
 )
 from PyQt5.QtCore import Qt, QRectF, pyqtProperty
 from PyQt5.QtGui import QPainter, QColor, QPen, QFont, QFontMetrics
@@ -32,15 +32,20 @@ class CircularHealthGauge(QWidget):
         self._update_status_text()
         self.update()
 
-    def _update_status_text(self):
-        if self._score >= 85:
-            self.status_text = "Mükemmel"
-        elif self._score >= 65:
-            self.status_text = "İyi"
-        elif self._score >= 40:
-            self.status_text = "Bakım Önerilir"
+    @staticmethod
+    def get_tier_info(score: int) -> tuple:
+        """Returns (status_text, color_key) synchronized from a single source of truth."""
+        if score >= 85:
+            return "Mükemmel", "COLOR_SUCCESS"
+        elif score >= 65:
+            return "İyi", "COLOR_ACCENT"
+        elif score >= 40:
+            return "Bakım Önerilir", "COLOR_WARNING"
         else:
-            self.status_text = "Kritik"
+            return "Kritik", "COLOR_DANGER"
+
+    def _update_status_text(self):
+        self.status_text, _ = self.get_tier_info(self._score)
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -62,12 +67,8 @@ class CircularHealthGauge(QWidget):
         painter.drawArc(rect, int(225 * 16), int(-270 * 16))
 
         # 2. Foreground Score Arc
-        if self._score >= 85:
-            arc_color = QColor(p["COLOR_SUCCESS"])
-        elif self._score >= 60:
-            arc_color = QColor(p["COLOR_WARNING"])
-        else:
-            arc_color = QColor(p["COLOR_DANGER"])
+        _, color_key = self.get_tier_info(self._score)
+        arc_color = QColor(p[color_key])
 
         pen_fg = QPen(arc_color, 14, Qt.SolidLine, Qt.RoundCap)
         painter.setPen(pen_fg)
@@ -124,25 +125,28 @@ class StatCard(QFrame):
     def __init__(self, icon: str, title: str, initial_value: str = "-", subtitle: str = "", parent=None):
         super().__init__(parent)
         self.setObjectName("StatCard")
-        self.setMinimumHeight(108)
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.setMinimumHeight(96)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 12, 16, 12)
-        layout.setSpacing(4)
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setSpacing(3)
+        layout.setSizeConstraint(QLayout.SetMinimumSize)
 
         top_row = QHBoxLayout()
+        top_row.setSpacing(6)
         self.icon_lbl = QLabel(icon)
-        self.icon_lbl.setStyleSheet("font-size: 20px;")
+        self.icon_lbl.setStyleSheet("font-size: 18px;")
         self.title_lbl = QLabel(title)
         self.title_lbl.setObjectName("StatTitle")
+        self.title_lbl.setWordWrap(True)
         top_row.addWidget(self.icon_lbl)
-        top_row.addWidget(self.title_lbl)
-        top_row.addStretch()
+        top_row.addWidget(self.title_lbl, 1)
         layout.addLayout(top_row)
 
         self.value_lbl = QLabel(initial_value)
         self.value_lbl.setObjectName("StatValue")
+        self.value_lbl.setWordWrap(True)
         layout.addWidget(self.value_lbl)
 
         self.sub_lbl = QLabel(subtitle)

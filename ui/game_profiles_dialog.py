@@ -13,7 +13,6 @@ from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal
 from PyQt5.QtGui import QFont
 from core.game_booster import GameBooster, GameProfileManager
 from core.config import ConfigManager
-from ui.styles import TEXT_SECONDARY
 
 class GameScanWorker(QThread):
     finished = pyqtSignal(list)
@@ -21,13 +20,20 @@ class GameScanWorker(QThread):
     def __init__(self, profile_mgr: GameProfileManager):
         super().__init__()
         self.profile_mgr = profile_mgr
+        self._is_cancelled = False
+
+    def cancel(self):
+        self._is_cancelled = True
 
     def run(self):
         try:
-            games = self.profile_mgr.scan_installed_games()
-            self.finished.emit(games)
+            if not self._is_cancelled:
+                games = self.profile_mgr.scan_installed_games()
+                if not self._is_cancelled:
+                    self.finished.emit(games)
         except Exception:
-            self.finished.emit([])
+            if not self._is_cancelled:
+                self.finished.emit([])
 
 class GameProfilesDialog(QDialog):
     def __init__(self, parent=None):
@@ -64,7 +70,8 @@ class GameProfilesDialog(QDialog):
             "Seçtiğiniz bir oyun açıldığında NovaCare otomatik olarak Oyun & Nihai Performans Moduna geçer;\n"
             "oyundan çıktığınızda ise sisteminizi standart güç ve servis durumuna geri döndürür."
         )
-        lbl_sub.setStyleSheet(f"font-size: 12px; color: {TEXT_SECONDARY}; line-height: 1.4;")
+        lbl_sub.setObjectName("TextSecondary")
+        lbl_sub.setStyleSheet("font-size: 12px; line-height: 1.4;")
         lbl_sub.setWordWrap(True)
         v_head.addWidget(lbl_title)
         v_head.addWidget(lbl_sub)

@@ -12,7 +12,6 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal
 from core.memory_booster import MemoryBooster, ProcessInfo
 from core.utils import format_bytes
-from ui.styles import COLOR_ACCENT, TEXT_SECONDARY
 
 class ProcessLoaderWorker(QThread):
     finished = pyqtSignal(list)
@@ -20,13 +19,20 @@ class ProcessLoaderWorker(QThread):
     def __init__(self, booster: MemoryBooster):
         super().__init__()
         self.booster = booster
+        self._is_cancelled = False
+
+    def cancel(self):
+        self._is_cancelled = True
 
     def run(self):
         try:
-            procs = self.booster.list_processes()
-            self.finished.emit(procs)
+            if not self._is_cancelled:
+                procs = self.booster.list_processes()
+                if not self._is_cancelled:
+                    self.finished.emit(procs)
         except Exception:
-            self.finished.emit([])
+            if not self._is_cancelled:
+                self.finished.emit([])
 
 class RamBoostWorker(QThread):
     progress = pyqtSignal(str)
@@ -35,14 +41,21 @@ class RamBoostWorker(QThread):
     def __init__(self, booster: Optional[MemoryBooster] = None):
         super().__init__()
         self.booster = booster or MemoryBooster()
+        self._is_cancelled = False
+
+    def cancel(self):
+        self._is_cancelled = True
 
     def run(self):
         try:
-            self.progress.emit("RAM belleği optimize ediliyor...")
-            freed, count = self.booster.optimize_ram()
-            self.finished.emit(freed, count)
+            if not self._is_cancelled:
+                self.progress.emit("RAM belleği optimize ediliyor...")
+                freed, count = self.booster.optimize_ram(cancel_callback=lambda: self._is_cancelled)
+                if not self._is_cancelled:
+                    self.finished.emit(freed, count)
         except Exception:
-            self.finished.emit(0, 0)
+            if not self._is_cancelled:
+                self.finished.emit(0, 0)
 
 class MemoryView(QWidget):
     def __init__(self, parent=None):
@@ -64,7 +77,7 @@ class MemoryView(QWidget):
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(28, 24, 28, 24)
+        layout.setContentsMargins(24, 20, 24, 20)
         layout.setSpacing(16)
 
         # Header
@@ -89,7 +102,8 @@ class MemoryView(QWidget):
         self.bar_ram = QProgressBar()
         self.bar_ram.setFixedHeight(16)
         self.lbl_ram_detail = QLabel("Kullanılan: -  |  Toplam: -")
-        self.lbl_ram_detail.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 11px;")
+        self.lbl_ram_detail.setObjectName("TextSecondary")
+        self.lbl_ram_detail.setStyleSheet("font-size: 11px;")
         ram_box.addWidget(self.lbl_ram_title)
         ram_box.addWidget(self.bar_ram)
         ram_box.addWidget(self.lbl_ram_detail)
@@ -104,7 +118,8 @@ class MemoryView(QWidget):
         self.bar_cpu = QProgressBar()
         self.bar_cpu.setFixedHeight(16)
         self.lbl_cpu_detail = QLabel("Tüm Çekirdekler Aktif")
-        self.lbl_cpu_detail.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 11px;")
+        self.lbl_cpu_detail.setObjectName("TextSecondary")
+        self.lbl_cpu_detail.setStyleSheet("font-size: 11px;")
         cpu_box.addWidget(self.lbl_cpu_title)
         cpu_box.addWidget(self.bar_cpu)
         cpu_box.addWidget(self.lbl_cpu_detail)
@@ -142,7 +157,8 @@ class MemoryView(QWidget):
         self.btn_kill.clicked.connect(self._kill_selected)
 
         self.lbl_proc_count = QLabel("Toplam Süreç: 0")
-        self.lbl_proc_count.setStyleSheet(f"color: {COLOR_ACCENT}; font-weight: 700;")
+        self.lbl_proc_count.setObjectName("TextAccent")
+        self.lbl_proc_count.setStyleSheet("font-weight: 700;")
 
         ptb_layout.addWidget(self.search_box)
         ptb_layout.addWidget(self.btn_refresh)

@@ -45,6 +45,13 @@ def log_debug(msg: str):
 class BackgroundAutoCleanWorker(QThread):
     finished = pyqtSignal(dict)
 
+    def __init__(self):
+        super().__init__()
+        self._is_cancelled = False
+
+    def cancel(self):
+        self._is_cancelled = True
+
     def run(self):
         res = {
             "triggered": False,
@@ -53,8 +60,12 @@ class BackgroundAutoCleanWorker(QThread):
             "errors": []
         }
         try:
+            if self._is_cancelled:
+                return
             cleaner = AutoCleaner()
             should_run, reason = cleaner.should_trigger()
+            if self._is_cancelled:
+                return
             if should_run:
                 cleanup_res = cleaner.execute_cleanup()
                 res.update(cleanup_res)
@@ -66,7 +77,8 @@ class BackgroundAutoCleanWorker(QThread):
             log_debug(f"BackgroundAutoCleanWorker error: {e}")
             res["errors"].append(str(e))
         finally:
-            self.finished.emit(res)
+            if not self._is_cancelled:
+                self.finished.emit(res)
 
 class AutoUpdateCheckThread(QThread):
     finished = pyqtSignal(object)
@@ -74,14 +86,21 @@ class AutoUpdateCheckThread(QThread):
     def __init__(self, repo: str):
         super().__init__()
         self.repo = repo
+        self._is_cancelled = False
+
+    def cancel(self):
+        self._is_cancelled = True
 
     def run(self):
         try:
-            updater = GitHubUpdater(self.repo)
-            info = updater.check_for_updates()
-            self.finished.emit(info)
+            if not self._is_cancelled:
+                updater = GitHubUpdater(self.repo)
+                info = updater.check_for_updates()
+                if not self._is_cancelled:
+                    self.finished.emit(info)
         except Exception as e:
-            self.finished.emit(e)
+            if not self._is_cancelled:
+                self.finished.emit(e)
 
 class SilentAutoInstallThread(QThread):
     finished = pyqtSignal(str) # batch_path or error
@@ -94,19 +113,26 @@ class SilentAutoInstallThread(QThread):
         self.new_version = new_version
         self.expected_sha256 = expected_sha256
         self.sha256sums_url = sha256sums_url
+        self._is_cancelled = False
+
+    def cancel(self):
+        self._is_cancelled = True
 
     def run(self):
         try:
-            batch = self.updater.download_and_prepare_update(
-                self.download_url,
-                new_commit_sha=self.new_commit_sha,
-                new_version=self.new_version,
-                expected_sha256=self.expected_sha256,
-                sha256sums_url=self.sha256sums_url
-            )
-            self.finished.emit(batch)
+            if not self._is_cancelled:
+                batch = self.updater.download_and_prepare_update(
+                    self.download_url,
+                    new_commit_sha=self.new_commit_sha,
+                    new_version=self.new_version,
+                    expected_sha256=self.expected_sha256,
+                    sha256sums_url=self.sha256sums_url
+                )
+                if not self._is_cancelled:
+                    self.finished.emit(batch)
         except Exception as e:
-            self.finished.emit(f"ERROR:{e}")
+            if not self._is_cancelled:
+                self.finished.emit(f"ERROR:{e}")
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -267,27 +293,17 @@ class MainWindow(QMainWindow):
         side_layout.addStretch()
 
         # Admin Badge
-        has_admin = is_admin()
-        admin_card = QFrame()
-        admin_card.setCursor(Qt.PointingHandCursor)
-        admin_card.setToolTip("Yönetici izinlerini görüntülemek ve yapılandırmak için tıklayın")
-        bg_col = "rgba(16, 185, 129, 0.12)" if has_admin else "rgba(251, 191, 36, 0.15)"
-        border_col = "rgba(16, 185, 129, 0.35)" if has_admin else "rgba(251, 191, 36, 0.40)"
-        theme_cols = get_active_theme_colors(self.current_theme)
-        text_col = theme_cols["COLOR_SUCCESS"] if has_admin else theme_cols["COLOR_WARNING"]
-        admin_card.setStyleSheet(f"""
-            background-color: {bg_col};
-            border: 1px solid {border_col};
-            border-radius: 8px;
-            padding: 8px 10px;
-        """)
-        a_lay = QHBoxLayout(admin_card)
+        # Admin Badge
+        self.admin_card = QFrame()
+        self.admin_card.setCursor(Qt.PointingHandCursor)
+        self.admin_card.setToolTip("Yönetici izinlerini görüntülemek ve yapılandırmak için tıklayın")
+        a_lay = QHBoxLayout(self.admin_card)
         a_lay.setContentsMargins(6, 4, 6, 4)
-        lbl_admin = QLabel("🛡️  Yönetici Modu Aktif" if has_admin else "⚠️  Standart Mod (Yükselt)")
-        lbl_admin.setStyleSheet(f"color: {text_col}; font-weight: 700; font-size: 11px;")
-        a_lay.addWidget(lbl_admin)
-        admin_card.mousePressEvent = lambda ev: self._navigate_to_settings_admin()
-        side_layout.addWidget(admin_card)
+        self.lbl_admin = QLabel()
+        a_lay.addWidget(self.lbl_admin)
+        self._sync_admin_badge()
+        self.admin_card.mousePressEvent = lambda ev: self._navigate_to_settings_admin()
+        side_layout.addWidget(self.admin_card)
 
         root_layout.addWidget(sidebar)
 
@@ -395,6 +411,41 @@ class MainWindow(QMainWindow):
             pass
         self._pause_view_timers()
 
+    def _sync_admin_badge(self):
+        if not hasattr(self, 'admin_card') or not hasattr(self, 'lbl_admin'):
+            return
+        has_admin = is_admin()
+        theme_cols = get_active_theme_colors(self.current_theme)
+        is_dark = theme_cols.get("NAME") == "dark"
+        if has_admin:
+            if is_dark:
+                bg_col = "rgba(16, 185, 129, 0.12)"
+                border_col = "rgba(16, 185, 129, 0.35)"
+                text_col = theme_cols["COLOR_SUCCESS"]
+            else:
+                bg_col = "#ECFDF5"
+                border_col = "#10B981"
+                text_col = theme_cols["COLOR_SUCCESS"]
+            text_label = "🛡️  Yönetici Modu Aktif"
+        else:
+            if is_dark:
+                bg_col = "rgba(251, 191, 36, 0.15)"
+                border_col = "rgba(251, 191, 36, 0.40)"
+                text_col = theme_cols["COLOR_WARNING"]
+            else:
+                bg_col = "#FEF3C7"
+                border_col = "#F59E0B"
+                text_col = theme_cols["COLOR_WARNING"]
+            text_label = "⚠️  Standart Mod (Yükselt)"
+        self.admin_card.setStyleSheet(f"""
+            background-color: {bg_col};
+            border: 1px solid {border_col};
+            border-radius: 8px;
+            padding: 8px 10px;
+        """)
+        self.lbl_admin.setText(text_label)
+        self.lbl_admin.setStyleSheet(f"color: {text_col}; font-weight: 700; font-size: 11px;")
+
     def apply_theme(self, theme_mode: str):
         """Applies theme dynamically across the entire application and all views."""
         self.current_theme = theme_mode
@@ -404,6 +455,7 @@ class MainWindow(QMainWindow):
         if app_inst:
             app_inst.setStyleSheet(qss)
         self.setStyleSheet(qss)
+        self._sync_admin_badge()
         if hasattr(self, 'tray_menu'):
             self.tray_menu.setStyleSheet(qss)
         if hasattr(self, 'view_dashboard') and hasattr(self.view_dashboard, 'gauge'):
@@ -707,15 +759,23 @@ class MainWindow(QMainWindow):
 
             # 3. Stop main window worker threads
             if self.auto_check_thread and self.auto_check_thread.isRunning():
+                if hasattr(self.auto_check_thread, 'cancel'):
+                    self.auto_check_thread.cancel()
                 self.auto_check_thread.quit()
                 self.auto_check_thread.wait(300)
             if self.auto_install_thread and self.auto_install_thread.isRunning():
+                if hasattr(self.auto_install_thread, 'cancel'):
+                    self.auto_install_thread.cancel()
                 self.auto_install_thread.quit()
                 self.auto_install_thread.wait(300)
             if hasattr(self, 'auto_clean_worker') and self.auto_clean_worker and self.auto_clean_worker.isRunning():
+                if hasattr(self.auto_clean_worker, 'cancel'):
+                    self.auto_clean_worker.cancel()
                 self.auto_clean_worker.quit()
                 self.auto_clean_worker.wait(300)
             if hasattr(self, '_tray_boost_worker') and self._tray_boost_worker and self._tray_boost_worker.isRunning():
+                if hasattr(self._tray_boost_worker, 'cancel'):
+                    self._tray_boost_worker.cancel()
                 self._tray_boost_worker.quit()
                 self._tray_boost_worker.wait(300)
 
@@ -726,7 +786,7 @@ class MainWindow(QMainWindow):
                 ('view_registry', ['scan_thread', 'fix_thread']),
                 ('view_memory', ['loader_worker', 'boost_worker']),
                 ('view_startup', ['scan_worker']),
-                ('view_uninstaller', ['scan_worker']),
+                ('view_uninstaller', ['scan_worker', 'single_wait_worker']),
                 ('view_hardware_health', ['scan_worker']),
                 ('view_battery', ['hw_worker', 'report_worker']),
                 ('view_disk', ['scan_thread', 'dup_thread']),

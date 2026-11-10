@@ -14,8 +14,7 @@ from PyQt5.QtGui import QColor
 from core.uninstaller import AppUninstaller, InstalledApp, LeftoverItem
 from core.utils import format_bytes, log_debug
 from ui.styles import (
-    COLOR_ACCENT, COLOR_SUCCESS, COLOR_DANGER,
-    TEXT_PRIMARY, TEXT_SECONDARY
+    COLOR_ACCENT, COLOR_SUCCESS, COLOR_DANGER
 )
 
 class AppScanWorker(QThread):
@@ -24,13 +23,46 @@ class AppScanWorker(QThread):
     def __init__(self, uninstaller: AppUninstaller):
         super().__init__()
         self.uninstaller = uninstaller
+        self._is_cancelled = False
+
+    def cancel(self):
+        self._is_cancelled = True
 
     def run(self):
         try:
-            apps = self.uninstaller.scan_installed_apps()
-            self.finished.emit(apps)
+            if not self._is_cancelled:
+                apps = self.uninstaller.scan_installed_apps()
+                if not self._is_cancelled:
+                    self.finished.emit(apps)
         except Exception:
-            self.finished.emit([])
+            if not self._is_cancelled:
+                self.finished.emit([])
+
+class SingleUninstallWaitWorker(QThread):
+    finished = pyqtSignal(object)  # app
+
+    def __init__(self, proc, app: InstalledApp):
+        super().__init__()
+        self.proc = proc
+        self.app = app
+        self._is_cancelled = False
+
+    def cancel(self):
+        self._is_cancelled = True
+        if self.proc and self.proc.poll() is None:
+            try:
+                self.proc.terminate()
+            except Exception:
+                pass
+
+    def run(self):
+        if self.proc:
+            try:
+                self.proc.wait()
+            except Exception:
+                pass
+        if not self._is_cancelled:
+            self.finished.emit(self.app)
 
 class LeftoverDialog(QDialog):
     def __init__(self, app_or_apps, leftovers: list[LeftoverItem], uninstaller: AppUninstaller, parent=None):
@@ -52,7 +84,7 @@ class LeftoverDialog(QDialog):
         layout.setSpacing(14)
 
         lbl = QLabel(f"<b>{self.app_title}</b> uygulamasına ait sistemde tespit edilen artık ve kalıntılar:")
-        lbl.setStyleSheet(f"font-size: 14px; color: {TEXT_PRIMARY};")
+        lbl.setStyleSheet("font-size: 14px;")
         lbl.setWordWrap(True)
         layout.addWidget(lbl)
 
@@ -104,10 +136,12 @@ class BatchUninstallWorker(QThread):
         self.apps = list(apps)
         self.uninstaller = uninstaller
         self._is_canceled = False
+        self._is_cancelled = False
         self._current_process = None
 
     def cancel(self):
         self._is_canceled = True
+        self._is_cancelled = True
         proc = self._current_process
         if proc and proc.poll() is None:
             try:
@@ -192,7 +226,8 @@ class BatchUninstallDialog(QDialog):
         layout.addWidget(header)
 
         sub = QLabel("Programların resmi kaldırıcıları sırayla açılacaktır. Lütfen ekrana gelen pencerelerdeki kaldırma adımlarını onaylayın.")
-        sub.setStyleSheet(f"font-size: 12px; color: {TEXT_SECONDARY};")
+        sub.setObjectName("TextSecondary")
+        sub.setStyleSheet("font-size: 12px;")
         sub.setWordWrap(True)
         layout.addWidget(sub)
 
@@ -204,7 +239,7 @@ class BatchUninstallDialog(QDialog):
         layout.addWidget(self.pbar)
 
         self.lbl_status = QLabel("Hazırlanıyor...")
-        self.lbl_status.setStyleSheet(f"font-size: 12px; font-weight: 600; color: {TEXT_PRIMARY};")
+        self.lbl_status.setStyleSheet("font-size: 12px; font-weight: 600;")
         layout.addWidget(self.lbl_status)
 
         # App items list
@@ -332,6 +367,7 @@ class UninstallerView(QWidget):
         self.filtered_apps: list[InstalledApp] = []
         self.checked_app_ids: set[str] = set()
         self.scan_worker = None
+        self.single_wait_worker = None
         self._is_scanning = False
         self._updating_checks = False
 
@@ -345,7 +381,7 @@ class UninstallerView(QWidget):
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(28, 24, 28, 24)
+        layout.setContentsMargins(24, 20, 24, 20)
         layout.setSpacing(16)
 
         # Header
@@ -362,11 +398,12 @@ class UninstallerView(QWidget):
         toolbar.setObjectName("ToolbarFrame")
         tb_layout = QHBoxLayout(toolbar)
         tb_layout.setContentsMargins(12, 8, 12, 8)
-        tb_layout.setSpacing(10)
+        tb_layout.setSpacing(8)
 
         self.search_box = QLineEdit()
         self.search_box.setPlaceholderText("🔍  Program ara...")
-        self.search_box.setFixedWidth(220)
+        self.search_box.setMinimumWidth(110)
+        self.search_box.setMaximumWidth(190)
         self.search_box.textChanged.connect(lambda: self.search_timer.start())
 
         self.chk_all = QCheckBox("Tümünü Seç")
@@ -389,7 +426,8 @@ class UninstallerView(QWidget):
         self.btn_leftovers.clicked.connect(self._scan_leftovers_selected)
 
         self.lbl_stats = QLabel("Toplam: 0")
-        self.lbl_stats.setStyleSheet(f"color: {COLOR_ACCENT}; font-weight: 700;")
+        self.lbl_stats.setStyleSheet(f"color: {COLOR_ACCENT}; font-weight: 700; font-size: 12px;")
+        self.lbl_stats.setWordWrap(True)
 
         tb_layout.addWidget(self.search_box)
         tb_layout.addWidget(self.chk_all)
@@ -421,7 +459,7 @@ class UninstallerView(QWidget):
         layout.addWidget(self.table)
 
     def refresh_apps(self):
-        if self._is_scanning:
+        if self._is_scanning or (hasattr(self, 'scan_worker') and self.scan_worker and self.scan_worker.isRunning()):
             return
         self._is_scanning = True
         self.btn_refresh.setEnabled(False)
@@ -531,25 +569,47 @@ class UninstallerView(QWidget):
         row = item.row()
         if 0 <= row < len(self.filtered_apps):
             app = self.filtered_apps[row]
-            confirm = QMessageBox.question(
+            self._execute_single_uninstall(app)
+
+    def _execute_single_uninstall(self, app: InstalledApp):
+        if hasattr(self, 'single_wait_worker') and self.single_wait_worker and self.single_wait_worker.isRunning():
+            QMessageBox.warning(
                 self,
-                "Programı Kaldır",
-                f"'{app.name}' programının resmi kaldırıcı aracı başlatılacak.\nDevam etmek istiyor musunuz?",
-                QMessageBox.Yes | QMessageBox.No
+                "İşlem Sürüyor",
+                "Şu anda devam eden bir program kaldırma işlemi var. Lütfen işlemin tamamlanmasını bekleyin."
             )
-            if confirm == QMessageBox.Yes:
-                try:
-                    self.uninstaller.launch_uninstaller(app)
-                    ans = QMessageBox.question(
-                        self,
-                        "Kaldırıcı Başlatıldı",
-                        f"'{app.name}' kaldırıcı programı başlatıldı.\n\nKaldırma işlemi bittikten sonra kalan artık dosyaları şimdi taramak ister misiniz?",
-                        QMessageBox.Yes | QMessageBox.No
-                    )
-                    if ans == QMessageBox.Yes:
-                        self._scan_leftovers_for_apps([app])
-                except Exception as e:
-                    QMessageBox.critical(self, "Hata", f"Kaldırma komutu başlatılamadı:\n{e}")
+            return
+
+        confirm = QMessageBox.question(
+            self,
+            "Programı Kaldır",
+            f"'{app.name}' programının resmi kaldırıcı aracı başlatılacak.\nDevam etmek istiyor musunuz?",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        if confirm == QMessageBox.Yes:
+            try:
+                proc = self.uninstaller.launch_uninstaller(app)
+                self.lbl_stats.setText(f"⏳ '{app.name}' kaldırılıyor, lütfen işlemin tamamlanmasını bekleyin...")
+                self.single_wait_worker = SingleUninstallWaitWorker(proc, app)
+                self.single_wait_worker.finished.connect(self._on_single_uninstall_finished)
+                self.single_wait_worker.start()
+            except Exception as e:
+                QMessageBox.critical(self, "Hata", f"Kaldırma komutu başlatılamadı:\n{e}")
+
+    def _on_single_uninstall_finished(self, app: InstalledApp):
+        self.lbl_stats.setText(f"'{app.name}' kaldırma işlemi tamamlandı.")
+        ans = QMessageBox.question(
+            self,
+            "Kaldırma Tamamlandı",
+            f"'{app.name}' kaldırma işlemi bitti.\n\nKalan artık dosyaları ve kayıt defteri kalıntılarını şimdi taramak ister misiniz?",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        if ans == QMessageBox.Yes:
+            self._scan_leftovers_for_apps([app])
+        self.refresh_apps()
+
+    def _on_uninstall_clicked(self):
+        self._uninstall_selected()
 
     def _get_checked_apps(self) -> list[InstalledApp]:
         return [a for a in self.all_apps if a.id in self.checked_app_ids]
@@ -600,26 +660,7 @@ class UninstallerView(QWidget):
             return
 
         if len(checked_apps) == 1:
-            app = checked_apps[0]
-            confirm = QMessageBox.question(
-                self,
-                "Programı Kaldır",
-                f"'{app.name}' programının resmi kaldırıcı aracı başlatılacak.\nDevam etmek istiyor musunuz?",
-                QMessageBox.Yes | QMessageBox.No
-            )
-            if confirm == QMessageBox.Yes:
-                try:
-                    self.uninstaller.launch_uninstaller(app)
-                    ans = QMessageBox.question(
-                        self,
-                        "Kaldırıcı Başlatıldı",
-                        f"'{app.name}' kaldırıcı programı başlatıldı.\n\nKaldırma işlemi bittikten sonra kalan artık dosyaları şimdi taramak ister misiniz?",
-                        QMessageBox.Yes | QMessageBox.No
-                    )
-                    if ans == QMessageBox.Yes:
-                        self._scan_leftovers_for_apps([app])
-                except Exception as e:
-                    QMessageBox.critical(self, "Hata", f"Kaldırma komutu başlatılamadı:\n{e}")
+            self._execute_single_uninstall(checked_apps[0])
         else:
             # Batch Uninstall Flow
             app_list_preview = "\n".join(f"• {a.name}" for a in checked_apps[:8])

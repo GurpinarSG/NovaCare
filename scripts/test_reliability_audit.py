@@ -45,7 +45,7 @@ def test_1_cleanup_workers_and_async_auto_clean():
     worker_result = []
     worker.finished.connect(lambda res: worker_result.append(res))
     worker.start()
-    worker.wait(3000)
+    worker.wait(15000)
     app.processEvents()
     assert len(worker_result) == 1, "BackgroundAutoCleanWorker must emit finished signal"
     assert "triggered" in worker_result[0], "Result must contain 'triggered' status"

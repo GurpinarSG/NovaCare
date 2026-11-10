@@ -312,6 +312,9 @@ class TestPerformanceOptimizations(unittest.TestCase):
     def test_15_settings_view_autostart_toggle_and_failure_rollback(self):
         """Verify SettingsView autostart toggle executes asynchronously and rolls back on failure."""
         view = SettingsView()
+        view.chk_autostart.blockSignals(True)
+        view.chk_autostart.setChecked(False)
+        view.chk_autostart.blockSignals(False)
 
         # 1. Failure case: set_autostart returns False
         with patch("ui.views.settings_view.set_autostart", return_value=False), \

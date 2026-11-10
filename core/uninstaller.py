@@ -28,11 +28,11 @@ class InstalledApp:
     install_date: str
     size_bytes: int
     uninstall_string: str
-    quiet_uninstall_string: str
-    install_location: str
-    icon_path: str
-    registry_path: str
-    root_name: str
+    quiet_uninstall_string: str = ""
+    install_location: str = ""
+    icon_path: str = ""
+    registry_path: str = ""
+    root_name: str = "HKCU"
 
 @dataclass
 class LeftoverItem:

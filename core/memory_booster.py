@@ -2,12 +2,32 @@
 NovaCare System Suite - Memory Optimizer & Process Manager
 Real-time CPU/RAM monitor, process inspector, and RAM working set trimmer.
 """
+import sys
 import ctypes
 import os
 import heapq
 import psutil
 from dataclasses import dataclass
 from core.utils import format_bytes, log_debug
+
+# 64-bit explicit ctypes signatures for Windows process memory APIs
+if sys.platform == 'win32':
+    try:
+        k32 = ctypes.windll.kernel32
+        psapi = ctypes.windll.psapi
+        k32.GetCurrentProcess.restype = ctypes.c_void_p
+        k32.GetCurrentProcess.argtypes = []
+        k32.OpenProcess.restype = ctypes.c_void_p
+        k32.OpenProcess.argtypes = [ctypes.c_ulong, ctypes.c_int, ctypes.c_ulong]
+        k32.CloseHandle.argtypes = [ctypes.c_void_p]
+        psapi.EmptyWorkingSet.argtypes = [ctypes.c_void_p]
+        psapi.EmptyWorkingSet.restype = ctypes.c_int
+    except Exception:
+        k32 = None
+        psapi = None
+else:
+    k32 = None
+    psapi = None
 
 # Known protected Windows system processes to skip
 PROTECTED_SYSTEM_PROCESSES = frozenset({
@@ -58,7 +78,7 @@ class MemoryBooster:
     def trim_own_memory():
         """Trims NovaCare's own unused RAM pages using Windows API to minimize footprint."""
         try:
-            ctypes.windll.psapi.EmptyWorkingSet(ctypes.windll.kernel32.GetCurrentProcess())
+            psapi.EmptyWorkingSet(k32.GetCurrentProcess())
         except Exception:
             pass
 
@@ -109,7 +129,7 @@ class MemoryBooster:
             log_debug(f"MemoryBooster: kill_process error on pid {pid}: {e}")
             return False
 
-    def optimize_ram(self, max_seconds: float = 3.5) -> tuple[int, int]:
+    def optimize_ram(self, max_seconds: float = 3.5, cancel_callback=None) -> tuple[int, int]:
         """
         Trims working sets of running processes using Windows EmptyWorkingSet API.
         Protected with a time-budget guard and critical system process exclusion to prevent stutters.
@@ -127,6 +147,8 @@ class MemoryBooster:
 
         try:
             for proc in psutil.process_iter(['pid', 'name']):
+                if cancel_callback and cancel_callback():
+                    break
                 # Strict timeout protection: never spend more than max_seconds trimming RAM
                 if time.time() - start_time > max_seconds:
                     break
@@ -142,17 +164,17 @@ class MemoryBooster:
                     if raw_p in PROTECTED_SYSTEM_PROCESSES or p_name in PROTECTED_SYSTEM_PROCESSES:
                         continue
 
-                    handle = ctypes.windll.kernel32.OpenProcess(
+                    handle = k32.OpenProcess(
                         self.PROCESS_QUERY_INFORMATION | self.PROCESS_SET_QUOTA,
                         False,
                         pid
                     )
                     if handle:
                         try:
-                            ctypes.windll.psapi.EmptyWorkingSet(handle)
+                            psapi.EmptyWorkingSet(handle)
                             processed += 1
                         finally:
-                            ctypes.windll.kernel32.CloseHandle(handle)
+                            k32.CloseHandle(handle)
                 except Exception:
                     continue
         except Exception:

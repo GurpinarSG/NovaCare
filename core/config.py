@@ -12,7 +12,7 @@ from core.security import encrypt_string, decrypt_string, get_embedded_token
 
 import re
 
-FALLBACK_VERSION = "1.2.9"
+FALLBACK_VERSION = "1.3.0"
 
 def parse_version_content(content: str) -> tuple[str, str]:
     """
@@ -97,7 +97,7 @@ def load_base_version() -> str:
         pass
     return ver
 
-VERSION = "1.2.9"
+VERSION = "1.3.0"
 CURRENT_VERSION = load_base_version() or VERSION
 DEFAULT_GITHUB_REPO = "GurpinarSG/NovaCare"
 DEFAULT_GITHUB_TOKEN = "" # NEVER hardcode tokens in distributed code

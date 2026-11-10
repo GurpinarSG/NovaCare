@@ -208,48 +208,84 @@ class BackupManager:
                     continue
 
                 root = winreg.HKEY_CURRENT_USER if canon_root == "HKCU" else winreg.HKEY_LOCAL_MACHINE
-                val_name = item.get('value_name')
-                val_data = item.get('value_data')
-                val_type = item.get('value_type', winreg.REG_SZ)
-                try:
-                    val_type = int(val_type)
-                except (ValueError, TypeError):
-                    val_type = winreg.REG_SZ
-
-                # Normalize val_data to the required type
-                if val_type in (winreg.REG_DWORD, getattr(winreg, 'REG_DWORD_LITTLE_ENDIAN', 4), getattr(winreg, 'REG_QWORD', 11)):
-                    if isinstance(val_data, str):
-                        val_data = int(val_data, 16) if val_data.startswith("0x") else int(val_data)
-                    elif val_data is None:
-                        val_data = 0
-                    else:
-                        val_data = int(val_data)
-                elif val_type == winreg.REG_BINARY:
-                    if isinstance(val_data, str):
-                        try:
-                            val_data = bytes.fromhex(val_data.replace(" ", "").replace(",", ""))
-                        except Exception:
-                            val_data = val_data.encode("utf-8")
-                    elif val_data is None:
-                        val_data = b""
-                elif val_type == winreg.REG_MULTI_SZ:
-                    if isinstance(val_data, str):
-                        val_data = [val_data]
-                    elif val_data is None:
-                        val_data = []
-                elif val_type in (winreg.REG_SZ, winreg.REG_EXPAND_SZ):
-                    val_data = "" if val_data is None else str(val_data)
-
-                with winreg.CreateKey(root, sub_key) as k:
-                    winreg.SetValueEx(k, val_name, 0, val_type, val_data)
-                    if not val_name and "uninstall" in sub_key.lower():
-                        winreg.SetValueEx(k, "UninstallString", 0, val_type, val_data)
+                all_vals = item.get('all_values') or item.get('subkey_values')
+                if all_vals:
+                    with winreg.CreateKey(root, sub_key) as k:
+                        if isinstance(all_vals, list):
+                            for sv in all_vals:
+                                if isinstance(sv, dict):
+                                    s_name = sv.get("name", sv.get("value_name", ""))
+                                    s_type = sv.get("type", sv.get("value_type", winreg.REG_SZ))
+                                    s_data = sv.get("data", sv.get("value_data"))
+                                    norm_data = self._normalize_reg_val(s_type, s_data)
+                                    winreg.SetValueEx(k, s_name, 0, int(s_type), norm_data)
+                        elif isinstance(all_vals, dict):
+                            for s_name, s_info in all_vals.items():
+                                if isinstance(s_info, tuple) and len(s_info) == 2:
+                                    s_type, s_data = s_info
+                                elif isinstance(s_info, dict):
+                                    s_type = s_info.get("type", winreg.REG_SZ)
+                                    s_data = s_info.get("data")
+                                else:
+                                    s_type = winreg.REG_SZ
+                                    s_data = str(s_info)
+                                norm_data = self._normalize_reg_val(s_type, s_data)
+                                winreg.SetValueEx(k, s_name, 0, int(s_type), norm_data)
                     restored += 1
+                else:
+                    val_name = item.get('value_name')
+                    val_data = item.get('value_data')
+                    val_type = item.get('value_type', winreg.REG_SZ)
+                    try:
+                        val_type = int(val_type)
+                    except (ValueError, TypeError):
+                        val_type = winreg.REG_SZ
+
+                    val_data = self._normalize_reg_val(val_type, val_data)
+
+                    with winreg.CreateKey(root, sub_key) as k:
+                        winreg.SetValueEx(k, val_name, 0, val_type, val_data)
+                        if not val_name and "uninstall" in sub_key.lower():
+                            winreg.SetValueEx(k, "UninstallString", 0, val_type, val_data)
+                        restored += 1
             except Exception as e:
                 log_debug(f"BackupManager: Error restoring key {sub_key}: {e}")
                 failed += 1
 
         return restored, failed
+
+    @staticmethod
+    def _normalize_reg_val(val_type: int, val_data):
+        try:
+            val_type = int(val_type)
+        except (ValueError, TypeError):
+            val_type = winreg.REG_SZ
+
+        if val_type in (winreg.REG_DWORD, getattr(winreg, 'REG_DWORD_LITTLE_ENDIAN', 4), getattr(winreg, 'REG_QWORD', 11)):
+            if isinstance(val_data, str):
+                return int(val_data, 16) if val_data.startswith("0x") else int(val_data)
+            elif val_data is None:
+                return 0
+            else:
+                return int(val_data)
+        elif val_type == winreg.REG_BINARY:
+            if isinstance(val_data, str):
+                try:
+                    return bytes.fromhex(val_data.replace(" ", "").replace(",", ""))
+                except Exception:
+                    return val_data.encode("utf-8")
+            elif val_data is None:
+                return b""
+            return bytes(val_data)
+        elif val_type == winreg.REG_MULTI_SZ:
+            if isinstance(val_data, str):
+                return [val_data]
+            elif val_data is None:
+                return []
+            return list(val_data)
+        elif val_type in (winreg.REG_SZ, winreg.REG_EXPAND_SZ):
+            return "" if val_data is None else str(val_data)
+        return val_data
 
     def create_system_restore_point(self, description: str = "NovaCare Bakım Öncesi") -> bool:
         """Invokes PowerShell to create a Windows System Restore Point securely without shell injection."""

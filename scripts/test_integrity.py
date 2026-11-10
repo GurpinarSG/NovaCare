@@ -15,139 +15,145 @@ if sys.platform == 'win32':
     except Exception:
         pass
 
-from PyQt5.QtWidgets import QApplication
 
-app = QApplication.instance() or QApplication(sys.argv)
+def run_integrity_tests():
+    from PyQt5.QtWidgets import QApplication
 
-# Import all core modules
-import core.utils
-import core.config
-import core.security
-import core.junk_cleaner
-import core.registry_cleaner
-import core.privacy_tweaker
-import core.startup_manager
-import core.memory_booster
-import core.game_booster
-import core.hardware_monitor
-import core.disk_analyzer
-import core.network_optimizer
-import core.battery_reporter
-import core.bloatware_cleaner
-import core.cookie_shield
-import core.backup_manager
-import core.uninstaller
-import core.auto_cleaner
-import core.updater
-import core.autostart
+    app = QApplication.instance() or QApplication(sys.argv)
 
-print("✓ All core modules imported successfully.")
+    # Import all core modules
+    import core.utils
+    import core.config
+    import core.security
+    import core.junk_cleaner
+    import core.registry_cleaner
+    import core.privacy_tweaker
+    import core.startup_manager
+    import core.memory_booster
+    import core.game_booster
+    import core.hardware_monitor
+    import core.disk_analyzer
+    import core.network_optimizer
+    import core.battery_reporter
+    import core.bloatware_cleaner
+    import core.cookie_shield
+    import core.backup_manager
+    import core.uninstaller
+    import core.auto_cleaner
+    import core.updater
+    import core.autostart
 
-# Import all UI modules
-import ui.styles
-import ui.components
-import ui.views.dashboard_view
-import ui.views.junk_view
-import ui.views.registry_view
-import ui.views.startup_view
-import ui.views.uninstaller_view
-import ui.views.memory_view
-import ui.views.disk_view
-import ui.views.privacy_view
-import ui.views.network_view
-import ui.views.battery_view
-import ui.views.rescue_view
-import ui.views.settings_view
-import ui.main_window
+    print("✓ All core modules imported successfully.")
 
-print("✓ All UI modules imported successfully.")
+    # Import all UI modules
+    import ui.styles
+    import ui.components
+    import ui.views.dashboard_view
+    import ui.views.junk_view
+    import ui.views.registry_view
+    import ui.views.startup_view
+    import ui.views.uninstaller_view
+    import ui.views.memory_view
+    import ui.views.disk_view
+    import ui.views.privacy_view
+    import ui.views.network_view
+    import ui.views.battery_view
+    import ui.views.rescue_view
+    import ui.views.settings_view
+    import ui.main_window
 
-# Test Junk Cleaner scan
-jc = core.junk_cleaner.JunkCleaner()
-cats = jc.scan_all()
-print(f"✓ Junk Cleaner scanned {len(cats)} categories successfully.")
+    print("✓ All UI modules imported successfully.")
 
-# Test Registry Cleaner scan
-rc = core.registry_cleaner.RegistryCleaner()
-issues = rc.scan_all()
-print(f"✓ Registry Cleaner scanned {len(issues)} issues successfully.")
+    # Test Junk Cleaner scan
+    jc = core.junk_cleaner.JunkCleaner()
+    cats = jc.scan_all()
+    print(f"✓ Junk Cleaner scanned {len(cats)} categories successfully.")
 
-# Test Hardware Monitor
-hm = core.hardware_monitor.HardwareMonitor()
-stats = hm.get_hardware_stats()
-print(f"✓ Hardware stats: CPU={stats['cpu_percent']}%, RAM={stats['ram_percent']}%.")
+    # Test Registry Cleaner scan
+    rc = core.registry_cleaner.RegistryCleaner()
+    issues = rc.scan_all()
+    print(f"✓ Registry Cleaner scanned {len(issues)} issues successfully.")
 
-# Test DashboardScanWorker directly
-w = ui.views.dashboard_view.DashboardScanWorker()
-w.run()
-print("✓ DashboardScanWorker completed run without error.")
+    # Test Hardware Monitor
+    hm = core.hardware_monitor.HardwareMonitor()
+    stats = hm.get_hardware_stats()
+    print(f"✓ Hardware stats: CPU={stats['cpu_percent']}%, RAM={stats['ram_percent']}%.")
 
-# Test RegScanThread
-rw = ui.views.registry_view.RegScanThread(rc)
-rw.run()
-print("✓ RegScanThread completed run without error.")
+    # Test DashboardScanWorker directly
+    w = ui.views.dashboard_view.DashboardScanWorker()
+    w.run()
+    print("✓ DashboardScanWorker completed run without error.")
 
-# Test DNSBenchmarkWorker
-dw = ui.views.network_view.DNSBenchmarkWorker()
-dw.run()
-print("✓ DNSBenchmarkWorker completed run without error.")
+    # Test RegScanThread
+    rw = ui.views.registry_view.RegScanThread(rc)
+    rw.run()
+    print("✓ RegScanThread completed run without error.")
 
-# Test StartupScanWorker
-sm = core.startup_manager.StartupManager()
-sw = ui.views.startup_view.StartupScanWorker(sm)
-sw.run()
-print("✓ StartupScanWorker completed run without error.")
+    # Test DNSBenchmarkWorker
+    dw = ui.views.network_view.DNSBenchmarkWorker()
+    dw.run()
+    print("✓ DNSBenchmarkWorker completed run without error.")
 
-# Test BatteryHardwareWorker
-br = core.battery_reporter.BatteryReporter()
-bw = ui.views.battery_view.BatteryHardwareWorker(br)
-bw.run()
-print("✓ BatteryHardwareWorker completed run without error.")
+    # Test StartupScanWorker
+    sm = core.startup_manager.StartupManager()
+    sw = ui.views.startup_view.StartupScanWorker(sm)
+    sw.run()
+    print("✓ StartupScanWorker completed run without error.")
 
-# Test SmartReporter & Hardware Health
-import core.smart_reporter
-import ui.views.hardware_health_view
-import ui.desktop_widget
-import ui.game_profiles_dialog
+    # Test BatteryHardwareWorker
+    br = core.battery_reporter.BatteryReporter()
+    bw = ui.views.battery_view.BatteryHardwareWorker(br)
+    bw.run()
+    print("✓ BatteryHardwareWorker completed run without error.")
 
-sr = core.smart_reporter.SmartReporter()
-disks = sr.get_disks_health()
-print(f"✓ SmartReporter scanned {len(disks)} physical disks successfully.")
+    # Test SmartReporter & Hardware Health
+    import core.smart_reporter
+    import ui.views.hardware_health_view
+    import ui.desktop_widget
+    import ui.game_profiles_dialog
 
-# Test GameProfileManager
-gpm = core.game_booster.GameProfileManager()
-profs = gpm.get_profiles()
-print(f"✓ GameProfileManager loaded {len(profs)} profiles successfully.")
+    sr = core.smart_reporter.SmartReporter()
+    disks = sr.get_disks_health()
+    print(f"✓ SmartReporter scanned {len(disks)} physical disks successfully.")
 
-# Test DesktopPerformanceWidget instantiation
-dw = ui.desktop_widget.DesktopPerformanceWidget()
-dw.update_stats(stats)
-print("✓ DesktopPerformanceWidget instantiated and updated successfully.")
+    # Test GameProfileManager
+    gpm = core.game_booster.GameProfileManager()
+    profs = gpm.get_profiles()
+    print(f"✓ GameProfileManager loaded {len(profs)} profiles successfully.")
 
-# Test Version Consistency
-from core.config import load_base_version, CURRENT_VERSION
-from scripts.installer_wizard import _load_app_version
+    # Test DesktopPerformanceWidget instantiation
+    dw = ui.desktop_widget.DesktopPerformanceWidget()
+    dw.update_stats(stats)
+    print("✓ DesktopPerformanceWidget instantiated and updated successfully.")
 
-base_v = load_base_version()
-assert base_v == CURRENT_VERSION, f"Expected version {CURRENT_VERSION}, got {base_v}"
-wizard_v = _load_app_version()
-assert wizard_v == CURRENT_VERSION, f"Expected wizard version {CURRENT_VERSION}, got {wizard_v}"
-print(f"✓ Version consistency verified across modules: v{base_v}")
+    # Test Version Consistency
+    from core.config import load_base_version, CURRENT_VERSION
+    from scripts.installer_wizard import _load_app_version
 
-# Test MainWindow instantiation and teardown
-mw = ui.main_window.MainWindow()
-print(f"✓ MainWindow instantiated with {len(mw.nav_buttons)} nav buttons and {mw.stack.count()} views.")
+    base_v = load_base_version()
+    assert base_v == CURRENT_VERSION, f"Expected version {CURRENT_VERSION}, got {base_v}"
+    wizard_v = _load_app_version()
+    assert wizard_v == CURRENT_VERSION, f"Expected wizard version {CURRENT_VERSION}, got {wizard_v}"
+    print(f"✓ Version consistency verified across modules: v{base_v}")
 
-# Test all tab transitions
-for idx in range(mw.stack.count()):
-    mw._on_nav_clicked(idx)
-print(f"✓ All {mw.stack.count()} views navigated and rendered successfully.")
+    # Test MainWindow instantiation and teardown
+    mw = ui.main_window.MainWindow()
+    print(f"✓ MainWindow instantiated with {len(mw.nav_buttons)} nav buttons and {mw.stack.count()} views.")
 
-# Teardown workers cleanly for test exit
-mw.cleanup_workers()
-mw.close()
-app.processEvents()
+    # Test all tab transitions
+    for idx in range(mw.stack.count()):
+        mw._on_nav_clicked(idx)
+    print(f"✓ All {mw.stack.count()} views navigated and rendered successfully.")
 
-print("\n>>> ALL INTEGRITY & WORKER THREAD CHECKS PASSED PERFECTLY! <<<")
-sys.stdout.flush()
-os._exit(0)
+    # Teardown workers cleanly for test exit
+    mw.cleanup_workers()
+    mw.close()
+    app.processEvents()
+
+    print("\n>>> ALL INTEGRITY & WORKER THREAD CHECKS PASSED PERFECTLY! <<<")
+    sys.stdout.flush()
+
+
+if __name__ == "__main__":
+    run_integrity_tests()
+    os._exit(0)

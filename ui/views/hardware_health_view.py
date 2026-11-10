@@ -2,11 +2,12 @@
 NovaCare System Suite - Hardware Health & Disk S.M.A.R.T. View
 Comprehensive hardware health monitoring, SSD/HDD S.M.A.R.T. wear level,
 temperature telemetry, power-on hours, bad sector detection, and battery wear.
+Responsive layout optimized for all screen resolutions and DPI scaling factors.
 """
 from typing import Optional
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QProgressBar,
-    QFrame, QScrollArea, QGridLayout
+    QFrame, QScrollArea, QGridLayout, QLayout, QSizePolicy
 )
 from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal
 from core.smart_reporter import SmartReporter, DiskHealthInfo
@@ -15,8 +16,7 @@ from core.battery_reporter import BatteryReporter, BatteryInfo, is_battery_prese
 from core.utils import log_debug
 from ui.components import StatCard
 from ui.styles import (
-    get_active_theme_colors, COLOR_ACCENT,
-    TEXT_SECONDARY, TEXT_MUTED
+    get_active_theme_colors, COLOR_ACCENT
 )
 
 class SmartScanWorker(QThread):
@@ -24,22 +24,33 @@ class SmartScanWorker(QThread):
 
     def __init__(self):
         super().__init__()
+        self._is_cancelled = False
         self.smart_reporter = SmartReporter()
         self.hw_monitor = HardwareMonitor()
         self.battery_reporter = BatteryReporter()
+
+    def cancel(self):
+        self._is_cancelled = True
 
     def run(self):
         disks = []
         hw_stats = {}
         bat_info = None
         try:
+            if self._is_cancelled:
+                return
             disks = self.smart_reporter.get_disks_health(force_refresh=True)
+            if self._is_cancelled:
+                return
             hw_stats = self.hw_monitor.get_hardware_stats()
+            if self._is_cancelled:
+                return
             bat_info = self.battery_reporter.get_battery_info(load_hardware_if_missing=True)
         except Exception as e:
             log_debug(f"SmartScanWorker error: {e}")
         finally:
-            self.finished.emit(disks, hw_stats, bat_info)
+            if not self._is_cancelled:
+                self.finished.emit(disks, hw_stats, bat_info)
 
 class HardwareHealthView(QWidget):
     def __init__(self, parent=None):
@@ -49,6 +60,7 @@ class HardwareHealthView(QWidget):
         self.battery_reporter = BatteryReporter()
         self.scan_worker = None
         self.disks: list[DiskHealthInfo] = []
+        self.has_battery = is_battery_present()
 
         self._init_ui()
 
@@ -68,41 +80,40 @@ class HardwareHealthView(QWidget):
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         scroll.setObjectName("HardwareScroll")
-        scroll.setStyleSheet("QScrollArea#HardwareScroll { background: transparent; border: none; } QWidget#HardwareContainer { background: transparent; }")
+        scroll.setStyleSheet(
+            "QScrollArea#HardwareScroll { background: transparent; border: none; } "
+            "QWidget#HardwareContainer { background: transparent; }"
+        )
+        scroll.viewport().setStyleSheet("background: transparent; border: none;")
 
         container = QWidget()
         container.setObjectName("HardwareContainer")
         self.layout = QVBoxLayout(container)
-        self.layout.setContentsMargins(28, 20, 28, 20)
-        self.layout.setSpacing(18)
+        self.layout.setContentsMargins(4, 8, 4, 12)
+        self.layout.setSpacing(14)
+        self.layout.setSizeConstraint(QLayout.SetMinimumSize)
 
-        # 1. Header
+        # 1. Compact Header Toolbar
         header = QHBoxLayout()
-        header_text = QVBoxLayout()
-        header_text.setSpacing(4)
-        lbl_title = QLabel("🛡️  Donanım Sağlığı & Disk S.M.A.R.T. Takibi")
-        lbl_title.setStyleSheet("font-size: 22px; font-weight: 800;")
-        header_text.addWidget(lbl_title)
-
-        lbl_sub = QLabel("SSD ve HDD disklerinizin kalan ömrünü, çalışma saatlerini, sıcaklıklarını ve donanım sensörlerini gerçek zamanlı takip edin.")
-        lbl_sub.setStyleSheet(f"font-size: 13px; color: {TEXT_SECONDARY};")
-        lbl_sub.setWordWrap(True)
-        header_text.addWidget(lbl_sub)
-        header.addLayout(header_text, 1)
+        header.setSpacing(12)
+        lbl_sec = QLabel("💾  Fiziksel Disk S.M.A.R.T. Sağlığı & Donanım Telemetrisi")
+        lbl_sec.setStyleSheet("font-size: 15px; font-weight: 700;")
+        lbl_sec.setWordWrap(True)
+        header.addWidget(lbl_sec, 1)
 
         self.btn_refresh = QPushButton("🔄  S.M.A.R.T. Verilerini Yenile")
         self.btn_refresh.setCursor(Qt.PointingHandCursor)
         self.btn_refresh.setProperty("class", "primary-btn")
         self.btn_refresh.clicked.connect(self._start_scan)
-        header.addWidget(self.btn_refresh)
+        header.addWidget(self.btn_refresh, 0, Qt.AlignVCenter)
         self.layout.addLayout(header)
 
-        # 2. Hardware Sensors Overview Row
-        self.has_battery = is_battery_present()
-        stats_layout = QHBoxLayout()
-        stats_layout.setSpacing(14)
+        # 2. Hardware Sensors Overview Grid (Responsive 2x2 or 1x4)
+        self.stats_grid = QGridLayout()
+        self.stats_grid.setSpacing(10)
         self.card_cpu = StatCard("⚡", "İşlemci (CPU)", "Yükleniyor...", "- °C")
         self.card_gpu = StatCard("🎮", "Grafik (GPU)", "Yükleniyor...", "- °C")
         self.card_ram = StatCard("🧠", "Bellek (RAM)", "Yükleniyor...", "- / - GB")
@@ -110,31 +121,78 @@ class HardwareHealthView(QWidget):
         if not self.has_battery:
             self.card_power.setVisible(False)
 
-        stats_layout.addWidget(self.card_cpu, 1)
-        stats_layout.addWidget(self.card_gpu, 1)
-        stats_layout.addWidget(self.card_ram, 1)
-        stats_layout.addWidget(self.card_power, 1)
-        self.layout.addLayout(stats_layout)
+        self.layout.addLayout(self.stats_grid)
+        self._relayout_stats(self.width() or 800)
 
         # 3. Disk S.M.A.R.T. Section Header
-        lbl_disk_sec = QLabel("💾  Fiziksel Disk S.M.A.R.T. Sağlık ve Ömür Raporları")
-        lbl_disk_sec.setStyleSheet("font-size: 16px; font-weight: 700; margin-top: 6px;")
+        lbl_disk_sec = QLabel("🛡️  Fiziksel Sürücü Güvenilirlik & Ömür Raporları")
+        lbl_disk_sec.setStyleSheet("font-size: 14px; font-weight: 700; margin-top: 4px;")
+        lbl_disk_sec.setWordWrap(True)
         self.layout.addWidget(lbl_disk_sec)
 
         # Disks Container Frame
         self.disks_container = QVBoxLayout()
-        self.disks_container.setSpacing(14)
+        self.disks_container.setSpacing(12)
+        self.disks_container.setSizeConstraint(QLayout.SetMinimumSize)
         self.layout.addLayout(self.disks_container)
 
         # Placeholder loading label
         self.lbl_loading = QLabel("Disk S.M.A.R.T. güvenilirlik sayaçları taranıyor, lütfen bekleyin...")
         self.lbl_loading.setStyleSheet(f"font-size: 13px; color: {COLOR_ACCENT}; padding: 15px;")
+        self.lbl_loading.setWordWrap(True)
         self.disks_container.addWidget(self.lbl_loading)
 
         self.layout.addStretch()
 
         scroll.setWidget(container)
         outer.addWidget(scroll)
+
+    def _relayout_stats(self, width: int):
+        """Dynamically adapts sensor cards: 2x2 grid on narrower views, 1x4 or 1x3 on wide views."""
+        for card in (self.card_cpu, self.card_gpu, self.card_ram, self.card_power):
+            self.stats_grid.removeWidget(card)
+
+        has_bat = getattr(self, 'has_battery', True) and self.card_power.isVisible()
+        if has_bat:
+            if width < 820:
+                self.stats_grid.addWidget(self.card_cpu, 0, 0)
+                self.stats_grid.addWidget(self.card_gpu, 0, 1)
+                self.stats_grid.addWidget(self.card_ram, 1, 0)
+                self.stats_grid.addWidget(self.card_power, 1, 1)
+                self.stats_grid.setColumnStretch(0, 1)
+                self.stats_grid.setColumnStretch(1, 1)
+                self.stats_grid.setColumnStretch(2, 0)
+                self.stats_grid.setColumnStretch(3, 0)
+            else:
+                self.stats_grid.addWidget(self.card_cpu, 0, 0)
+                self.stats_grid.addWidget(self.card_gpu, 0, 1)
+                self.stats_grid.addWidget(self.card_ram, 0, 2)
+                self.stats_grid.addWidget(self.card_power, 0, 3)
+                self.stats_grid.setColumnStretch(0, 1)
+                self.stats_grid.setColumnStretch(1, 1)
+                self.stats_grid.setColumnStretch(2, 1)
+                self.stats_grid.setColumnStretch(3, 1)
+        else:
+            if width < 680:
+                self.stats_grid.addWidget(self.card_cpu, 0, 0)
+                self.stats_grid.addWidget(self.card_gpu, 0, 1)
+                self.stats_grid.addWidget(self.card_ram, 1, 0, 1, 2)
+                self.stats_grid.setColumnStretch(0, 1)
+                self.stats_grid.setColumnStretch(1, 1)
+                self.stats_grid.setColumnStretch(2, 0)
+                self.stats_grid.setColumnStretch(3, 0)
+            else:
+                self.stats_grid.addWidget(self.card_cpu, 0, 0)
+                self.stats_grid.addWidget(self.card_gpu, 0, 1)
+                self.stats_grid.addWidget(self.card_ram, 0, 2)
+                self.stats_grid.setColumnStretch(0, 1)
+                self.stats_grid.setColumnStretch(1, 1)
+                self.stats_grid.setColumnStretch(2, 1)
+                self.stats_grid.setColumnStretch(3, 0)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._relayout_stats(event.size().width())
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -232,7 +290,9 @@ class HardwareHealthView(QWidget):
             e_lay.setContentsMargins(10, 10, 10, 10)
             e_lay.setSpacing(10)
             lbl_empty = QLabel("Sistemde fiziksel disk bilgisi alınamadı veya sayaçlar henüz yüklenmedi.")
-            lbl_empty.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 13px;")
+            lbl_empty.setObjectName("TextMuted")
+            lbl_empty.setStyleSheet("font-size: 13px;")
+            lbl_empty.setWordWrap(True)
             e_lay.addWidget(lbl_empty)
             btn_retry = QPushButton("🔄  Diskleri Yeniden Tara")
             btn_retry.setCursor(Qt.PointingHandCursor)
@@ -248,9 +308,12 @@ class HardwareHealthView(QWidget):
             try:
                 card = QFrame()
                 card.setObjectName("CardFrame")
+                card.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
+                card.setMinimumHeight(200)
                 c_lay = QVBoxLayout(card)
-                c_lay.setContentsMargins(20, 16, 20, 16)
-                c_lay.setSpacing(12)
+                c_lay.setContentsMargins(16, 14, 16, 14)
+                c_lay.setSpacing(10)
+                c_lay.setSizeConstraint(QLayout.SetMinimumSize)
 
                 # 1. Disk Header (Icon + Name + Type Badge + Size)
                 hdr = QHBoxLayout()
@@ -260,17 +323,21 @@ class HardwareHealthView(QWidget):
                 icon_str = "⚡" if "NVME" in m_type_str else ("💾" if "SSD" in m_type_str else "💽")
                 lbl_icon = QLabel(icon_str)
                 lbl_icon.setStyleSheet("font-size: 24px;")
-                hdr.addWidget(lbl_icon)
+                hdr.addWidget(lbl_icon, 0, Qt.AlignVCenter)
 
                 v_title = QVBoxLayout()
                 v_title.setSpacing(2)
+                v_title.setSizeConstraint(QLayout.SetMinimumSize)
                 drive_let = getattr(d, 'drive_letters', '') or 'Sürücü Harfi Yok'
                 lbl_name = QLabel(f"<b>{d.name}</b>  <span style='color:{COLOR_ACCENT}; font-size:12px;'>[{drive_let}]</span>")
-                lbl_name.setStyleSheet("font-size: 15px;")
+                lbl_name.setStyleSheet("font-size: 14px;")
+                lbl_name.setWordWrap(True)
                 v_title.addWidget(lbl_name)
 
                 lbl_sub = QLabel(f"Sürücü Tipi: {d.media_type}  |  Kapasite: {d.size_str}  |  Veri Yolu: {getattr(d, 'bus_type', '-')}")
-                lbl_sub.setStyleSheet(f"font-size: 12px; color: {TEXT_MUTED};")
+                lbl_sub.setObjectName("TextMuted")
+                lbl_sub.setStyleSheet("font-size: 11.5px;")
+                lbl_sub.setWordWrap(True)
                 v_title.addWidget(lbl_sub)
                 hdr.addLayout(v_title, 1)
 
@@ -280,16 +347,17 @@ class HardwareHealthView(QWidget):
                 bg_alpha = "rgba(16, 185, 129, 0.12)" if pct >= 85 else ("rgba(245, 158, 11, 0.15)" if pct >= 60 else "rgba(239, 68, 68, 0.15)")
                 status_tr = getattr(d, 'health_status_tr', 'Mükemmel')
                 lbl_health_badge = QLabel(f"  {status_tr}  ")
+                lbl_health_badge.setAlignment(Qt.AlignCenter)
                 lbl_health_badge.setStyleSheet(f"""
                     background-color: {bg_alpha};
                     color: {h_col};
                     border: 1px solid {h_col};
                     border-radius: 6px;
                     font-weight: 700;
-                    font-size: 13px;
-                    padding: 6px 12px;
+                    font-size: 12.5px;
+                    padding: 4px 10px;
                 """)
-                hdr.addWidget(lbl_health_badge)
+                hdr.addWidget(lbl_health_badge, 0, Qt.AlignVCenter)
                 c_lay.addLayout(hdr)
 
                 # 2. Health Progress Bar
@@ -311,20 +379,47 @@ class HardwareHealthView(QWidget):
                 """)
                 c_lay.addWidget(p_bar)
 
-                # 3. Metrics Grid (Temperature, Power-on Hours, Bad Sectors, Reliability)
+                # 3. 2-Column Responsive Metrics Grid with clean metric tiles
                 grid = QGridLayout()
-                grid.setHorizontalSpacing(24)
-                grid.setVerticalSpacing(8)
+                grid.setSpacing(10)
+                grid.setColumnStretch(0, 1)
+                grid.setColumnStretch(1, 1)
 
-                # Temp
+                def _create_metric_tile(title_str: str, val_html: str) -> QFrame:
+                    tile = QFrame()
+                    tile.setObjectName("MetricTile")
+                    tile.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
+                    tile.setMinimumHeight(56)
+                    tile.setStyleSheet("""
+                        QFrame {
+                            background-color: rgba(255, 255, 255, 0.03);
+                            border: 1px solid rgba(255, 255, 255, 0.07);
+                            border-radius: 8px;
+                        }
+                    """)
+                    t_lay = QVBoxLayout(tile)
+                    t_lay.setContentsMargins(12, 8, 12, 8)
+                    t_lay.setSpacing(3)
+                    t_lay.setSizeConstraint(QLayout.SetMinimumSize)
+                    lbl_t = QLabel(title_str)
+                    lbl_t.setObjectName("TextMuted")
+                    lbl_t.setStyleSheet("font-size: 11.5px; font-weight: 600;")
+                    lbl_t.setWordWrap(True)
+                    t_lay.addWidget(lbl_t)
+                    lbl_v = QLabel(val_html)
+                    lbl_v.setStyleSheet("font-size: 13px; font-weight: 700;")
+                    lbl_v.setWordWrap(True)
+                    t_lay.addWidget(lbl_v)
+                    return tile
+
+                # Metric 1: Temp
                 temp_c = getattr(d, 'temperature_c', None)
                 t_str = f"{temp_c} °C" if temp_c is not None else "Sensör Yok"
-                t_col = theme["COLOR_SUCCESS"] if (temp_c and temp_c < 50) else (theme["COLOR_WARNING"] if (temp_c and temp_c < 65) else (theme["COLOR_DANGER"] if temp_c else TEXT_MUTED))
-                grid.addWidget(QLabel("🌡️  Çalışma Sıcaklığı:"), 0, 0)
-                lbl_t = QLabel(f"<b style='color:{t_col};'>{t_str}</b>")
-                grid.addWidget(lbl_t, 0, 1)
+                t_col = theme["COLOR_SUCCESS"] if (temp_c and temp_c < 50) else (theme["COLOR_WARNING"] if (temp_c and temp_c < 65) else (theme["COLOR_DANGER"] if temp_c else theme["TEXT_MUTED"]))
+                tile_temp = _create_metric_tile("🌡️  Çalışma Sıcaklığı", f"<span style='color:{t_col};'>{t_str}</span>")
+                grid.addWidget(tile_temp, 0, 0)
 
-                # Power-on hours
+                # Metric 2: Power-on hours
                 poh = getattr(d, 'power_on_hours', None)
                 pod = getattr(d, 'power_on_days', None)
                 if poh is not None:
@@ -333,16 +428,16 @@ class HardwareHealthView(QWidget):
                     poh_str = "NVMe S.M.A.R.T. (Sağlık: %100)"
                 else:
                     poh_str = "Sayaç Yok / Desteklenmiyor"
-                grid.addWidget(QLabel("⏱️  Toplam Çalışma Süresi:"), 0, 2)
-                grid.addWidget(QLabel(f"<b>{poh_str}</b>"), 0, 3)
+                tile_poh = _create_metric_tile("⏱️  Toplam Çalışma Süresi", poh_str)
+                grid.addWidget(tile_poh, 0, 1)
 
-                # Bad sectors & Read Errors
+                # Metric 3: Bad sectors & Read Errors
                 sec_stat = getattr(d, 'bad_sectors_status', '0 Hata / Sıfır Bozuk Sektör')
                 err_col = theme["COLOR_SUCCESS"] if "0 Hata" in sec_stat else theme["COLOR_WARNING"]
-                grid.addWidget(QLabel("🔍  Bozuk Sektör / Hata Kaydı:"), 1, 0)
-                grid.addWidget(QLabel(f"<b style='color:{err_col};'>{sec_stat}</b>"), 1, 1)
+                tile_sec = _create_metric_tile("🔍  Bozuk Sektör / Hata Kaydı", f"<span style='color:{err_col};'>{sec_stat}</span>")
+                grid.addWidget(tile_sec, 1, 0)
 
-                # SMART Operational Status
+                # Metric 4: SMART Operational Status
                 op_text = str(getattr(d, 'operational_status', 'OK') or 'OK')
                 h_stat_lower = getattr(d, 'health_status', 'Healthy').lower()
                 is_healthy = (op_text.upper() in ("OK", "NORMAL")) and (h_stat_lower == "healthy")
@@ -358,8 +453,8 @@ class HardwareHealthView(QWidget):
                     op_col = theme["COLOR_DANGER"]
                     op_desc = f"{op_text} (Kritik / Arıza Riski Mevcut)"
 
-                grid.addWidget(QLabel("🛡️  S.M.A.R.T. Durumu:"), 1, 2)
-                grid.addWidget(QLabel(f"<b style='color:{op_col};'>{op_desc}</b>"), 1, 3)
+                tile_smart = _create_metric_tile("🛡️  S.M.A.R.T. Durumu", f"<span style='color:{op_col};'>{op_desc}</span>")
+                grid.addWidget(tile_smart, 1, 1)
 
                 c_lay.addLayout(grid)
                 self.disks_container.addWidget(card)

@@ -33,8 +33,11 @@ DARK_PALETTE = {
     "COLOR_ACCENT": "#38BDF8",
     "COLOR_ACCENT_HOVER": "#0EA5E9",
     "COLOR_SUCCESS": "#34D399",
+    "COLOR_SUCCESS_HOVER": "#10B981",
     "COLOR_WARNING": "#FCD34D",
+    "COLOR_WARNING_HOVER": "#F59E0B",
     "COLOR_DANGER": "#F87171",
+    "COLOR_DANGER_HOVER": "#EF4444",
     "COLOR_PURPLE": "#C084FC",
     "TEXT_PRIMARY": "#FFFFFF",
     "TEXT_SECONDARY": "#E2E8F0",
@@ -47,8 +50,12 @@ DARK_PALETTE = {
     "MENU_HOVER_TEXT": "#041326",
     "MENU_BORDER": "#475569",
     "INPUT_BG": "#1E293B",
-    "BTN_PRIMARY_TEXT": "#FFFFFF",
-    "BTN_SUCCESS_TEXT": "#FFFFFF",
+    "BTN_PRIMARY_TEXT": "#041326",
+    "BTN_SUCCESS_TEXT": "#041326",
+    "BTN_DANGER_TEXT": "#041326",
+    "BTN_WARNING_TEXT": "#041326",
+    "ADMIN_WARN_BG": "rgba(251, 191, 36, 0.12)",
+    "ADMIN_WARN_BORDER": "rgba(251, 191, 36, 0.35)",
     "GAUGE_TRACK": "#334155",
     "NAV_SEL_BG": "rgba(56, 189, 248, 0.28)",
     "NAV_SEL_TEXT": "#FFFFFF"
@@ -64,28 +71,35 @@ LIGHT_PALETTE = {
     "BG_INPUT": "#FFFFFF",
     "BORDER_COLOR": "#CBD5E1",         # Clean visible slate border
     "BORDER_HIGHLIGHT": "#94A3B8",
-    "COLOR_ACCENT": "#0284C7",         # Rich Ocean Blue (High contrast against white)
-    "COLOR_ACCENT_HOVER": "#0369A1",
+    "COLOR_ACCENT": "#0369A1",         # Rich Ocean Sky 700 (5.9:1 contrast against white)
+    "COLOR_ACCENT_HOVER": "#075985",
     "COLOR_SUCCESS": "#047857",        # Crisp Forest Emerald (7.1:1 contrast)
+    "COLOR_SUCCESS_HOVER": "#065F46",
     "COLOR_WARNING": "#B45309",        # Rich Amber 700 (8.2:1 contrast)
+    "COLOR_WARNING_HOVER": "#92400E",
     "COLOR_DANGER": "#B91C1C",         # Bold Crimson Red (7.6:1 contrast)
+    "COLOR_DANGER_HOVER": "#991B1B",
     "COLOR_PURPLE": "#7C3AED",
     "TEXT_PRIMARY": "#0F172A",         # Deep Slate (15.5:1 contrast on white)
     "TEXT_SECONDARY": "#1E293B",       # Slate 800 (13:1 contrast)
     "TEXT_MUTED": "#475569",           # Slate 600 (5.8:1 contrast)
     "TABLE_ALT_BG": "#F8FAFC",
-    "TABLE_SEL_BG": "rgba(2, 132, 199, 0.18)",
+    "TABLE_SEL_BG": "rgba(3, 105, 161, 0.18)",
     "MENU_BG": "#FFFFFF",
     "MENU_TEXT": "#0F172A",
-    "MENU_HOVER_BG": "#0284C7",
+    "MENU_HOVER_BG": "#0369A1",
     "MENU_HOVER_TEXT": "#FFFFFF",
     "MENU_BORDER": "#CBD5E1",
     "INPUT_BG": "#FFFFFF",
     "BTN_PRIMARY_TEXT": "#FFFFFF",
     "BTN_SUCCESS_TEXT": "#FFFFFF",
+    "BTN_DANGER_TEXT": "#FFFFFF",
+    "BTN_WARNING_TEXT": "#FFFFFF",
+    "ADMIN_WARN_BG": "#FEF3C7",
+    "ADMIN_WARN_BORDER": "#F59E0B",
     "GAUGE_TRACK": "#E2E8F0",
     "NAV_SEL_BG": "#E0F2FE",
-    "NAV_SEL_TEXT": "#0284C7"
+    "NAV_SEL_TEXT": "#0369A1"
 }
 
 def apply_native_titlebar_theme(hwnd: int, is_dark: bool):
@@ -141,13 +155,21 @@ def get_active_theme_colors(theme_mode: Optional[str] = None) -> dict:
     return DARK_PALETTE.copy()
 
 def sync_theme_globals(theme_mode: Optional[str] = None):
-    """Synchronizes module-level color constants with active theme."""
+    """Synchronizes module-level color constants with active theme across all UI modules."""
     p = get_active_theme_colors(theme_mode)
-    mod = sys.modules.get(__name__)
-    if mod:
+    this_mod = sys.modules.get(__name__)
+    if this_mod:
         for k, v in p.items():
-            if k in mod.__dict__:
-                mod.__dict__[k] = v
+            if k in this_mod.__dict__:
+                this_mod.__dict__[k] = v
+
+    for mod_name, mod in list(sys.modules.items()):
+        if mod and (mod_name.startswith("ui.") or mod_name == "ui"):
+            m_dict = getattr(mod, "__dict__", None)
+            if m_dict:
+                for k, v in p.items():
+                    if k in m_dict:
+                        m_dict[k] = v
 
 # Default constants initialized dynamically based on active preference
 _def = get_active_theme_colors()
@@ -176,7 +198,10 @@ def get_stylesheet(theme_mode: Optional[str] = None) -> str:
     base_assets = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets")
     if getattr(sys, 'frozen', False):
         base_assets = os.path.join(getattr(sys, '_MEIPASS', os.path.dirname(sys.executable)), "assets")
-    check_ico = os.path.join(base_assets, "check_white.png").replace("\\", "/")
+    is_dark = (p.get("NAME") == "dark")
+    check_ico = os.path.join(base_assets, "check_white.png" if is_dark else "check_dark.png").replace("\\", "/")
+    arrow_down_ico = os.path.join(base_assets, "arrow_down_white.png" if is_dark else "arrow_down_dark.png").replace("\\", "/")
+    arrow_up_ico = os.path.join(base_assets, "arrow_up_white.png" if is_dark else "arrow_up_dark.png").replace("\\", "/")
 
     return f"""
 QMainWindow, QDialog, QMessageBox, QInputDialog {{
@@ -210,7 +235,7 @@ QLabel#StatTitle {{
 }}
 
 QLabel#StatValue {{
-    font-size: 22px;
+    font-size: 18px;
     font-weight: 800;
     color: {p['TEXT_PRIMARY']};
 }}
@@ -219,6 +244,74 @@ QLabel#StatSub {{
     font-size: 11px;
     font-weight: 600;
     color: {p['COLOR_ACCENT']};
+}}
+
+.text-secondary, QLabel#TextSecondary, QLabel.text-secondary {{
+    color: {p['TEXT_SECONDARY']};
+}}
+
+.text-muted, QLabel#TextMuted, QLabel.text-muted {{
+    color: {p['TEXT_MUTED']};
+}}
+
+.text-primary, QLabel#TextPrimary, QLabel.text-primary {{
+    color: {p['TEXT_PRIMARY']};
+}}
+
+.text-accent, QLabel#TextAccent, QLabel.text-accent {{
+    color: {p['COLOR_ACCENT']};
+}}
+
+.text-success, QLabel#TextSuccess, QLabel.text-success {{
+    color: {p['COLOR_SUCCESS']};
+}}
+
+.text-warning, QLabel#TextWarning, QLabel.text-warning {{
+    color: {p['COLOR_WARNING']};
+}}
+
+.text-danger, QLabel#TextDanger, QLabel.text-danger {{
+    color: {p['COLOR_DANGER']};
+}}
+
+/* Admin Banner containers & texts */
+QFrame#AdminBannerSuccess {{
+    background-color: rgba(16, 185, 129, 0.12);
+    border: 1px solid rgba(16, 185, 129, 0.35);
+    border-radius: 8px;
+    padding: 8px 12px;
+}}
+
+QFrame#AdminBannerWarning {{
+    background-color: {p.get('ADMIN_WARN_BG', 'rgba(251, 191, 36, 0.12)')};
+    border: 1px solid {p.get('ADMIN_WARN_BORDER', 'rgba(251, 191, 36, 0.35)')};
+    border-radius: 8px;
+    padding: 8px 12px;
+}}
+
+QLabel#AdminBannerSuccessText {{
+    color: {p['COLOR_SUCCESS']};
+    font-size: 12px;
+}}
+
+QLabel#AdminBannerWarningText {{
+    color: {p['COLOR_WARNING']};
+    font-size: 12px;
+}}
+
+QLabel#DashboardStatus {{
+    color: {p['TEXT_PRIMARY']};
+    font-size: 13.5px;
+    font-weight: 600;
+}}
+
+.param-tile, QLabel#ParamTile, QLabel.param-tile {{
+    background-color: {p['BG_INPUT']};
+    border: 1px solid {p['BORDER_COLOR']};
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 12px;
+    color: {p['TEXT_SECONDARY']};
 }}
 
 /* Sidebar */
@@ -242,11 +335,12 @@ QLabel#StatSub {{
 }}
 
 /* Navigation Buttons */
-QPushButton.nav-btn {{
+.nav-btn, QPushButton.nav-btn {{
     text-align: left;
     padding: 9px 14px;
     background-color: transparent;
     border: none;
+    border-left: 3px solid transparent;
     border-radius: 8px;
     color: {p['TEXT_SECONDARY']};
     font-size: 12.5px;
@@ -254,15 +348,21 @@ QPushButton.nav-btn {{
     margin: 1px 6px;
 }}
 
-QPushButton.nav-btn:hover {{
+.nav-btn:hover, QPushButton.nav-btn:hover {{
     background-color: {p['BG_CARD_HOVER']};
     color: {p['TEXT_PRIMARY']};
 }}
 
-QPushButton.nav-btn:checked {{
+.nav-btn:checked, QPushButton.nav-btn:checked {{
     background-color: {p['NAV_SEL_BG']};
     color: {p['NAV_SEL_TEXT']};
     font-weight: 700;
+    border-left: 3px solid {p['COLOR_ACCENT']};
+}}
+
+.nav-btn:checked:hover, QPushButton.nav-btn:checked:hover {{
+    background-color: {p['NAV_SEL_BG']};
+    color: {p['NAV_SEL_TEXT']};
     border-left: 3px solid {p['COLOR_ACCENT']};
 }}
 
@@ -356,7 +456,7 @@ QMessageBox QPushButton:focus:hover, QDialog QPushButton:focus:hover {{
     color: {p['BTN_PRIMARY_TEXT']};
 }}
 
-QPushButton.primary-btn {{
+.primary-btn, QPushButton.primary-btn {{
     background-color: {p['COLOR_ACCENT']};
     color: {p['BTN_PRIMARY_TEXT']};
     font-weight: 800;
@@ -366,16 +466,17 @@ QPushButton.primary-btn {{
     padding: 10px 20px;
 }}
 
-QPushButton.primary-btn:hover {{
-    background-color: {p['COLOR_ACCENT_HOVER']};
+.primary-btn:hover, QPushButton.primary-btn:hover {{
+    background-color: {p.get('COLOR_ACCENT_HOVER', '#0369A1')};
 }}
 
-QPushButton.primary-btn:disabled {{
+.primary-btn:disabled, QPushButton.primary-btn:disabled {{
     background-color: {p['BORDER_COLOR']};
     color: {p['TEXT_MUTED']};
+    border: 1px solid {p['BORDER_COLOR']};
 }}
 
-QPushButton.success-btn {{
+.success-btn, QPushButton.success-btn {{
     background-color: {p['COLOR_SUCCESS']};
     color: {p['BTN_SUCCESS_TEXT']};
     font-weight: 800;
@@ -385,13 +486,19 @@ QPushButton.success-btn {{
     padding: 10px 20px;
 }}
 
-QPushButton.success-btn:hover {{
-    background-color: #047857;
+.success-btn:hover, QPushButton.success-btn:hover {{
+    background-color: {p.get('COLOR_SUCCESS_HOVER', '#047857')};
 }}
 
-QPushButton.danger-btn {{
+.success-btn:disabled, QPushButton.success-btn:disabled {{
+    background-color: {p['BORDER_COLOR']};
+    color: {p['TEXT_MUTED']};
+    border: 1px solid {p['BORDER_COLOR']};
+}}
+
+.danger-btn, QPushButton.danger-btn {{
     background-color: {p['COLOR_DANGER']};
-    color: #FFFFFF;
+    color: {p['BTN_DANGER_TEXT']};
     font-weight: 800;
     font-size: 13px;
     border: none;
@@ -399,11 +506,37 @@ QPushButton.danger-btn {{
     padding: 8px 16px;
 }}
 
-QPushButton.danger-btn:hover {{
-    background-color: #B91C1C;
+.danger-btn:hover, QPushButton.danger-btn:hover {{
+    background-color: {p.get('COLOR_DANGER_HOVER', '#B91C1C')};
 }}
 
-QPushButton.secondary-btn {{
+.danger-btn:disabled, QPushButton.danger-btn:disabled {{
+    background-color: {p['BORDER_COLOR']};
+    color: {p['TEXT_MUTED']};
+    border: 1px solid {p['BORDER_COLOR']};
+}}
+
+.warning-btn, QPushButton.warning-btn {{
+    background-color: {p['COLOR_WARNING']};
+    color: {p['BTN_WARNING_TEXT']};
+    font-weight: 700;
+    font-size: 11px;
+    border: none;
+    border-radius: 6px;
+    padding: 5px 12px;
+}}
+
+.warning-btn:hover, QPushButton.warning-btn:hover {{
+    background-color: {p.get('COLOR_WARNING_HOVER', '#F59E0B')};
+}}
+
+.warning-btn:disabled, QPushButton.warning-btn:disabled {{
+    background-color: {p['BORDER_COLOR']};
+    color: {p['TEXT_MUTED']};
+    border: 1px solid {p['BORDER_COLOR']};
+}}
+
+.secondary-btn, QPushButton.secondary-btn {{
     background-color: {p['BG_CARD']};
     color: {p['TEXT_PRIMARY']};
     font-weight: 600;
@@ -412,9 +545,15 @@ QPushButton.secondary-btn {{
     padding: 8px 16px;
 }}
 
-QPushButton.secondary-btn:hover {{
+.secondary-btn:hover, QPushButton.secondary-btn:hover {{
     background-color: {p['BG_CARD_HOVER']};
     border-color: {p['BORDER_HIGHLIGHT']};
+}}
+
+.secondary-btn:disabled, QPushButton.secondary-btn:disabled {{
+    background-color: {p['BORDER_COLOR']};
+    color: {p['TEXT_MUTED']};
+    border: 1px solid {p['BORDER_COLOR']};
 }}
 
 /* Big 1-Click Scan Button (High Contrast Ultra Crisp) */
@@ -514,6 +653,24 @@ QHeaderView::section {{
     border-right: 1px solid {p['BORDER_COLOR']};
     font-weight: 700;
     font-size: 12px;
+}}
+
+QHeaderView::down-arrow {{
+    image: url("{arrow_down_ico}");
+    width: 10px;
+    height: 10px;
+    subcontrol-origin: padding;
+    subcontrol-position: center right;
+    margin-right: 6px;
+}}
+
+QHeaderView::up-arrow {{
+    image: url("{arrow_up_ico}");
+    width: 10px;
+    height: 10px;
+    subcontrol-origin: padding;
+    subcontrol-position: center right;
+    margin-right: 6px;
 }}
 
 QTableCornerButton::section {{

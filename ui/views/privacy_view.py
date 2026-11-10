@@ -24,15 +24,21 @@ class BloatwareScanWorker(QThread):
     def __init__(self):
         super().__init__()
         self.cleaner = BloatwareCleaner()
+        self._is_cancelled = False
+
+    def cancel(self):
+        self._is_cancelled = True
 
     def run(self):
         items = []
         try:
-            items = self.cleaner.scan_installed_bloatware()
+            if not self._is_cancelled:
+                items = self.cleaner.scan_installed_bloatware()
         except Exception as e:
             log_debug(f"BloatwareScanWorker error: {e}")
         finally:
-            self.finished.emit(items)
+            if not self._is_cancelled:
+                self.finished.emit(items)
 
 class BloatwareRemoveWorker(QThread):
     finished = pyqtSignal(int, list)  # count, errors
@@ -41,12 +47,18 @@ class BloatwareRemoveWorker(QThread):
         super().__init__()
         self.packages = packages
         self.cleaner = BloatwareCleaner()
+        self._is_cancelled = False
+
+    def cancel(self):
+        self._is_cancelled = True
 
     def run(self):
         removed = 0
         errs = []
         try:
             for pkg in self.packages:
+                if self._is_cancelled:
+                    break
                 ok, msg = self.cleaner.remove_bloatware_package(pkg)
                 if ok:
                     removed += 1
@@ -56,7 +68,8 @@ class BloatwareRemoveWorker(QThread):
             log_debug(f"BloatwareRemoveWorker error: {e}")
             errs.append(str(e))
         finally:
-            self.finished.emit(removed, errs)
+            if not self._is_cancelled:
+                self.finished.emit(removed, errs)
 
 class DeepTelemetryWorker(QThread):
     finished = pyqtSignal(dict)
@@ -64,16 +77,22 @@ class DeepTelemetryWorker(QThread):
     def __init__(self):
         super().__init__()
         self.cleaner = BloatwareCleaner()
+        self._is_cancelled = False
+
+    def cancel(self):
+        self._is_cancelled = True
 
     def run(self):
         res = {"success": False, "details": []}
         try:
-            res = self.cleaner.disable_deep_telemetry()
+            if not self._is_cancelled:
+                res = self.cleaner.disable_deep_telemetry()
         except Exception as e:
             log_debug(f"DeepTelemetryWorker error: {e}")
             res = {"success": False, "details": [f"Hata: {e}"]}
         finally:
-            self.finished.emit(res)
+            if not self._is_cancelled:
+                self.finished.emit(res)
 
 class CookieScanWorker(QThread):
     finished = pyqtSignal(dict)
@@ -81,15 +100,21 @@ class CookieScanWorker(QThread):
     def __init__(self):
         super().__init__()
         self.shield = CookieShield()
+        self._is_cancelled = False
+
+    def cancel(self):
+        self._is_cancelled = True
 
     def run(self):
         res = {}
         try:
-            res = self.shield.scan_cookies()
+            if not self._is_cancelled:
+                res = self.shield.scan_cookies()
         except Exception as e:
             log_debug(f"CookieScanWorker error: {e}")
         finally:
-            self.finished.emit(res)
+            if not self._is_cancelled:
+                self.finished.emit(res)
 
 class CookieCleanWorker(QThread):
     finished = pyqtSignal(int, int, list)  # deleted, preserved, locked_browsers
@@ -97,15 +122,23 @@ class CookieCleanWorker(QThread):
     def __init__(self):
         super().__init__()
         self.shield = CookieShield()
+        self._is_cancelled = False
+
+    def cancel(self):
+        self._is_cancelled = True
 
     def run(self):
         deleted, preserved, locked = 0, 0, []
         try:
-            deleted, preserved, locked = self.shield.clean_tracking_cookies()
+            if not self._is_cancelled:
+                deleted, preserved, locked = self.shield.clean_tracking_cookies(
+                    cancel_callback=lambda: self._is_cancelled
+                )
         except Exception as e:
             log_debug(f"CookieCleanWorker error: {e}")
         finally:
-            self.finished.emit(deleted, preserved, locked)
+            if not self._is_cancelled:
+                self.finished.emit(deleted, preserved, locked)
 
 class AntiSpyApplyWorker(QThread):
     finished = pyqtSignal(int, int, list, bool)  # success, failed, svcs, enable
@@ -114,14 +147,21 @@ class AntiSpyApplyWorker(QThread):
         super().__init__()
         self.tweaker = tweaker
         self.enable = enable
+        self._is_cancelled = False
+
+    def cancel(self):
+        self._is_cancelled = True
 
     def run(self):
         try:
-            success, failed, svcs = self.tweaker.apply_all_anti_spy(enable=self.enable)
-            self.finished.emit(success, failed, svcs, self.enable)
+            if not self._is_cancelled:
+                success, failed, svcs = self.tweaker.apply_all_anti_spy(enable=self.enable)
+                if not self._is_cancelled:
+                    self.finished.emit(success, failed, svcs, self.enable)
         except Exception as e:
             log_debug(f"AntiSpyApplyWorker error: {e}")
-            self.finished.emit(0, 0, [], self.enable)
+            if not self._is_cancelled:
+                self.finished.emit(0, 0, [], self.enable)
 
 class CookieWhitelistDialog(QDialog):
     def __init__(self, shield: CookieShield, parent=None):
@@ -185,7 +225,8 @@ class CookieWhitelistDialog(QDialog):
             "Bu listedeki alan adlarına ait çerezler (oturum belirteçleri ve hesap giriş anahtarları) "
             "asla silinmez. Böylece Google, YouTube, Bankalar ve e-Devlet oturumlarınız sürekli açık kalır."
         )
-        lbl_desc.setStyleSheet(f"color: {theme['TEXT_SECONDARY']}; font-size: 12px; line-height: 1.4;")
+        lbl_desc.setObjectName("TextSecondary")
+        lbl_desc.setStyleSheet("font-size: 12px; line-height: 1.4;")
         lbl_desc.setWordWrap(True)
         lay.addWidget(lbl_desc)
 
@@ -299,7 +340,7 @@ class PrivacyView(QWidget):
     def _init_ui(self):
         theme = get_active_theme_colors()
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(28, 20, 28, 20)
+        main_layout.setContentsMargins(24, 20, 24, 20)
         main_layout.setSpacing(14)
 
         # Header
@@ -327,7 +368,8 @@ class PrivacyView(QWidget):
             "Oturum açtığınız popüler hesapları (Google, YouTube, GitHub, Bankalar, e-Devlet vb.) korurken; "
             "web sitelerindeki üçüncü taraf reklam takipçilerini, analiz izleyicilerini ve gizlilik açıklarını temizler."
         )
-        lbl_c_desc.setStyleSheet(f"color: {theme['TEXT_SECONDARY']}; font-size: 12px; line-height: 1.4;")
+        lbl_c_desc.setObjectName("TextSecondary")
+        lbl_c_desc.setStyleSheet("font-size: 12px; line-height: 1.4;")
         lbl_c_desc.setWordWrap(True)
         c_layout.addWidget(lbl_c_desc)
 
@@ -338,7 +380,8 @@ class PrivacyView(QWidget):
         cs_lay.setContentsMargins(14, 8, 14, 8)
 
         self.lbl_cookie_total = QLabel("📦 Toplam: 0 Çerez")
-        self.lbl_cookie_total.setStyleSheet(f"font-weight: 700; color: {theme['TEXT_PRIMARY']}; font-size: 13px;")
+        self.lbl_cookie_total.setObjectName("TextPrimary")
+        self.lbl_cookie_total.setStyleSheet("font-weight: 700; font-size: 13px;")
 
         self.lbl_cookie_protected = QLabel("🛡️ Korunan Oturum: 0")
         self.lbl_cookie_protected.setStyleSheet(f"font-weight: 700; color: {theme['COLOR_SUCCESS']}; font-size: 13px;")
@@ -396,9 +439,11 @@ class PrivacyView(QWidget):
 
         self.btn_close_browsers = QPushButton("🚪 Tarayıcıyı Kapat ve Yeniden Tara")
         self.btn_close_browsers.setCursor(Qt.PointingHandCursor)
+        self.btn_close_browsers.setProperty("class", "warning-btn")
+        warn_txt_col = "#041326" if theme.get("NAME") == "dark" else "#FFFFFF"
         self.btn_close_browsers.setStyleSheet(f"""
             background-color: {theme['COLOR_WARNING']};
-            color: #FFFFFF;
+            color: {warn_txt_col};
             font-weight: 700;
             border-radius: 6px;
             padding: 5px 12px;
@@ -435,7 +480,8 @@ class PrivacyView(QWidget):
         b_layout.setSpacing(12)
 
         lbl_b_desc = QLabel("Windows ile yüklü gelen Cortana, Bing Hava Durumu, Bing Haberler, Xbox Game Bar gibi arka planda veri ve bellek harcayan uygulamaları kaldırın.")
-        lbl_b_desc.setStyleSheet(f"color: {theme['TEXT_SECONDARY']}; font-size: 12px;")
+        lbl_b_desc.setObjectName("TextSecondary")
+        lbl_b_desc.setStyleSheet("font-size: 12px;")
         lbl_b_desc.setWordWrap(True)
         b_layout.addWidget(lbl_b_desc)
 
@@ -466,7 +512,8 @@ class PrivacyView(QWidget):
         b_layout.addLayout(b_bar)
 
         self.lbl_bloatware_status = QLabel("Bloatware taraması bekleniyor...")
-        self.lbl_bloatware_status.setStyleSheet(f"font-size: 12px; color: {theme['TEXT_SECONDARY']};")
+        self.lbl_bloatware_status.setObjectName("TextSecondary")
+        self.lbl_bloatware_status.setStyleSheet("font-size: 12px;")
         b_layout.addWidget(self.lbl_bloatware_status)
 
         # Scroll area for bloatware items
@@ -493,7 +540,8 @@ class PrivacyView(QWidget):
         traces_layout.setSpacing(12)
 
         lbl_traces_desc = QLabel("Windows Gezgini arama geçmişi, son açılan belgeler, Çalıştır kutusu ve sistem etkinlik izlerini tek tıkla silin.")
-        lbl_traces_desc.setStyleSheet(f"color: {theme['TEXT_SECONDARY']}; font-size: 12px;")
+        lbl_traces_desc.setObjectName("TextSecondary")
+        lbl_traces_desc.setStyleSheet("font-size: 12px;")
         traces_layout.addWidget(lbl_traces_desc)
 
         # Traces Action Bar
@@ -504,7 +552,8 @@ class PrivacyView(QWidget):
         self.btn_clean_traces.clicked.connect(self._clean_traces)
 
         self.lbl_traces_count = QLabel("0 iz bulundu")
-        self.lbl_traces_count.setStyleSheet(f"color: {theme['COLOR_ACCENT']}; font-weight: 600;")
+        self.lbl_traces_count.setObjectName("TextAccent")
+        self.lbl_traces_count.setStyleSheet("font-weight: 600;")
 
         t_bar.addWidget(self.btn_clean_traces)
         t_bar.addSpacing(16)
@@ -537,7 +586,8 @@ class PrivacyView(QWidget):
         lbl_tweaks_desc = QLabel(
             "Windows 10/11 telemetri politikalarını, Cortana'yı, kişiselleştirilmiş reklam kimliğini ve DiagTrack tanılama servislerini tek tıkla engelleyin."
         )
-        lbl_tweaks_desc.setStyleSheet(f"color: {theme['TEXT_SECONDARY']}; font-size: 12px;")
+        lbl_tweaks_desc.setObjectName("TextSecondary")
+        lbl_tweaks_desc.setStyleSheet("font-size: 12px;")
         tweaks_layout.addWidget(lbl_tweaks_desc)
 
         # Anti-Spy Master Action Bar
@@ -916,14 +966,17 @@ class PrivacyView(QWidget):
             lbl_name = QLabel(f"<b>{tweak.name}</b>")
             lbl_name.setWordWrap(True)
             lbl_desc = QLabel(tweak.description)
-            lbl_desc.setStyleSheet(f"color: {theme['TEXT_SECONDARY']}; font-size: 11px;")
+            lbl_desc.setObjectName("TextSecondary")
+            lbl_desc.setStyleSheet("font-size: 11px;")
             lbl_desc.setWordWrap(True)
             v_info.addWidget(lbl_name)
             v_info.addWidget(lbl_desc)
 
             chk_toggle = QCheckBox()
-            chk_toggle.setStyleSheet("background-color: transparent; background: transparent;")
-            chk_toggle.setText("Etkinleştirilmiş" if tweak.current_enabled else "Kapatılmış")
+            status_txt = "🛡️ Korumada (Engellendi)" if tweak.current_enabled else "⚠️ Varsayılan (İzin Verildi)"
+            status_col = theme['COLOR_SUCCESS'] if tweak.current_enabled else theme['COLOR_WARNING']
+            chk_toggle.setText(status_txt)
+            chk_toggle.setStyleSheet(f"background-color: transparent; background: transparent; font-weight: 600; color: {status_col};")
             chk_toggle.setChecked(tweak.current_enabled)
             chk_toggle.setCursor(Qt.PointingHandCursor)
             chk_toggle.stateChanged.connect(lambda state, tw=tweak, c=chk_toggle: self._on_tweak_toggle(tw, c, state))
@@ -938,7 +991,11 @@ class PrivacyView(QWidget):
         enable = (state == Qt.Checked)
         success = self.tweaker.apply_tweak(tweak, enable)
         if success:
-            checkbox.setText("Etkinleştirilmiş" if enable else "Kapatılmış")
+            t_theme = get_active_theme_colors()
+            status_txt = "🛡️ Korumada (Engellendi)" if enable else "⚠️ Varsayılan (İzin Verildi)"
+            status_col = t_theme['COLOR_SUCCESS'] if enable else t_theme['COLOR_WARNING']
+            checkbox.setText(status_txt)
+            checkbox.setStyleSheet(f"background-color: transparent; background: transparent; font-weight: 600; color: {status_col};")
             self._refresh_tweaks()
         else:
             checkbox.blockSignals(True)

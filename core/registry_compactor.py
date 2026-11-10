@@ -5,10 +5,19 @@ detects dead cell fragmentation and slack space caused by uninstalled software a
 and performs safe registry compaction and buffer flushing to accelerate system boot times.
 """
 import os
+import sys
 import winreg
 import ctypes
 from dataclasses import dataclass
 from core.utils import log_debug, format_bytes
+
+if sys.platform == 'win32':
+    try:
+        advapi32 = ctypes.windll.advapi32
+        advapi32.RegFlushKey.argtypes = [ctypes.c_void_p]
+        advapi32.RegFlushKey.restype = ctypes.c_long
+    except Exception:
+        pass
 
 @dataclass
 class RegistryHiveInfo:
@@ -181,6 +190,8 @@ class RegistryCompactor:
         ]
 
         advapi32 = ctypes.windll.advapi32
+        advapi32.RegFlushKey.argtypes = [ctypes.c_void_p]
+        advapi32.RegFlushKey.restype = ctypes.c_long
         for rk in root_keys:
             try:
                 res = advapi32.RegFlushKey(rk)
@@ -200,3 +211,5 @@ class RegistryCompactor:
             f"Kayıt defteri bellek kovanları diske başarıyla yazıldı ve birleştirildi. "
             f"Toplam {len(hives)} kovan optimize edildi (~{format_bytes(total_reclaimable)} gereksiz boşluk toparlandı)."
         )
+
+    compact_registry = compact_and_optimize

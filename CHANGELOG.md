@@ -2,6 +2,56 @@
 
 Tüm önemli değişiklikler, yeni özellikler, hata düzeltmeleri ve optimizasyonlar bu belgede kronolojik olarak kayıt altına alınmaktadır.
 
+## 🚀 [v1.3.0] - 2026-11-10
+
+### 🌟 Yeni Özellikler & Fonksiyonel Geliştirmeler
+* **Kişiselleştirilebilir Akıllı Donanım Monitörü (Smart Hardware Monitor):**
+  * Masaüstü mini gösterge paneli ve widget için tam kişiselleştirme desteği sağlandı.
+  * 3 yeni modern tema (Cyberpunk/Neon, Carbon/Minimal, Deep Dark Blue) entegre edildi.
+  * Şeffaflık (opaklık), konum sabitleme ve gerçek zamanlı CPU, RAM, Disk ve Ağ kullanım metrikleri optimize edildi.
+* **Oyunlar İçin Ağ ve Ping Optimizasyonu (Game Ping Booster):**
+  * Rekabetçi çevrimiçi oyunlarda ağ yığını gecikmesini düşüren, paket kayıplarını minimize eden ve TCP/IP ayarlarını optimize eden ping profili desteği eklendi.
+
+### 🛡️ Kritik Win32 Native & 64-Bit Sistem Düzeltmeleri (P0 / P1)
+* **64-Bit Kayıt Defteri Kovan Adresi Taşma Çözümü (`core/registry_compactor.py`):**
+  * Modül seviyesinde `advapi32.RegFlushKey.argtypes = [ctypes.c_void_p]` ve `restype = ctypes.c_long` prototipleri tanımlandı. 64-bit Python ortamında `winreg.HKEY_CURRENT_USER` (`0xffffffff80000001`) çağrılarında oluşan `ctypes.ArgumentError: OverflowError` istisnası kalıcı olarak giderildi.
+* **Bellek Hızlandırıcı Tanıtıcı (Handle) Kırpılma Çözümü (`core/memory_booster.py`):**
+  * `kernel32.GetCurrentProcess`, `OpenProcess`, `CloseHandle` ve `psapi.EmptyWorkingSet` API fonksiyonlarına açıkça 64-bit işaretçi (`c_void_p`) tanımları yapıldı. Pseudo-handle kırpılmasından kaynaklanan `ERROR_INVALID_HANDLE: 6` hatası çözüldü; çalışma kümesi boşaltma (`trim_own_memory`) başarı oranı %100'e çıkarıldı.
+* **24.8 Günlük Kesintisiz Çalışma (TickCount Rollover) Koruması (`core/auto_cleaner.py`):**
+  * `kernel32.GetTickCount` 32-bit işaretli tamsayı taşması sonucu 24.85 günden uzun süredir açık kalan sistemlerde (Windows Hızlı Başlatma aktifken) otomatik boşta temizliğin kilitlenmesi sorunu giderildi; `GetTickCount64` ve DWORD modulo taşma koruması uygulandı.
+* **Kaldırıcı Artık Taraması ve Asimetrik Yedekleme Bütünlüğü (`core/registry_cleaner.py` & `core/backup_manager.py`):**
+  * `rundll32.exe`, `msiexec.exe`, `regsvr32.exe` gibi sistem ikililerini kullanan ClickOnce kaldırıcılarının yanlışlıkla "bozuk artık" olarak silinmesi `SYSTEM_EXCLUDED_BINS` ve `shutil.which` filtreleriyle engellendi.
+  * Kaldırıcı kayıt defteri anahtarı silinirken uygulamanın tüm üst ve alt değerleri (`DisplayName`, `DisplayVersion`, `Publisher`, `InstallLocation`) eksiksiz JSON formatında yedeklendi; geri yükleme anında (`restore_backup`) tüm Program Ekle/Kaldır metaverilerinin eksiksiz geri getirilmesi sağlandı.
+* **Tekil Kaldırma Yarış Durumu (Race Condition) Çözümü (`ui/views/uninstaller_view.py`):**
+  * Tekil uygulama kaldırmada alt sürecin tamamlanması beklenmeden artık tarama diyaloğunun açılması engellendi; arka plan bekleme işçisi (`SingleUninstallWaitWorker`) ile sürecin bitimi beklenip ardından kullanıcıya artık tarama sunuldu.
+
+### ⚡ İş Parçacığı (Threading) ve Süreç İptal Mimarisi
+* **Evrensel QThread İptal Standartlaştırması (38 Arka Plan İşçisi):**
+  * Kod tabanındaki 38 arka plan iş parçacığı sınıfının tamamına (`SmartScanWorker`, `BloatwareRemoveWorker`, `CookieCleanWorker`, `DashboardScanWorker`, `RestorePointWorker`, `RamBoostWorker`, `SpeedTestWorker`, `GameScanWorker`, `AutoUpdateCheckThread`, vb.) standart `cancel(self)` metodu ve `self._is_cancelled` döngü denetimi kazandırıldı.
+  * Pencere kapatılırken (`cleanup_workers`) tüm iş parçacıklarına güvenli durdurma sinyali gönderilerek `QThread: Destroyed while thread is still running` çökme riski tamamen ortadan kaldırıldı.
+* **Çift Tetikleme ve İşçi Ezilme Koruması (`StartupView`, `RescueView`, `UninstallerView`):**
+  * Kullanıcı arayüzünde ardışık işlemler sırasında aktif çalışan iş parçacığının referansının ezilmesini önleyen `isRunning()` koruma kalkanları entegre edildi.
+
+### 🔧 Hata Denetimi ve Ağ Dayanıklılığı
+* **Bloatware Servis Devre Dışı Bırakma Denetimi (`core/bloatware_cleaner.py`):**
+  * `sc.exe config` çağrılarında `returncode` denetimi eklendi; standart kullanıcı veya yetki kısıtlamalarında sahte başarı raporlanması engellendi.
+* **Doğrulanmış Otomatik Başlatma Durumu (`core/autostart.py`):**
+  * Görev Zamanlayıcı ve HKCU Run anahtarının her ikisi de başarısız olduğunda oluşan yanıltıcı `True` dönüşü giderildi, gerçek duruma göre bool dönüş sağlandı.
+* **DHCP Ağ Sıfırlama Dayanıklılığı (`core/network_optimizer.py`):**
+  * `ipconfig /renew` komutunun zaman aşımı 15 saniyeye çıkarıldı ve DHCP gecikmelerinde tüm ağ sıfırlama sürecinin hatalı raporlanması önlendi.
+* **Test Bütünlüğü Muhafazası (`scripts/test_integrity.py`):**
+  * Modül düzeyindeki kodlar `if __name__ == "__main__":` bloğu altına alınarak `unittest discover` mekanizmasının kesintiye uğramadan çalışması sağlandı.
+* **HINSTANCE 64-Bit Karşılaştırma Uyumluluğu (`core/utils.py`):**
+  * `ShellExecuteW.restype = ctypes.c_void_p` prototipi bağlanarak yönetici yükseltmelerindeki işaretçi karşılaştırmaları güvenceye alındı.
+
+### 🎨 Arayüz ve Tasarım Sistemi (UI/UX) İyileştirmeleri
+* **Genel Sağlık & Sistem Panosu Düzen Optimizasyonu:**
+  * Düşük çözünürlüklü veya %125 / %150 DPI ölçekli ekranlarda metinlerin ve kartların kesilmesini / taşmasını önleyen esnek (responsive) düzen ve dinamik kaydırma alanları geliştirildi.
+* **WCAG Standartları ve Dinamik Tema İzolasyonu:**
+  * Metin ve arka plan kontrast oranları güçlendirildi, tema geçişlerinde stil sızıntıları önlendi.
+
+---
+
 ## 🚀 [v1.2.9] - 2026-10-29
 
 ### 🌐 Performans Güncelleştirme

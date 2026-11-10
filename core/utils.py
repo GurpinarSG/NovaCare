@@ -11,6 +11,12 @@ from typing import Optional
 _UNITS = ('B', 'KB', 'MB', 'GB', 'TB', 'PB')
 _LOG_DIR: Optional[str] = None
 
+if sys.platform == 'win32':
+    try:
+        ctypes.windll.shell32.ShellExecuteW.restype = ctypes.c_void_p
+    except Exception:
+        pass
+
 def is_admin() -> bool:
     """Check if the current process has administrative privileges."""
     try:
@@ -32,8 +38,10 @@ def restart_as_admin() -> bool:
             script = os.path.abspath(sys.argv[0])
             params = subprocess.list2cmdline([script] + sys.argv[1:])
 
-        ret = ctypes.windll.shell32.ShellExecuteW(None, "runas", executable, params, None, 1)
-        if ret > 32:
+        shell32 = ctypes.windll.shell32
+        shell32.ShellExecuteW.restype = ctypes.c_void_p
+        ret = shell32.ShellExecuteW(None, "runas", executable, params, None, 1)
+        if (ret or 0) > 32:
             sys.exit(0)
             return True
     except Exception:

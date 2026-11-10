@@ -11,7 +11,7 @@ from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QColor
 from core.startup_manager import StartupManager, StartupItem
 from core.utils import log_debug
-from ui.styles import COLOR_ACCENT, COLOR_SUCCESS, COLOR_WARNING, COLOR_DANGER
+from ui.styles import COLOR_SUCCESS, COLOR_WARNING, COLOR_DANGER
 
 class StartupScanWorker(QThread):
     finished = pyqtSignal(list)
@@ -19,15 +19,21 @@ class StartupScanWorker(QThread):
     def __init__(self, mgr: StartupManager):
         super().__init__()
         self.mgr = mgr
+        self._is_cancelled = False
+
+    def cancel(self):
+        self._is_cancelled = True
 
     def run(self):
         items = []
         try:
-            items = self.mgr.scan_all()
+            if not self._is_cancelled:
+                items = self.mgr.scan_all()
         except Exception as e:
             log_debug(f"StartupScanWorker error: {e}")
         finally:
-            self.finished.emit(items)
+            if not self._is_cancelled:
+                self.finished.emit(items)
 
 class StartupView(QWidget):
     def __init__(self, parent=None):
@@ -39,7 +45,7 @@ class StartupView(QWidget):
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(28, 24, 28, 24)
+        layout.setContentsMargins(24, 20, 24, 20)
         layout.setSpacing(16)
 
         # Header
@@ -70,7 +76,8 @@ class StartupView(QWidget):
         self.btn_delete.clicked.connect(self._delete_selected)
 
         self.lbl_stats = QLabel("Toplam: 0")
-        self.lbl_stats.setStyleSheet(f"color: {COLOR_ACCENT}; font-weight: 700;")
+        self.lbl_stats.setObjectName("TextAccent")
+        self.lbl_stats.setStyleSheet("font-weight: 700;")
 
         tb_layout.addWidget(self.btn_refresh)
         tb_layout.addWidget(self.btn_toggle)
@@ -97,6 +104,8 @@ class StartupView(QWidget):
         layout.addWidget(self.table)
 
     def refresh_items(self):
+        if self.scan_worker and self.scan_worker.isRunning():
+            return
         self.btn_refresh.setEnabled(False)
         self.btn_refresh.setText("⏳ Yükleniyor...")
         self.lbl_stats.setText("Taranıyor...")

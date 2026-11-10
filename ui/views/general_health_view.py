@@ -16,12 +16,13 @@ class GeneralHealthView(QWidget):
 
     def _init_ui(self):
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(28, 20, 28, 20)
-        main_layout.setSpacing(14)
+        main_layout.setContentsMargins(24, 20, 24, 20)
+        main_layout.setSpacing(10)
 
         # Header
         lbl_title = QLabel("Genel Sistem Sağlığı & Donanım Teşhisi")
         lbl_title.setObjectName("ViewTitle")
+        lbl_title.setWordWrap(True)
         lbl_sub = QLabel("Fiziksel SSD/HDD disk sağlığı, S.M.A.R.T. güvenilirlik sayaçları, donanım sıcaklıkları ve güç/batarya durumunu tek merkezden takip edin.")
         lbl_sub.setObjectName("ViewSubtitle")
         lbl_sub.setWordWrap(True)

@@ -6,14 +6,11 @@ Real-Time CPU/GPU Hardware & Temperature Telemetry, and Desktop Overlay.
 from typing import Optional
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QProgressBar,
-    QGridLayout, QFrame, QScrollArea, QMessageBox
+    QGridLayout, QFrame, QScrollArea, QMessageBox, QLayout, QSizePolicy
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
 from ui.components import CircularHealthGauge, StatCard, HardwareOverlayWidget
-from ui.styles import (
-    get_active_theme_colors, COLOR_ACCENT, COLOR_SUCCESS,
-    TEXT_PRIMARY, TEXT_SECONDARY
-)
+from ui.styles import get_active_theme_colors
 from core.utils import format_bytes, is_admin
 from core.junk_cleaner import JunkCleaner
 from core.registry_cleaner import RegistryCleaner
@@ -30,10 +27,14 @@ class DashboardScanWorker(QThread):
 
     def __init__(self):
         super().__init__()
+        self._is_cancelled = False
         self.junk_cleaner = JunkCleaner()
         self.reg_cleaner = RegistryCleaner()
         self.privacy_tweaker = PrivacyTweaker()
         self.startup_mgr = StartupManager()
+
+    def cancel(self):
+        self._is_cancelled = True
 
     def run(self):
         results = {
@@ -46,27 +47,43 @@ class DashboardScanWorker(QThread):
         }
 
         try:
+            if self._is_cancelled:
+                return
             # 1. Junk files scan
             self.progress.emit("Gereksiz dosyalar ve önbellekler taranıyor...", 15)
             cats = self.junk_cleaner.scan_all()
+            if self._is_cancelled:
+                return
             total_junk = sum(c.size for c in cats)
             total_junk_files = sum(c.file_count for c in cats)
             results["junk_size"] = total_junk
             results["junk_count"] = total_junk_files
 
             # 2. Registry scan
+            if self._is_cancelled:
+                return
             self.progress.emit("Kayıt Defteri sorunları denetleniyor...", 45)
             reg_issues = self.reg_cleaner.scan_all()
+            if self._is_cancelled:
+                return
             results["reg_issues"] = len(reg_issues)
 
             # 3. Privacy traces scan
+            if self._is_cancelled:
+                return
             self.progress.emit("Gizlilik izleri ve geçmiş denetleniyor...", 75)
             traces = self.privacy_tweaker.scan_privacy_traces()
+            if self._is_cancelled:
+                return
             results["privacy_count"] = sum(t.count for t in traces)
 
             # 4. Startup apps scan
+            if self._is_cancelled:
+                return
             self.progress.emit("Başlangıç programları analiz ediliyor...", 90)
             startups = self.startup_mgr.scan_all()
+            if self._is_cancelled:
+                return
             high_impact = len([s for s in startups if s.boot_impact == "Yüksek" and s.enabled])
             results["startup_count"] = high_impact
 
@@ -101,7 +118,8 @@ class DashboardScanWorker(QThread):
             log_debug(f"DashboardScanWorker error: {e}")
             self.progress.emit("Tarama tamamlandı!", 100)
         finally:
-            self.finished.emit(results)
+            if not self._is_cancelled:
+                self.finished.emit(results)
 
 class DashboardFixWorker(QThread):
     progress = pyqtSignal(str, int) # msg, pct
@@ -114,10 +132,14 @@ class DashboardFixWorker(QThread):
         privacy_tweaker: Optional[PrivacyTweaker] = None
     ):
         super().__init__()
+        self._is_cancelled = False
         self.junk_cleaner = junk_cleaner or JunkCleaner()
         self.reg_cleaner = reg_cleaner or RegistryCleaner()
         self.privacy_tweaker = privacy_tweaker or PrivacyTweaker()
         self.mem_booster = MemoryBooster()
+
+    def cancel(self):
+        self._is_cancelled = True
 
     def run(self):
         from core.utils import log_debug
@@ -129,6 +151,8 @@ class DashboardFixWorker(QThread):
 
         # 1. Junk Files Cleaning (5% -> 55%)
         try:
+            if self._is_cancelled:
+                return
             # Check if categories already contain scanned files
             has_scanned = any(c.found_files or c.size > 0 or c.file_count > 0 for c in self.junk_cleaner.categories)
             if not has_scanned:
@@ -136,6 +160,9 @@ class DashboardFixWorker(QThread):
                 cats = self.junk_cleaner.scan_all()
             else:
                 cats = self.junk_cleaner.categories
+
+            if self._is_cancelled:
+                return
 
             from core.config import ConfigManager
             clean_recycle = ConfigManager().get("auto_clean_recycle_bin", False)
@@ -162,6 +189,9 @@ class DashboardFixWorker(QThread):
         except Exception as e:
             log_debug(f"DashboardFixWorker Junk cleaning error: {e}")
 
+        if self._is_cancelled:
+            return
+
         # 2. Registry Issues Fixing (55% -> 80%)
         try:
             self.progress.emit("Kayıt Defteri sorunları onarılıyor...", 55)
@@ -169,6 +199,9 @@ class DashboardFixWorker(QThread):
                 issues = self.reg_cleaner.scan_all()
             else:
                 issues = self.reg_cleaner.issues
+
+            if self._is_cancelled:
+                return
 
             total_issues = len(issues)
             if total_issues > 0:
@@ -184,26 +217,34 @@ class DashboardFixWorker(QThread):
         except Exception as e:
             log_debug(f"DashboardFixWorker Registry fix error: {e}")
 
+        if self._is_cancelled:
+            return
+
         # 3. Privacy Traces Cleaning (80% -> 90%)
         try:
             self.progress.emit("Gizlilik ve geçmiş izleri temizleniyor...", 80)
             traces = self.privacy_tweaker.scan_privacy_traces()
-            traces_cleaned = self.privacy_tweaker.clean_privacy_traces({t.id for t in traces})
-            self.progress.emit("Gizlilik izleri temizlendi.", 88)
+            if not self._is_cancelled:
+                traces_cleaned = self.privacy_tweaker.clean_privacy_traces({t.id for t in traces})
+                self.progress.emit("Gizlilik izleri temizlendi.", 88)
         except Exception as e:
             log_debug(f"DashboardFixWorker Privacy traces error: {e}")
+
+        if self._is_cancelled:
+            return
 
         # 4. Memory Optimization (90% -> 98%)
         try:
             self.progress.emit("RAM çalışma kümeleri optimize ediliyor...", 90)
-            self.mem_booster.optimize_ram(max_seconds=3.0)
+            self.mem_booster.optimize_ram(max_seconds=3.0, cancel_callback=lambda: self._is_cancelled)
             self.progress.emit("Sistem belleği optimize edildi.", 97)
         except Exception as e:
             log_debug(f"DashboardFixWorker Memory booster error: {e}")
 
         # Finished successfully
-        self.progress.emit("Onarım başarıyla tamamlandı!", 100)
-        self.finished.emit(freed_bytes, reg_fixed, traces_cleaned)
+        if not self._is_cancelled:
+            self.progress.emit("Onarım başarıyla tamamlandı!", 100)
+            self.finished.emit(freed_bytes, reg_fixed, traces_cleaned)
 
 class GameModeWorker(QThread):
     finished = pyqtSignal(dict, bool)  # state, was_activating
@@ -212,19 +253,27 @@ class GameModeWorker(QThread):
         super().__init__()
         self.booster = booster
         self.activating = activating
+        self._is_cancelled = False
+
+    def cancel(self):
+        self._is_cancelled = True
 
     def run(self):
         try:
-            if self.activating:
-                state = self.booster.activate()
-                self.finished.emit(state, True)
-            else:
-                state = self.booster.deactivate()
-                self.finished.emit(state, False)
+            if not self._is_cancelled:
+                if self.activating:
+                    state = self.booster.activate()
+                    if not self._is_cancelled:
+                        self.finished.emit(state, True)
+                else:
+                    state = self.booster.deactivate()
+                    if not self._is_cancelled:
+                        self.finished.emit(state, False)
         except Exception as e:
             from core.utils import log_debug
             log_debug(f"GameModeWorker error: {e}")
-            self.finished.emit({}, self.activating)
+            if not self._is_cancelled:
+                self.finished.emit({}, self.activating)
 
 class DashboardView(QWidget):
     def __init__(self, parent=None):
@@ -257,77 +306,81 @@ class DashboardView(QWidget):
         container = QWidget()
         container.setStyleSheet("background-color: transparent; background: transparent;")
         main_layout = QVBoxLayout(container)
-        main_layout.setContentsMargins(24, 16, 24, 16)
+        main_layout.setContentsMargins(24, 20, 24, 20)
         main_layout.setSpacing(14)
+        main_layout.setSizeConstraint(QLayout.SetMinimumSize)
 
-        # 1. Top Stat Cards Row (Live CPU, GPU, RAM, Junk)
-        stats_layout = QHBoxLayout()
-        stats_layout.setSpacing(12)
+        # 1. Top Stat Cards Grid (Responsive 2x2 or 1x4)
+        self.stats_grid = QGridLayout()
+        self.stats_grid.setSpacing(10)
         self.card_cpu = StatCard("⚡", "İşlemci (CPU)", "0%", "0.0 GHz | - °C")
         self.card_gpu = StatCard("🎮", "Grafik (GPU)", "0%", "- °C | Yükleniyor...")
         self.card_ram = StatCard("🧠", "Bellek (RAM)", "0%", "0.0 / 0.0 GB")
         self.card_junk = StatCard("🗑️", "Gereksiz Dosya", "Taranmadı", "Temizlik Bekliyor")
 
-        stats_layout.addWidget(self.card_cpu, 1)
-        stats_layout.addWidget(self.card_gpu, 1)
-        stats_layout.addWidget(self.card_ram, 1)
-        stats_layout.addWidget(self.card_junk, 1)
-        main_layout.addLayout(stats_layout)
+        main_layout.addLayout(self.stats_grid)
+        self._relayout_stats(self.width() or 800)
 
         # 2. Game Mode & Ultimate Performance Banner Card
-        game_card = QFrame()
-        game_card.setObjectName("CardFrame")
-        game_card.setMinimumHeight(68)
-        g_layout = QHBoxLayout(game_card)
+        self.game_card = QFrame()
+        self.game_card.setObjectName("CardFrame")
+        self.game_card.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
+        g_layout = QVBoxLayout(self.game_card)
         g_layout.setContentsMargins(18, 12, 18, 12)
-        g_layout.setSpacing(14)
+        g_layout.setSpacing(10)
+        g_layout.setSizeConstraint(QLayout.SetMinimumSize)
 
-        g_icon = QLabel("🎮")
-        g_icon.setStyleSheet("font-size: 26px;")
-        g_icon.setAlignment(Qt.AlignCenter)
-        g_layout.addWidget(g_icon)
+        g_top = QHBoxLayout()
+        g_top.setSpacing(12)
+        self.g_icon = QLabel("🎮")
+        self.g_icon.setStyleSheet("font-size: 26px;")
+        self.g_icon.setAlignment(Qt.AlignCenter)
+        g_top.addWidget(self.g_icon, 0, Qt.AlignVCenter)
 
         v_gtext = QVBoxLayout()
         v_gtext.setSpacing(3)
-        v_gtext.setAlignment(Qt.AlignVCenter)
-        lbl_g_title = QLabel("Oyun & Nihai Performans Modu")
-        lbl_g_title.setStyleSheet(f"font-size: 14px; font-weight: 700; color: {COLOR_ACCENT};")
+        self.lbl_g_title = QLabel("Oyun & Nihai Performans Modu")
+        self.lbl_g_title.setObjectName("TextAccent")
+        self.lbl_g_title.setStyleSheet("font-size: 14px; font-weight: 700;")
         self.lbl_g_sub = QLabel("Arka plan gereksiz servislerini durdurur ve güç planını 'Nihai Performans' moduna alır.")
-        self.lbl_g_sub.setStyleSheet(f"font-size: 11.5px; color: {TEXT_SECONDARY};")
+        self.lbl_g_sub.setObjectName("TextSecondary")
+        self.lbl_g_sub.setStyleSheet("font-size: 11.5px;")
         self.lbl_g_sub.setWordWrap(True)
-        v_gtext.addWidget(lbl_g_title)
+        v_gtext.addWidget(self.lbl_g_title)
         v_gtext.addWidget(self.lbl_g_sub)
-        g_layout.addLayout(v_gtext, 1)
+        g_top.addLayout(v_gtext, 1)
+        g_layout.addLayout(g_top)
 
         # Action buttons layout
-        actions_layout = QHBoxLayout()
-        actions_layout.setSpacing(10)
-        actions_layout.setAlignment(Qt.AlignVCenter)
+        self.actions_layout = QHBoxLayout()
+        self.actions_layout.setSpacing(8)
+        self.actions_layout.setAlignment(Qt.AlignVCenter)
 
         # Desktop Overlay Button
         self.btn_overlay = QPushButton("📌  Masaüstü Widget'ı")
         self.btn_overlay.setCursor(Qt.PointingHandCursor)
         self.btn_overlay.setProperty("class", "secondary-btn")
         self.btn_overlay.clicked.connect(self._toggle_overlay)
-        actions_layout.addWidget(self.btn_overlay)
+        self.actions_layout.addWidget(self.btn_overlay)
 
         # Game Profiles & Launcher Button
         self.btn_game_profiles = QPushButton("🎯  Oyun Profilleri")
         self.btn_game_profiles.setCursor(Qt.PointingHandCursor)
         self.btn_game_profiles.setProperty("class", "secondary-btn")
         self.btn_game_profiles.clicked.connect(self._open_game_profiles)
-        actions_layout.addWidget(self.btn_game_profiles)
+        self.actions_layout.addWidget(self.btn_game_profiles)
 
         # Game Mode Toggle Button
         self.btn_game_mode = QPushButton("🎮  Oyun Modunu Başlat")
         self.btn_game_mode.setCursor(Qt.PointingHandCursor)
         self.btn_game_mode.setStyleSheet("padding: 8px 18px; font-size: 12px; font-weight: 700; background-color: #047857; color: #FFFFFF; border: 1px solid #10B981; border-radius: 6px;")
         self.btn_game_mode.clicked.connect(self._toggle_game_mode)
-        actions_layout.addWidget(self.btn_game_mode)
+        self.actions_layout.addWidget(self.btn_game_mode)
 
-        g_layout.addLayout(actions_layout)
+        self.actions_layout.addStretch()
+        g_layout.addLayout(self.actions_layout)
 
-        main_layout.addWidget(game_card)
+        main_layout.addWidget(self.game_card)
         self._sync_game_mode_ui()
 
         # 3. Central 1-Click Maintenance Area (Gauge + Action Button)
@@ -342,7 +395,7 @@ class DashboardView(QWidget):
 
         # Status text
         self.lbl_status = QLabel("Tek tıkla tam sistem taraması yaparak bilgisayarınızı hızlandırın.")
-        self.lbl_status.setStyleSheet(f"color: {TEXT_PRIMARY}; font-size: 13.5px; font-weight: 600;")
+        self.lbl_status.setObjectName("DashboardStatus")
         self.lbl_status.setAlignment(Qt.AlignCenter)
         self.lbl_status.setWordWrap(True)
         self.lbl_status.setMinimumHeight(36)
@@ -387,7 +440,7 @@ class DashboardView(QWidget):
         self.lbl_item_startup = QLabel("🚀  Yüksek Başlangıç Yükü: <b>Taranmadı</b>")
 
         for lbl in (self.lbl_item_junk, self.lbl_item_reg, self.lbl_item_privacy, self.lbl_item_startup):
-            lbl.setStyleSheet(f"color: {TEXT_PRIMARY}; font-size: 12px;")
+            lbl.setStyleSheet("font-size: 12px;")
             lbl.setWordWrap(True)
 
         grid.addWidget(self.lbl_item_junk, 0, 0)
@@ -405,7 +458,8 @@ class DashboardView(QWidget):
             "💡 <b>Daha İyi Temizlik İpucu:</b> NovaCare'i Yönetici olarak çalıştırdığınızda Windows kilitli sistem dosyaları ve derin kayıt defteri kalıntıları çok daha iyi temizlenir."
         )
         self.lbl_admin_depth_hint.setAlignment(Qt.AlignCenter)
-        self.lbl_admin_depth_hint.setStyleSheet(f"color: {COLOR_SUCCESS if has_admin else COLOR_ACCENT}; font-size: 12px; padding: 4px;")
+        self.lbl_admin_depth_hint.setObjectName("TextSuccess" if has_admin else "TextAccent")
+        self.lbl_admin_depth_hint.setStyleSheet("font-size: 12px; padding: 4px;")
         self.lbl_admin_depth_hint.setWordWrap(True)
         main_layout.addWidget(self.lbl_admin_depth_hint)
 
@@ -629,3 +683,31 @@ class DashboardView(QWidget):
         self.btn_action.style().unpolish(self.btn_action)
         self.btn_action.style().polish(self.btn_action)
         self.btn_action.update()
+
+    def _relayout_stats(self, width: int):
+        """Dynamically adapts dashboard stat cards: 2x2 grid on narrower views, 1x4 on wide views."""
+        for card in (self.card_cpu, self.card_gpu, self.card_ram, self.card_junk):
+            self.stats_grid.removeWidget(card)
+
+        if width < 820:
+            self.stats_grid.addWidget(self.card_cpu, 0, 0)
+            self.stats_grid.addWidget(self.card_gpu, 0, 1)
+            self.stats_grid.addWidget(self.card_ram, 1, 0)
+            self.stats_grid.addWidget(self.card_junk, 1, 1)
+            self.stats_grid.setColumnStretch(0, 1)
+            self.stats_grid.setColumnStretch(1, 1)
+            self.stats_grid.setColumnStretch(2, 0)
+            self.stats_grid.setColumnStretch(3, 0)
+        else:
+            self.stats_grid.addWidget(self.card_cpu, 0, 0)
+            self.stats_grid.addWidget(self.card_gpu, 0, 1)
+            self.stats_grid.addWidget(self.card_ram, 0, 2)
+            self.stats_grid.addWidget(self.card_junk, 0, 3)
+            self.stats_grid.setColumnStretch(0, 1)
+            self.stats_grid.setColumnStretch(1, 1)
+            self.stats_grid.setColumnStretch(2, 1)
+            self.stats_grid.setColumnStretch(3, 1)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._relayout_stats(event.size().width())
