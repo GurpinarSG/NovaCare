@@ -28,7 +28,8 @@ class JunkScanThread(QThread):
         try:
             if not self._is_cancelled:
                 cats = self.cleaner.scan_all(
-                    progress_callback=lambda name, cur, tot: self.progress.emit(name, cur, tot)
+                    progress_callback=lambda name, cur, tot: self.progress.emit(name, cur, tot),
+                    cancel_callback=lambda: self._is_cancelled
                 )
         except Exception as e:
             log_debug(f"JunkScanThread error: {e}")
@@ -57,7 +58,8 @@ class JunkCleanThread(QThread):
                 freed, cleaned, failed = self.cleaner.clean_categories(
                     self.selected_ids,
                     progress_callback=lambda name, cur, tot: self.progress.emit(name, cur, tot),
-                    file_progress_callback=lambda name, cur_f, tot_f: self.progress.emit(f"{name} ({cur_f}/{tot_f})", 0, -1)
+                    file_progress_callback=lambda name, cur_f, tot_f: self.progress.emit(f"{name} ({cur_f}/{tot_f})", 0, -1),
+                    cancel_callback=lambda: self._is_cancelled
                 )
         except Exception as e:
             log_debug(f"JunkCleanThread error: {e}")
@@ -216,6 +218,8 @@ class JunkView(QWidget):
         self.btn_clean.setEnabled(total_bytes > 0)
 
     def _start_scan(self):
+        if (self.scan_thread and self.scan_thread.isRunning()) or (self.clean_thread and self.clean_thread.isRunning()):
+            return
         self.btn_scan.setEnabled(False)
         self.btn_clean.setEnabled(False)
         self.progress_bar.setVisible(True)
@@ -240,6 +244,8 @@ class JunkView(QWidget):
         self._populate_table()
 
     def _start_clean(self):
+        if (self.clean_thread and self.clean_thread.isRunning()) or (self.scan_thread and self.scan_thread.isRunning()):
+            return
         selected_ids = {c.id for c in self.categories if c.selected}
         if not selected_ids:
             return

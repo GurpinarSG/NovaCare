@@ -13,6 +13,7 @@ import subprocess
 import psutil
 import ctypes
 import uuid
+import threading
 from typing import Optional
 from core.config import ConfigManager
 from core.memory_booster import MemoryBooster
@@ -32,6 +33,8 @@ GAME_MODE_SERVICES = [
 
 ALLOWED_SERVICE_NAMES = frozenset(s[0] for s in GAME_MODE_SERVICES)
 
+_MODULE_BOOSTER_LOCK = threading.RLock()
+
 class GameBooster:
     def __init__(self):
         self.config = ConfigManager()
@@ -39,14 +42,15 @@ class GameBooster:
 
     def is_active(self) -> bool:
         """Checks if Game Mode is currently active."""
-        if os.path.exists(self.state_file):
-            try:
-                with open(self.state_file, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    return data.get("active", False)
-            except Exception:
-                pass
-        return False
+        with _MODULE_BOOSTER_LOCK:
+            if os.path.exists(self.state_file):
+                try:
+                    with open(self.state_file, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                        return data.get("active", False)
+                except Exception:
+                    pass
+            return False
 
     is_game_mode_active = is_active
 
@@ -134,45 +138,67 @@ class GameBooster:
         3. Stops non-essential background services.
         4. Trims RAM working sets for maximum available game memory.
         """
-        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-        prev_guid, prev_name = self.get_current_power_scheme()
-        stopped_svcs = []
+        with _MODULE_BOOSTER_LOCK:
+            flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
-        # Find running target services
-        for svc_name, friendly in GAME_MODE_SERVICES:
+            # Preserve existing original power plan if already active
+            prev_guid = None
+            prev_name = None
+            existing_stopped = []
+            if self.is_active() and os.path.exists(self.state_file):
+                try:
+                    with open(self.state_file, "r", encoding="utf-8") as f:
+                        old_state = json.load(f)
+                        prev_guid = old_state.get("previous_power_guid")
+                        prev_name = old_state.get("previous_power_name")
+                        existing_stopped = old_state.get("stopped_services", [])
+                except Exception:
+                    pass
+
+            if not prev_guid:
+                prev_guid, prev_name = self.get_current_power_scheme()
+
+            stopped_svcs = list(existing_stopped)
+
+            # Find running target services
+            for svc_name, friendly in GAME_MODE_SERVICES:
+                try:
+                    s = psutil.win_service_get(svc_name)
+                    if s.status() == "running":
+                        # Stop service
+                        p_stop = subprocess.run(
+                            [get_system32_path("net"), "stop", svc_name, "/y"],
+                            capture_output=True, timeout=5, creationflags=flags
+                        )
+                        if p_stop.returncode == 0 and svc_name not in stopped_svcs:
+                            stopped_svcs.append(svc_name)
+                except Exception:
+                    continue
+
+            # Switch power plan
+            ultimate_guid = self.ensure_ultimate_power_plan()
+            if ultimate_guid:
+                subprocess.run([get_system32_path("powercfg"), "/setactive", ultimate_guid], capture_output=True, timeout=5, creationflags=flags)
+
+            # Optimize RAM
+            booster = MemoryBooster()
+            freed, _ = booster.optimize_ram()
+
+            state = {
+                "active": True,
+                "previous_power_guid": prev_guid,
+                "previous_power_name": prev_name,
+                "stopped_services": stopped_svcs,
+                "freed_ram_bytes": freed
+            }
+
             try:
-                s = psutil.win_service_get(svc_name)
-                if s.status() == "running":
-                    # Stop service
-                    subprocess.run([get_system32_path("net"), "stop", svc_name, "/y"], capture_output=True, timeout=5, creationflags=flags)
-                    stopped_svcs.append(svc_name)
+                with open(self.state_file, "w", encoding="utf-8") as f:
+                    json.dump(state, f, indent=2)
             except Exception:
-                continue
+                pass
 
-        # Switch power plan
-        ultimate_guid = self.ensure_ultimate_power_plan()
-        if ultimate_guid:
-            subprocess.run([get_system32_path("powercfg"), "/setactive", ultimate_guid], capture_output=True, timeout=5, creationflags=flags)
-
-        # Optimize RAM
-        booster = MemoryBooster()
-        freed, _ = booster.optimize_ram()
-
-        state = {
-            "active": True,
-            "previous_power_guid": prev_guid,
-            "previous_power_name": prev_name,
-            "stopped_services": stopped_svcs,
-            "freed_ram_bytes": freed
-        }
-
-        try:
-            with open(self.state_file, "w", encoding="utf-8") as f:
-                json.dump(state, f, indent=2)
-        except Exception:
-            pass
-
-        return state
+            return state
 
     def deactivate(self) -> dict:
         """
@@ -181,45 +207,64 @@ class GameBooster:
         2. Restarts the services that were previously suspended.
         3. Cleans up saved state.
         """
-        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-        if not os.path.exists(self.state_file):
-            return {"active": False, "restored_services": 0}
+        with _MODULE_BOOSTER_LOCK:
+            flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            if not os.path.exists(self.state_file):
+                return {"active": False, "restored_services": 0}
 
-        try:
-            with open(self.state_file, "r", encoding="utf-8") as f:
-                state = json.load(f)
-        except Exception:
-            state = {}
-
-        # 1. Restore power scheme
-        prev_guid = state.get("previous_power_guid")
-        if prev_guid and isinstance(prev_guid, str) and re.match(r"^[a-fA-F0-9\-]{36}$", prev_guid.strip()):
-            subprocess.run([get_system32_path("powercfg"), "/setactive", prev_guid.strip()], capture_output=True, timeout=5, creationflags=flags)
-
-        # 2. Restart previously stopped services
-        stopped_svcs = state.get("stopped_services", [])
-        restarted_count = 0
-        for svc_name in stopped_svcs:
-            if not isinstance(svc_name, str) or svc_name not in ALLOWED_SERVICE_NAMES:
-                continue
             try:
-                subprocess.run([get_system32_path("net"), "start", svc_name], capture_output=True, timeout=5, creationflags=flags)
-                restarted_count += 1
+                with open(self.state_file, "r", encoding="utf-8") as f:
+                    state = json.load(f)
             except Exception:
-                continue
+                state = {}
 
-        # 3. Remove state file
-        try:
-            os.remove(self.state_file)
-        except Exception:
-            pass
+            # 1. Restore power scheme
+            prev_guid = state.get("previous_power_guid")
+            if prev_guid and isinstance(prev_guid, str) and re.match(r"^[a-fA-F0-9\-]{36}$", prev_guid.strip()):
+                subprocess.run([get_system32_path("powercfg"), "/setactive", prev_guid.strip()], capture_output=True, timeout=5, creationflags=flags)
 
-        return {
-            "active": False,
-            "previous_power_name": state.get("previous_power_name", "Standart"),
-            "restored_services": restarted_count
-        }
+            # 2. Restart previously stopped services
+            stopped_svcs = state.get("stopped_services", [])
+            restarted_count = 0
+            for svc_name in stopped_svcs:
+                if not isinstance(svc_name, str) or svc_name not in ALLOWED_SERVICE_NAMES:
+                    continue
+                try:
+                    p_start = subprocess.run(
+                        [get_system32_path("net"), "start", svc_name],
+                        capture_output=True, timeout=5, creationflags=flags
+                    )
+                    if p_start.returncode in (0, 2):
+                        restarted_count += 1
+                except Exception:
+                    continue
 
+            # 3. Remove state file
+            try:
+                os.remove(self.state_file)
+            except Exception:
+                pass
+
+            return {
+                "active": False,
+                "previous_power_name": state.get("previous_power_name", "Standart"),
+                "restored_services": restarted_count
+            }
+
+    def recover_state_if_needed(self) -> bool:
+        """
+        Safe startup recovery mechanism:
+        If system shutdown unexpectedly or game_mode_state.json remained active,
+        restores the user's original power plan and suspended services.
+        """
+        with _MODULE_BOOSTER_LOCK:
+            if self.is_active():
+                log_debug("GameBooster: Detected hung active state from unexpected shutdown. Recovering...")
+                self.deactivate()
+                return True
+            return False
+
+    recover_state = recover_state_if_needed
     enable_game_mode = activate
     restore_normal_mode = deactivate
 
@@ -353,7 +398,7 @@ class GameProfileManager:
             r"D:\Games\SteamLibrary\steamapps\common"
         ]
 
-        # Also inspect Steam libraryfolders.vdf
+        # Also inspect Steam libraryfolders.vdf and deduplicate paths
         vdf_path = r"C:\Program Files (x86)\Steam\steamapps\libraryfolders.vdf"
         if os.path.exists(vdf_path):
             try:
@@ -363,37 +408,50 @@ class GameProfileManager:
                             parts = line.split('"')
                             if len(parts) >= 4:
                                 custom_steam = os.path.join(parts[3], "steamapps", "common")
-                                if custom_steam not in steam_paths and os.path.exists(custom_steam):
-                                    steam_paths.append(custom_steam)
+                                steam_paths.append(custom_steam)
             except Exception:
                 pass
 
+        unique_steam_paths = []
+        seen_steam_dirs = set()
         for s_path in steam_paths:
-            if os.path.exists(s_path):
-                try:
-                    for game_folder in os.listdir(s_path):
-                        full_folder = os.path.join(s_path, game_folder)
-                        if os.path.isdir(full_folder):
-                            # Search for top-level or bin executables with pruned traversal
-                            for root, dirs, files in os.walk(full_folder):
-                                rel = os.path.relpath(root, full_folder)
-                                if rel != "." and rel.count(os.sep) >= 1:
-                                    dirs.clear()
-                                for file in files:
-                                    if file.lower().endswith(".exe"):
-                                        f_low = file.lower()
-                                        if any(k in f_low for k in ["crash", "unitycrash", "unins", "setup", "update", "redist", "vcredist", "dxsetup", "touchup"]):
-                                            continue
-                                        if f_low not in seen_exes:
-                                            seen_exes.add(f_low)
-                                            found_games.append({
-                                                "name": game_folder,
-                                                "exe": file,
-                                                "path": os.path.join(root, file)
-                                            })
-                                        break
-                except Exception:
-                    pass
+            norm_s = os.path.normcase(os.path.abspath(s_path))
+            if norm_s not in seen_steam_dirs and os.path.exists(s_path):
+                seen_steam_dirs.add(norm_s)
+                unique_steam_paths.append(s_path)
+
+        skip_exe_tokens = ("crash", "unitycrash", "unins", "setup", "update", "redist", "vcredist", "dxsetup", "touchup")
+        for s_path in unique_steam_paths:
+            try:
+                for entry in os.scandir(s_path):
+                    if not entry.is_dir():
+                        continue
+                    game_folder = entry.name
+                    full_folder = entry.path
+                    found_in_folder = False
+                    # Search for top-level or bin executables with pruned traversal
+                    for root, dirs, files in os.walk(full_folder):
+                        if found_in_folder:
+                            break
+                        rel = os.path.relpath(root, full_folder)
+                        if rel != "." and rel.count(os.sep) >= 1:
+                            dirs.clear()
+                        for file in files:
+                            f_low = file.lower()
+                            if f_low.endswith(".exe"):
+                                if any(k in f_low for k in skip_exe_tokens):
+                                    continue
+                                if f_low not in seen_exes:
+                                    seen_exes.add(f_low)
+                                    found_games.append({
+                                        "name": game_folder,
+                                        "exe": file,
+                                        "path": os.path.join(root, file)
+                                    })
+                                found_in_folder = True
+                                break
+            except Exception:
+                pass
 
         # 2. Check Riot Games
         riot_candidates = [
@@ -407,26 +465,33 @@ class GameProfileManager:
 
         # 3. Check Epic Games
         epic_path = r"C:\Program Files\Epic Games"
+        epic_skip_tokens = ("crash", "unins", "setup", "launcher")
         if os.path.exists(epic_path):
             try:
-                for game_folder in os.listdir(epic_path):
-                    full_folder = os.path.join(epic_path, game_folder)
-                    if os.path.isdir(full_folder):
-                        for root, dirs, files in os.walk(full_folder):
-                            rel = os.path.relpath(root, full_folder)
-                            if rel != "." and rel.count(os.sep) >= 1:
-                                dirs.clear()
-                            for file in files:
-                                if file.lower().endswith(".exe") and not any(k in file.lower() for k in ["crash", "unins", "setup", "launcher"]):
-                                    f_low = file.lower()
-                                    if f_low not in seen_exes:
-                                        seen_exes.add(f_low)
-                                        found_games.append({
-                                            "name": game_folder,
-                                            "exe": file,
-                                            "path": os.path.join(root, file)
-                                        })
-                                    break
+                for entry in os.scandir(epic_path):
+                    if not entry.is_dir():
+                        continue
+                    game_folder = entry.name
+                    full_folder = entry.path
+                    found_in_folder = False
+                    for root, dirs, files in os.walk(full_folder):
+                        if found_in_folder:
+                            break
+                        rel = os.path.relpath(root, full_folder)
+                        if rel != "." and rel.count(os.sep) >= 1:
+                            dirs.clear()
+                        for file in files:
+                            f_low = file.lower()
+                            if f_low.endswith(".exe") and not any(k in f_low for k in epic_skip_tokens):
+                                if f_low not in seen_exes:
+                                    seen_exes.add(f_low)
+                                    found_games.append({
+                                        "name": game_folder,
+                                        "exe": file,
+                                        "path": os.path.join(root, file)
+                                    })
+                                found_in_folder = True
+                                break
             except Exception:
                 pass
 

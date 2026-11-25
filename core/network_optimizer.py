@@ -171,9 +171,12 @@ class NetworkOptimizer:
             log_debug(f"NetworkOptimizer: Registry DNS query error: {e}")
 
         # 2. Fallback to netsh if registry query yielded no servers
+        clean_adapter = adapter_name.strip() if isinstance(adapter_name, str) else ""
+        if not clean_adapter or any(ch in clean_adapter for ch in ('"', '\r', '\n', '\0')):
+            return result
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         try:
-            cmd = [get_system32_path("netsh"), "interface", "ipv4", "show", "dns", f"name={adapter_name}"]
+            cmd = [get_system32_path("netsh"), "interface", "ipv4", "show", "dns", f"name={clean_adapter}"]
             raw = subprocess.check_output(cmd, timeout=8, creationflags=flags)
             out = safe_decode_bytes(raw)
             ips = re.findall(r"\b(?:\d{1,3}\.){3}\d{1,3}\b", out)
@@ -272,7 +275,9 @@ class NetworkOptimizer:
             # 2. Add Secondary if provided
             if clean_secondary:
                 cmd2 = [get_system32_path("netsh"), "interface", "ipv4", "add", "dns", f"name={clean_adapter}", clean_secondary, "index=2"]
-                subprocess.run(cmd2, capture_output=True, text=True, encoding=console_enc, errors="replace", timeout=8, creationflags=flags)
+                p2 = subprocess.run(cmd2, capture_output=True, text=True, encoding=console_enc, errors="replace", timeout=8, creationflags=flags)
+                if p2.returncode != 0:
+                    return False, f"İkincil DNS ayarlanamadı: {p2.stderr or p2.stdout}"
 
             # Flush DNS cache after change
             self.flush_dns()

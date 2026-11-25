@@ -156,7 +156,7 @@ class RegistryCompactor:
                 frag_pct = base_frag
 
             reclaimable = int(sz * (frag_pct / 100.0))
-            status = "Sıkıştırma ve Birleştirme Önerilir" if frag_pct >= 15.0 else "İyi Durumda"
+            status = "Tampon Temizliği / Analiz Hazır" if frag_pct >= 15.0 else "İyi Durumda"
 
             results.append(RegistryHiveInfo(
                 id=hive_id,
@@ -172,10 +172,8 @@ class RegistryCompactor:
 
     def compact_and_optimize(self) -> tuple[bool, int, str]:
         """
-        Executes active Windows registry flush and hive compaction.
-        Flushes all dirty in-memory registry hive buffers directly to disk via RegFlushKey,
-        reclaiming unallocated cell slack and reorganizing fragmented leaf nodes.
-        Returns (success: bool, total_reclaimed_bytes: int, message: str).
+        Flushes all dirty in-memory Windows registry hive buffers directly to disk via RegFlushKey.
+        Returns (success: bool, estimated_slack_bytes: int, message: str).
         """
         hives = self.analyze_hives()
         total_reclaimable = sum(h.reclaimable_bytes for h in hives)
@@ -203,13 +201,17 @@ class RegistryCompactor:
         # 2. Re-flush subkeys of HKEY_CURRENT_USER and HKEY_LOCAL_MACHINE
         try:
             with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Software", 0, winreg.KEY_READ) as k:
-                advapi32.RegFlushKey(k.handle)
+                if advapi32.RegFlushKey(k.handle) == 0:
+                    flushed_count += 1
         except OSError:
             pass
 
+        if flushed_count == 0:
+            return False, 0, "Kayıt defteri kovan tamponları diske yazılamadı."
+
         return True, total_reclaimable, (
-            f"Kayıt defteri bellek kovanları diske başarıyla yazıldı ve birleştirildi. "
-            f"Toplam {len(hives)} kovan optimize edildi (~{format_bytes(total_reclaimable)} gereksiz boşluk toparlandı)."
+            f"{flushed_count} kayıt defteri kök anahtarı diske başarıyla senkronize edilip optimize edildi "
+            f"(Toplam {len(hives)} kovan analiz edildi; tahmini ölü hücre oranı ~{format_bytes(total_reclaimable)})."
         )
 
     compact_registry = compact_and_optimize

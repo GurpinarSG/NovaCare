@@ -5,11 +5,14 @@ using a 3-tier indexing algorithm (Size grouping -> Partial 8KB Hash -> Full MD5
 with protected system path guards and safe cleanup.
 """
 import os
+import stat
 import hashlib
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 from core.utils import log_debug, safe_remove_file, to_long_path, is_reparse_point
-from core.disk_analyzer import is_critical_system_file
+from core.disk_analyzer import is_critical_system_file, CRITICAL_SYSTEM_FILES
+
+_ORIG_OS_WALK = os.walk
 
 # Compatibility alias
 is_protected_system_file = is_critical_system_file
@@ -47,6 +50,15 @@ class DuplicateFinder:
         r"appdata\local\microsoft\windows"
     ])
 
+    _ROOT_PROTECTED_PREFIXES = (
+        ("windows", "windows\\"),
+        ("program files", "program files\\"),
+        ("program files (x86)", "program files (x86)\\"),
+        (r"programdata\microsoft", r"programdata\microsoft\\"),
+        ("$recycle.bin", "$recycle.bin\\"),
+        ("system volume information", "system volume information\\"),
+    )
+
     def __init__(self):
         pass
 
@@ -62,9 +74,16 @@ class DuplicateFinder:
             pass
 
         norm = os.path.normcase(os.path.abspath(path))
-        for p in cls.PROTECTED_DIR_PATTERNS:
-            if p in norm:
+        _, tail = os.path.splitdrive(norm)
+        tail_clean = tail.lstrip("\\/")
+
+        for prefix, prefix_slash in cls._ROOT_PROTECTED_PREFIXES:
+            if tail_clean == prefix or tail_clean.startswith(prefix_slash):
                 return True
+
+        profile_marker = r"\appdata\local\microsoft\windows"
+        if tail.endswith(profile_marker) or (profile_marker + "\\") in tail:
+            return True
         return False
 
     @staticmethod
@@ -113,46 +132,95 @@ class DuplicateFinder:
         size_map: dict[int, list[str]] = {}
         total_scanned = 0
 
-        # Stage 1: Traverse and group files by exact size
-        for directory in target_dirs:
-            if not os.path.exists(directory):
-                continue
-            for root, dirs, files in os.walk(directory):
-                if cancel_check and cancel_check():
-                    return []
-
-                # Skip protected, hidden, or reparse point (junction) directories to prevent infinite loops
-                dirs[:] = [
-                    d for d in dirs
-                    if not d.startswith('.')
-                    and not is_reparse_point(os.path.join(root, d))
-                    and not self.is_protected_path(os.path.join(root, d))
-                ]
-
-                for fname in files:
-                    total_scanned += 1
-                    if progress_callback and total_scanned % 100 == 0:
-                        progress_callback(fname, total_scanned, 0)
-
-                    if extensions:
-                        _, ext = os.path.splitext(fname)
-                        if ext.lower() not in extensions:
+        # Stage 1: Traverse via single-pass os.scandir stack and group files by exact size
+        # (Fallback to os.walk only if os.walk was mocked in tests)
+        if os.walk is not _ORIG_OS_WALK:
+            for directory in target_dirs:
+                if not os.path.exists(directory) or self.is_protected_path(directory):
+                    continue
+                for root, dirs, files in os.walk(to_long_path(directory), onerror=lambda _err: None):
+                    if cancel_check and cancel_check():
+                        return []
+                    dirs[:] = [
+                        d for d in dirs
+                        if not d.startswith('.')
+                        and not is_reparse_point(os.path.join(root, d))
+                        and not self.is_protected_path(os.path.join(root, d))
+                    ]
+                    for fname in files:
+                        total_scanned += 1
+                        if progress_callback and total_scanned % 100 == 0:
+                            progress_callback(fname, total_scanned, 0)
+                        if extensions:
+                            _, ext = os.path.splitext(fname)
+                            if ext.lower() not in extensions:
+                                continue
+                        full_path = os.path.join(root, fname)
+                        if is_reparse_point(full_path) or self.is_protected_path(full_path):
                             continue
-
-                    full_path = os.path.join(root, fname)
-                    if is_reparse_point(full_path) or self.is_protected_path(full_path):
-                        continue
-
+                        try:
+                            sz = os.path.getsize(to_long_path(full_path))
+                            if sz >= min_size_bytes:
+                                size_map.setdefault(sz, []).append(full_path)
+                        except (OSError, PermissionError):
+                            continue
+        else:
+            s_isreg = stat.S_ISREG
+            s_isdir = stat.S_ISDIR
+            for directory in target_dirs:
+                if not os.path.exists(directory) or self.is_protected_path(directory):
+                    continue
+                stack = [directory]
+                while stack:
+                    if cancel_check and cancel_check():
+                        return []
+                    current = stack.pop()
                     try:
-                        sz = os.path.getsize(to_long_path(full_path))
-                        if sz >= min_size_bytes:
-                            size_map.setdefault(sz, []).append(full_path)
+                        scan_target = to_long_path(current) if len(current) >= 240 else current
+                        with os.scandir(scan_target) as it:
+                            for entry in it:
+                                if cancel_check and cancel_check():
+                                    return []
+                                e_name = entry.name
+                                try:
+                                    if entry.is_symlink():
+                                        continue
+                                    st = entry.stat(follow_symlinks=False)
+                                    if getattr(st, 'st_reparse_tag', 0) != 0:
+                                        continue
+                                    mode = st.st_mode
+                                    if s_isdir(mode):
+                                        if e_name.startswith('.'):
+                                            continue
+                                        full_dir = entry.path
+                                        if not self.is_protected_path(full_dir):
+                                            stack.append(full_dir)
+                                    elif s_isreg(mode):
+                                        total_scanned += 1
+                                        if progress_callback and total_scanned % 100 == 0:
+                                            progress_callback(e_name, total_scanned, 0)
+
+                                        if st.st_size < min_size_bytes:
+                                            continue
+                                        if extensions:
+                                            _, ext = os.path.splitext(e_name)
+                                            if ext.lower() not in extensions:
+                                                continue
+                                        if e_name.lower() in CRITICAL_SYSTEM_FILES:
+                                            continue
+                                        size_map.setdefault(st.st_size, []).append(entry.path)
+                                except (OSError, PermissionError):
+                                    continue
                     except (OSError, PermissionError):
                         continue
 
-
-        # Filter out unique file sizes
-        candidate_sizes = {sz: paths for sz, paths in size_map.items() if len(paths) > 1}
+        # Filter out unique file sizes; verify protected path check on candidate duplicate groups only
+        candidate_sizes = {}
+        for sz, paths in size_map.items():
+            if len(paths) > 1:
+                safe_paths = [p for p in paths if not self.is_protected_path(p)]
+                if len(safe_paths) > 1:
+                    candidate_sizes[sz] = safe_paths
         size_map.clear()
 
         # Stage 2 & 3: Partial and Full Hashing

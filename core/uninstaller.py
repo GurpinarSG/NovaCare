@@ -188,22 +188,27 @@ class AppUninstaller:
                     arg_start_idx = i + 1
                     break
 
+        def _unquote_outer(tok: str) -> str:
+            if len(tok) >= 2 and tok.startswith('"') and tok.endswith('"'):
+                return tok[1:-1]
+            return tok
+
         if found_exe and arg_start_idx > 0:
             exe_part = found_exe
             rest = " ".join(tokens[arg_start_idx:]).strip()
             if rest:
                 try:
-                    args = [t.strip('"') for t in shlex.split(rest, posix=False) if t.strip()]
+                    args = [_unquote_outer(t) for t in shlex.split(rest, posix=False) if t.strip()]
                 except ValueError:
-                    args = [t.strip('"') for t in rest.split() if t.strip()]
+                    args = [_unquote_outer(t) for t in rest.split() if t.strip()]
                 return [exe_part] + args
             return [exe_part]
 
         # Standard shlex.split with quote balancing fallback
         try:
-            return [t.strip('"') for t in shlex.split(cmd, posix=False) if t.strip()]
+            return [_unquote_outer(t) for t in shlex.split(cmd, posix=False) if t.strip()]
         except ValueError:
-            return [t.strip('"') for t in cmd.replace('"', '').split() if t.strip()]
+            return [_unquote_outer(t) for t in cmd.replace('"', '').split() if t.strip()]
 
     def launch_uninstaller(self, app: InstalledApp, quiet: bool = False) -> subprocess.Popen:
         """Launches the standard or quiet uninstaller in background without shell=True."""
@@ -221,11 +226,17 @@ class AppUninstaller:
         if not tokens:
             raise ValueError("Kaldırma komutu çözümlenemedi.")
 
+        cwd_dir = app.install_location if (app.install_location and os.path.isdir(app.install_location)) else None
+        if cwd_dir and not os.path.isabs(tokens[0]):
+            candidate = os.path.join(cwd_dir, tokens[0])
+            if os.path.exists(candidate):
+                tokens[0] = candidate
+
         if tokens and tokens[0].lower() in ("msiexec", "msiexec.exe"):
             tokens[0] = get_system32_path("msiexec.exe")
 
         try:
-            return subprocess.Popen(tokens)
+            return subprocess.Popen(tokens, cwd=cwd_dir)
         except OSError as e:
             if getattr(e, 'winerror', None) == 740 or '740' in str(e) or 'elevation' in str(e).lower():
                 # UAC Elevation required - launch elevated via PowerShell Start-Process safely without parameter injection
@@ -234,16 +245,20 @@ class AppUninstaller:
                 args = tokens[1:]
                 ps_exe = exe.replace("'", "''")
                 cmd_line = subprocess.list2cmdline(args)
+                # Inside a PowerShell single-quoted string only single quotes need doubling ('').
+                # Escaping '"' as '\"' would pass literal backslashes to CommandLineToArgvW.
                 ps_cmd_line = cmd_line.replace("'", "''")
+                ps_cwd = cwd_dir.replace("'", "''") if cwd_dir else ""
+                cwd_part = f" -WorkingDirectory '{ps_cwd}'" if ps_cwd else ""
                 if ps_cmd_line:
-                    ps_script = f"Start-Process -FilePath '{ps_exe}' -ArgumentList '{ps_cmd_line}' -Verb RunAs -Wait"
+                    ps_script = f"Start-Process -FilePath '{ps_exe}' -ArgumentList '{ps_cmd_line}'{cwd_part} -Verb RunAs -Wait"
                 else:
-                    ps_script = f"Start-Process -FilePath '{ps_exe}' -Verb RunAs -Wait"
+                    ps_script = f"Start-Process -FilePath '{ps_exe}'{cwd_part} -Verb RunAs -Wait"
 
                 encoded_ps = base64.b64encode(ps_script.encode('utf-16le')).decode('ascii')
                 ps_tokens = [get_system32_path("powershell"), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded_ps]
                 flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-                return subprocess.Popen(ps_tokens, creationflags=flags)
+                return subprocess.Popen(ps_tokens, cwd=cwd_dir, creationflags=flags)
             raise e
 
     # Alias for task consistency

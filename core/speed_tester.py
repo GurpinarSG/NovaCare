@@ -235,6 +235,7 @@ class SpeedTester:
                 pings.append((time.perf_counter() - t0) * 1000.0)
             except Exception:
                 try:
+                    t0 = time.perf_counter()
                     self.session.get("https://1.1.1.1/cdn-cgi/trace", timeout=3)
                     pings.append((time.perf_counter() - t0) * 1000.0)
                 except Exception:

@@ -2,6 +2,22 @@
 
 Tüm önemli değişiklikler, yeni özellikler, hata düzeltmeleri ve optimizasyonlar bu belgede kronolojik olarak kayıt altına alınmaktadır.
 
+## 🚀 [v1.3.1] - 2026-11-21
+
+### 🛡️ Kritik Sistem ve Güvenlik Düzeltmeleri (P0 / P1 / P2)
+* **Görev Zamanlayıcı Tırnak ve Komut Satırı Çözümü (`core/autostart.py` & `scripts/installer_wizard.py`):**
+  * `schtasks /create /tr` parametresindeki gereksiz ters eğik çizgi tırnak kaçışları (`\\"`) kaldırılarak Windows `CommandLineToArgvW` seviyesinde komut satırının bozulması ve açılış görevlerinin çalıştırılamaması kalıcı olarak düzeltildi.
+* **UAC Yükseltme ve `ShellExecuteW` Çökme Koruması (`core/updater.py`):**
+  * UAC iptalinde `ctypes.c_void_p` dönüşünün `None` olması durumunda oluşan `TypeError: '>' not supported between instances of 'NoneType' and 'int'` hatası `(ret or 0) > 32` korumasıyla giderildi.
+* **Toplu Kaldırma Pencere Kapatma Koruması (`ui/views/uninstaller_view.py`):**
+  * `BatchUninstallDialog` sınıfına `closeEvent` ve `reject` kalkanları eklendi. Toplu kaldırma işlemi sürerken pencerenin [X] veya ESC ile kapatılması durumunda kullanıcıya iptal onay sorusu sorulması, işçinin `cancel()` ve `wait()` ile güvenli durdurulması sağlandı. `QThread: Destroyed while thread is still running` çökmesi önlendi.
+* **Pano ve Temizleyici İş Parçacığı Güvenliği (`ui/views/dashboard_view.py` & `ui/views/junk_view.py`):**
+  * Dashboard ve Junk Cleaner ekranlarında iş parçacıklarının mükerrer tetiklenmesini engelleyen `isRunning()` korumaları ve `cancel_callback` iptal geri çağırma mimarisi eklendi.
+* **Artık Temizleme Arayüz Donma Koruması (`LeftoverDialog`):**
+  * Artık temizleme işlemi sırasında düğmeler devre dışı bırakılarak `Qt.WaitCursor` imleç koruması entegre edildi.
+* **NVML Kaynak Temizliği & Sürüm Senkronizasyonu (`HardwareMonitor` & `Config`):**
+  * NVIDIA GPU NVML motorunun uygulama kapatılırken `pynvml.nvmlShutdown()` ile temizlenmesi güvenceye alındı; sürüm sabitleri `1.3.1` olarak senkronize edildi.
+
 ## 🚀 [v1.3.0] - 2026-11-10
 
 ### 🌟 Yeni Özellikler & Fonksiyonel Geliştirmeler

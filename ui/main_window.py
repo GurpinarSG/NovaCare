@@ -170,12 +170,18 @@ class MainWindow(QMainWindow):
         app_inst = QApplication.instance()
         if app_inst:
             app_inst.setStyleSheet(init_qss)
-        self.setStyleSheet(init_qss)
+        else:
+            self.setStyleSheet(init_qss)
 
         log_debug("MainWindow: setting up icon...")
         self._setup_icon()
         log_debug("MainWindow: setting up UI...")
         self._init_ui()
+        # Overlay widget starts hidden until toggled; stop its polling timer during startup
+        if hasattr(self, 'view_dashboard') and hasattr(self.view_dashboard, 'overlay_widget'):
+            ow = self.view_dashboard.overlay_widget
+            if ow and not ow.isVisible() and hasattr(ow, 'timer') and ow.timer.isActive():
+                ow.timer.stop()
         log_debug("MainWindow: setting up tray...")
         self._setup_tray()
         log_debug("MainWindow: setting up auto update...")
@@ -454,7 +460,8 @@ class MainWindow(QMainWindow):
         app_inst = QApplication.instance()
         if app_inst:
             app_inst.setStyleSheet(qss)
-        self.setStyleSheet(qss)
+        else:
+            self.setStyleSheet(qss)
         self._sync_admin_badge()
         if hasattr(self, 'tray_menu'):
             self.tray_menu.setStyleSheet(qss)
@@ -685,7 +692,6 @@ class MainWindow(QMainWindow):
     def _exit_application(self):
         self._force_exit = True
         self.close()
-        self.cleanup_workers()
         app = QApplication.instance()
         if app:
             app.quit()
@@ -740,7 +746,8 @@ class MainWindow(QMainWindow):
         try:
             # 1. Stop background polling and hardware singleton threads
             from core.hardware_monitor import HardwareMonitor
-            HardwareMonitor().stop()
+            if HardwareMonitor._instance is not None:
+                HardwareMonitor._instance.stop()
 
             # 2. Stop core and view timers
             if hasattr(self, 'auto_clean_timer') and self.auto_clean_timer.isActive():
@@ -781,19 +788,19 @@ class MainWindow(QMainWindow):
 
             # 4. Stop all subview workers
             for view_attr, worker_attrs in [
-                ('view_dashboard', ['scan_worker', 'fix_worker', 'game_mode_worker']),
+                ('view_dashboard', ['scan_worker', 'scan_thread', 'fix_worker', 'fix_thread', 'game_mode_worker']),
                 ('view_junk', ['scan_thread', 'clean_thread']),
                 ('view_registry', ['scan_thread', 'fix_thread']),
                 ('view_memory', ['loader_worker', 'boost_worker']),
                 ('view_startup', ['scan_worker']),
-                ('view_uninstaller', ['scan_worker', 'single_wait_worker']),
+                ('view_uninstaller', ['scan_worker', 'single_wait_worker', 'leftover_scan_worker']),
                 ('view_hardware_health', ['scan_worker']),
                 ('view_battery', ['hw_worker', 'report_worker']),
                 ('view_disk', ['scan_thread', 'dup_thread']),
                 ('view_privacy', ['scan_worker', 'remove_worker', 'telemetry_worker', 'cookie_scan_worker', 'cookie_clean_worker', 'antispy_worker']),
                 ('view_rescue', ['rp_worker']),
                 ('view_network', ['speed_worker', 'meta_worker', 'benchmark_worker', 'repair_worker', 'dns_apply_worker']),
-                ('view_settings', ['check_thread', 'download_thread', 'manual_clean_worker', 'autostart_worker']),
+                ('view_settings', ['check_thread', 'download_thread', 'manual_clean_worker', 'autostart_worker', 'autostart_status_worker']),
             ]:
                 if hasattr(self, view_attr):
                     view_obj = getattr(self, view_attr)

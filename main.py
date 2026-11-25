@@ -7,6 +7,7 @@ import sys
 import os
 import ctypes
 import argparse
+import tempfile
 
 # Strip PyInstaller onefile parent tracking variables to prevent
 # "Security validation failure: invalid originating onefile parent process (PID not found)!"
@@ -282,18 +283,30 @@ def perform_self_uninstall(silent: bool = False):
         from core.utils import get_system32_path
         cmd_bin = get_system32_path("cmd.exe")
         local_cfg = os.path.normpath(os.path.abspath(os.path.join(os.environ.get('LOCALAPPDATA', ''), 'NovaCare')))
-        del_cmd = f'ping 127.0.0.1 -n 3 > nul & rmdir /s /q "{install_dir}"'
-        if (
-            os.path.exists(local_cfg)
-            and local_cfg.lower() != install_dir.lower()
-            and os.path.basename(local_cfg).lower() == "novacare"
-            and local_cfg.lower() not in forbidden_roots
-        ):
-            del_cmd += f' & rmdir /s /q "{local_cfg}"'
+        bad_batch_chars = set('%!&|<>^"\r\n')
+        if any(c in bad_batch_chars for c in install_dir) or any(c in bad_batch_chars for c in local_cfg):
+            sys.exit(0)
+        del_cmd = f'for /l %%i in (1,1,10) do (rmdir /s /q "{install_dir}" 2>nul && goto done || ping 127.0.0.1 -n 2 >nul)'
+        cleanup_bat = None
         try:
-            subprocess.Popen([cmd_bin, "/c", del_cmd], shell=False, creationflags=flags)
+            fd, cleanup_bat = tempfile.mkstemp(prefix="novacare_uninstall_", suffix=".bat")
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(f"@echo off\nsetlocal DisableDelayedExpansion\nchcp 65001 > nul\n{del_cmd}\n:done\n")
+                if (
+                    os.path.exists(local_cfg)
+                    and local_cfg.lower() != install_dir.lower()
+                    and os.path.basename(local_cfg).lower() == "novacare"
+                    and local_cfg.lower() not in forbidden_roots
+                ):
+                    f.write(f'for /l %%i in (1,1,10) do (rmdir /s /q "{local_cfg}" 2>nul && goto done_cfg || ping 127.0.0.1 -n 2 >nul)\n:done_cfg\n')
+                f.write('del /f /q "%~f0" > nul 2>&1\n')
+            subprocess.Popen([cmd_bin, "/c", cleanup_bat], shell=False, creationflags=flags)
         except Exception:
-            pass
+            if cleanup_bat and os.path.exists(cleanup_bat):
+                try:
+                    os.remove(cleanup_bat)
+                except OSError:
+                    pass
 
     sys.exit(0)
 
@@ -373,6 +386,13 @@ def main():
     server.removeServer(LOCAL_SERVER_NAME)
     server.listen(LOCAL_SERVER_NAME)
     app._single_instance_server = server  # Keep alive
+
+    # Recover game mode state if left hanging after unexpected shutdown/crash
+    try:
+        from core.game_booster import GameBooster
+        GameBooster().recover_state_if_needed()
+    except Exception as e:
+        log_debug(f"GameBooster startup recovery error: {e}")
 
     log_debug("Creating MainWindow...")
     from ui.main_window import MainWindow

@@ -3,6 +3,7 @@ NovaCare System Suite - Utility Functions and Windows Helpers
 """
 import os
 import sys
+import stat
 import ctypes
 import shutil
 from functools import lru_cache
@@ -113,19 +114,25 @@ def get_folder_size(path: str) -> tuple[int, int]:
         return 0, 0
 
     stack = [path]
+    s_isreg = stat.S_ISREG
+    s_isdir = stat.S_ISDIR
     while stack:
         current = stack.pop()
         try:
             with os.scandir(current) as it:
                 for entry in it:
                     try:
-                        # Skip symlinks and NTFS junctions / reparse points to avoid infinite loops
-                        if is_reparse_point(entry):
+                        # Skip symlinks and NTFS junctions / reparse points with a single stat syscall
+                        if entry.is_symlink():
                             continue
-                        if entry.is_file(follow_symlinks=False):
-                            total_size += entry.stat().st_size
+                        st = entry.stat(follow_symlinks=False)
+                        if getattr(st, 'st_reparse_tag', 0) != 0:
+                            continue
+                        mode = st.st_mode
+                        if s_isreg(mode):
+                            total_size += st.st_size
                             total_files += 1
-                        elif entry.is_dir(follow_symlinks=False):
+                        elif s_isdir(mode):
                             stack.append(entry.path)
                     except (PermissionError, FileNotFoundError, OSError):
                         continue
@@ -149,6 +156,9 @@ def safe_remove_file(file_path: str) -> bool:
             return True
         except PermissionError:
             try:
+                if os.path.islink(target) or is_reparse_point(target):
+                    os.unlink(target)
+                    return True
                 os.chmod(target, 0o777)
                 os.remove(target)
                 return True
@@ -162,6 +172,9 @@ def safe_remove_file(file_path: str) -> bool:
 def _remove_readonly_cb(func, path, exc_info):
     """Callback for shutil.rmtree to clear read-only flag on stubborn files."""
     try:
+        if os.path.islink(path) or is_reparse_point(path):
+            os.unlink(path)
+            return
         os.chmod(path, 0o777)
         func(path)
     except Exception:
@@ -214,12 +227,15 @@ def empty_recycle_bin(timeout_sec: float = 5.0) -> bool:
         except Exception:
             return False
 
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
     try:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(_do_empty)
-            return future.result(timeout=timeout_sec)
+        future = executor.submit(_do_empty)
+        return future.result(timeout=timeout_sec)
     except Exception:
         return False
+    finally:
+        # Never block on __exit__(wait=True) if SHEmptyRecycleBinW hung on a bad drive
+        executor.shutdown(wait=False)
 
 @lru_cache(maxsize=1)
 def ensure_ssl_ca_bundle() -> Optional[str]:

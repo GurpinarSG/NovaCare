@@ -12,6 +12,8 @@ import shutil
 import zipfile
 import subprocess
 import ctypes
+import tempfile
+import re
 import requests
 from dataclasses import dataclass
 from typing import Optional, Callable
@@ -58,16 +60,16 @@ class GitHubUpdater:
             return ca
         return True
 
-    def _safe_request_get(self, url: str, headers: dict, timeout: int = 12, stream: bool = False):
+    def _safe_request_get(self, url: str, headers: dict, timeout: int = 12, stream: bool = False, allow_redirects: bool = True):
         verify = self._get_verify()
         try:
-            return requests.get(url, headers=headers, timeout=timeout, stream=stream, verify=verify)
+            return requests.get(url, headers=headers, timeout=timeout, stream=stream, verify=verify, allow_redirects=allow_redirects)
         except requests.exceptions.SSLError:
             # Re-ensure persistent CA bundle and retry strictly with verified CA
             from core.utils import ensure_ssl_ca_bundle
             fresh_ca = ensure_ssl_ca_bundle()
             if fresh_ca and os.path.exists(fresh_ca) and fresh_ca != verify:
-                return requests.get(url, headers=headers, timeout=timeout, stream=stream, verify=fresh_ca)
+                return requests.get(url, headers=headers, timeout=timeout, stream=stream, verify=fresh_ca, allow_redirects=allow_redirects)
             raise
 
     def _get_headers(self, accept: str = "application/vnd.github.v3+json", include_auth: bool = True) -> dict:
@@ -262,7 +264,13 @@ class GitHubUpdater:
                 # Attempt public web redirect fallback which does not consume API rate limits
                 try:
                     web_url = f"https://github.com/{self.repo}/releases/latest"
-                    head_resp = requests.get(web_url, headers={"User-Agent": "Mozilla/5.0"}, allow_redirects=False, timeout=8)
+                    head_resp = requests.get(
+                        web_url,
+                        headers={"User-Agent": "Mozilla/5.0"},
+                        allow_redirects=False,
+                        timeout=8,
+                        verify=self._get_verify(),
+                    )
                     loc = head_resp.headers.get("Location", "")
                     if loc and "/releases/tag/" in loc:
                         web_tag = loc.split("/releases/tag/")[-1].strip()
@@ -271,6 +279,7 @@ class GitHubUpdater:
                         cur_base = self.current_version or self.config.get_version()
                         available = is_newer_version(clean_version, cur_base)
                         download_url = f"https://github.com/{self.repo}/releases/download/{web_tag}/NovaCare_Update.zip"
+                        sha256sums_url = f"https://github.com/{self.repo}/releases/download/{web_tag}/SHA256SUMS.txt"
                         return UpdateInfo(
                             available=available,
                             current_version=cur_display,
@@ -279,7 +288,8 @@ class GitHubUpdater:
                             changelog="NovaCare için yeni bir optimizasyon ve sürüm güncellemesi yayınlandı.",
                             download_url=download_url,
                             download_size=0,
-                            published_at=""
+                            published_at="",
+                            sha256sums_url=sha256sums_url
                         )
                 except Exception:
                     pass
@@ -301,17 +311,18 @@ class GitHubUpdater:
         progress_callback: Optional[Callable[[int, int], None]] = None,
         target_app_root: Optional[str] = None,
         parent_pid: Optional[int] = None,
-        custom_temp_dir: Optional[str] = None
+        custom_temp_dir: Optional[str] = None,
+        clean_ver_num: str = "",
+        require_integrity: bool = False
     ) -> str:
         """
         Downloads update zip to temp folder, verifies SHA-256 integrity, extracts safely,
         and generates apply_update.bat and apply_update.ps1.
         Returns the path to apply_update.bat ready to execute.
         """
-        temp_dir = custom_temp_dir if custom_temp_dir else os.path.join(os.environ.get('TEMP', os.path.expanduser('~')), 'NovaCare_Update')
-        if not custom_temp_dir and os.path.exists(temp_dir):
-            shutil.rmtree(temp_dir, ignore_errors=True)
-        os.makedirs(temp_dir, exist_ok=True)
+        temp_dir = custom_temp_dir if custom_temp_dir else tempfile.mkdtemp(prefix="NovaCare_Update_")
+        if custom_temp_dir and not os.path.exists(temp_dir):
+            os.makedirs(temp_dir, exist_ok=True)
 
         zip_path = os.path.join(temp_dir, 'update.zip')
         extracted_dir = os.path.join(temp_dir, 'extracted')
@@ -393,13 +404,31 @@ class GitHubUpdater:
                     f"Beklenen: {expected_from_sums}\n"
                     f"İndirilen: {downloaded_hash}"
                 )
+        elif require_integrity:
+            raise ValueError(
+                "Güvenlik Uyarısı: Güncelleme paketi için SHA-256 bütünlük doğrulama özeti bulunamadı!"
+            )
 
         # Extract zip with strict Zip Slip canonical path checking or handle direct executable
         is_zip = zip_path.lower().endswith('.zip') and zipfile.is_zipfile(zip_path)
         if is_zip:
             canonical_extracted = os.path.realpath(os.path.abspath(extracted_dir))
             with zipfile.ZipFile(zip_path, 'r') as zf:
-                for member in zf.infolist():
+                members = zf.infolist()
+                MAX_UNCOMPRESSED_SIZE = 500 * 1024 * 1024  # 500 MB
+                MAX_FILE_COUNT = 5000
+                if len(members) > MAX_FILE_COUNT:
+                    raise ValueError(f"Güvenlik Uyarısı (Zip Bomb): Arşivdeki dosya sayısı sınırı aşıldı ({len(members)} > {MAX_FILE_COUNT})")
+                total_uncompressed = sum(m.file_size for m in members)
+                if total_uncompressed > MAX_UNCOMPRESSED_SIZE:
+                    raise ValueError(f"Güvenlik Uyarısı (Zip Bomb): Arşivin açılmış boyutu 500 MB sınırını aşıyor ({total_uncompressed} bayt)")
+                total_compressed = sum(m.compress_size for m in members)
+                if total_compressed > 0 and (total_uncompressed / total_compressed) > 100:
+                    raise ValueError("Güvenlik Uyarısı (Zip Bomb): Aşırı yüksek sıkıştırma oranı tespit edildi (> 100x)")
+                elif total_compressed == 0 and total_uncompressed > 1024 * 1024:
+                    raise ValueError("Güvenlik Uyarısı (Zip Bomb): Geçersiz sıkıştırma boyutu ve oranı")
+
+                for member in members:
                     clean_name = os.path.splitdrive(member.filename)[1].lstrip('\\/')
                     target_path = os.path.realpath(os.path.abspath(os.path.join(canonical_extracted, clean_name)))
                     try:
@@ -431,12 +460,13 @@ class GitHubUpdater:
                 shutil.copy2(zip_path, dest_direct_exe)
 
         # 1. Determine target version (DO NOT prematurely save to settings.json before copy succeeds!)
-        clean_ver_num = ""
-        if new_version:
+        if not clean_ver_num and new_version:
             from core.config import parse_version_content
             clean_nv, _ = parse_version_content(new_version)
             if clean_nv:
                 clean_ver_num = clean_nv
+            else:
+                clean_ver_num = new_version
 
         if not clean_ver_num:
             v_file = os.path.join(source_dir, "VERSION")
@@ -503,8 +533,10 @@ class GitHubUpdater:
         ps_launcher = launcher_target.replace("'", "''")
         ps_main_py = main_py.replace("'", "''")
         ps_python_exe = python_exe.replace("'", "''")
-        ps_version = clean_ver_num.replace("'", "''")
-        ps_sha = new_commit_sha.replace("'", "''")
+        safe_ver_num = re.sub(r'[^a-zA-Z0-9._-]', '', clean_ver_num)
+        safe_commit_sha = re.sub(r'[^a-zA-Z0-9._-]', '', new_commit_sha)
+        ps_version = safe_ver_num
+        ps_sha = safe_commit_sha
 
         # =====================================================================
         # 2. Generate apply_update.ps1 (Ultra-robust PowerShell script with UTF-8 BOM)
@@ -727,16 +759,30 @@ exit 0
         # =====================================================================
         # 3. Generate apply_update.bat (BOM-encoded runner & fail-safe fallback)
         # =====================================================================
+        bad_batch_chars = set('%!&|<>^"\r\n')
+        for label, pval in (
+            ("app_root", app_root),
+            ("source_dir", source_dir),
+            ("launcher_target", launcher_target),
+            ("main_py", main_py),
+            ("python_exe", python_exe),
+        ):
+            if pval and any(ch in bad_batch_chars for ch in pval):
+                raise ValueError(f"Güvenlik Uyarısı: '{label}' yolunda geçersiz batch karakteri tespit edildi.")
+
+        safe_ver_num = re.sub(r'[^a-zA-Z0-9._-]', '', clean_ver_num)
+        safe_commit_sha = re.sub(r'[^a-zA-Z0-9._-]', '', new_commit_sha)
         batch_path = os.path.join(temp_dir, "apply_update.bat")
         with open(batch_path, "w", encoding="utf-8-sig") as bf:
             bf.write(f"""@echo off
+setlocal DisableDelayedExpansion
 chcp 65001 > nul
 set "UPDATE_LOG=%~dp0update.log"
 echo ======================================================== >> "%UPDATE_LOG%" 2>&1
 echo [NovaCare Update Started %date% %time%] >> "%UPDATE_LOG%" 2>&1
 echo AppRoot: "{app_root}" >> "%UPDATE_LOG%" 2>&1
 echo SourceDir: "{source_dir}" >> "%UPDATE_LOG%" 2>&1
-echo TargetVersion: "{clean_ver_num}" >> "%UPDATE_LOG%" 2>&1
+echo TargetVersion: "{safe_ver_num}" >> "%UPDATE_LOG%" 2>&1
 title NovaCare Guncelleme Yoneticisi
 echo ========================================================
 echo   NovaCare System Care Suite - Guncelleme Uygulaniyor
@@ -820,13 +866,13 @@ if exist "{source_dir}\\VERSION" (
 )
 
 :: Update registry DisplayVersion
-reg add "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\NovaCare" /v "DisplayVersion" /d "{clean_ver_num}" /f >> "%UPDATE_LOG%" 2>&1
-reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\NovaCare" /v "DisplayVersion" /d "{clean_ver_num}" /f >> "%UPDATE_LOG%" 2>&1
+reg add "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\NovaCare" /v "DisplayVersion" /d "{safe_ver_num}" /f >> "%UPDATE_LOG%" 2>&1
+reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\NovaCare" /v "DisplayVersion" /d "{safe_ver_num}" /f >> "%UPDATE_LOG%" 2>&1
 
 :: Update %LOCALAPPDATA%\\NovaCare\\settings.json with the new version if settings exist
 if exist "%LOCALAPPDATA%\\NovaCare\\settings.json" (
     echo [*] Updating %LOCALAPPDATA%\\NovaCare\\settings.json in CMD fallback... >> "%UPDATE_LOG%" 2>&1
-    "%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -NoProfile -ExecutionPolicy Bypass -Command "$p = Join-Path $env:LOCALAPPDATA 'NovaCare\\settings.json'; try {{ $j = Get-Content -LiteralPath $p -Raw -Encoding UTF8 | ConvertFrom-Json; $j.version = '{clean_ver_num}'; if ('{new_commit_sha}') {{ $j.local_commit_sha = '{new_commit_sha}' }}; $u = New-Object System.Text.UTF8Encoding $false; [System.IO.File]::WriteAllText($p, ($j | ConvertTo-Json -Depth 10), $u) }} catch {{}}" >> "%UPDATE_LOG%" 2>&1
+    "%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -NoProfile -ExecutionPolicy Bypass -Command "$p = Join-Path $env:LOCALAPPDATA 'NovaCare\\settings.json'; try {{ $j = Get-Content -LiteralPath $p -Raw -Encoding UTF8 | ConvertFrom-Json; $j.version = '{safe_ver_num}'; if ('{safe_commit_sha}') {{ $j.local_commit_sha = '{safe_commit_sha}' }}; $u = New-Object System.Text.UTF8Encoding $false; [System.IO.File]::WriteAllText($p, ($j | ConvertTo-Json -Depth 10), $u) }} catch {{}}" >> "%UPDATE_LOG%" 2>&1
 )
 
 :launch_fallback
@@ -865,6 +911,8 @@ exit /b 0
 
         return batch_path
 
+    extract_update = download_and_prepare_update
+
     def launch_updater_and_exit(self, batch_path: str):
         """Spawns the updater batch script in background and exits current application cleanly."""
         clean_env = os.environ.copy()
@@ -878,7 +926,7 @@ exit /b 0
             # Request UAC elevation for updater so it can update files in Program Files and HKLM
             try:
                 ret = ctypes.windll.shell32.ShellExecuteW(None, "runas", get_system32_path("cmd.exe"), f'/c "{batch_path}"', None, 1)
-                if ret > 32:
+                if (ret or 0) > 32:
                     spawned = True
             except Exception:
                 pass

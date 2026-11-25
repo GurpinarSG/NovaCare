@@ -166,8 +166,14 @@ class NetworkView(QWidget):
         self.meta_worker = None
         self.dns_apply_worker = None
         self.dns_results: list[DNSServerInfo] = []
+        self._info_loaded = False
+        self._meta_fetched = False
         self._init_ui()
-        self._load_network_info()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if not self._info_loaded:
+            self._load_network_info()
 
     def _init_ui(self):
         outer = QVBoxLayout(self)
@@ -262,15 +268,15 @@ class NetworkView(QWidget):
         self.speed_pbar.setValue(0)
         self.speed_pbar.setTextVisible(False)
         self.speed_pbar.setStyleSheet("""
-            QProgressBar {{
+            QProgressBar {
                 background-color: rgba(255, 255, 255, 0.08);
                 border: none;
                 border-radius: 5px;
-            }}
-            QProgressBar::chunk {{
+            }
+            QProgressBar::chunk {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0284C7, stop:1 #38BDF8);
                 border-radius: 5px;
-            }}
+            }
         """)
         sp_layout.addWidget(self.speed_pbar)
 
@@ -515,9 +521,6 @@ class NetworkView(QWidget):
         # Populate initial catalog rows
         self._populate_table(DNS_CATALOG)
 
-        # Asynchronously fetch meta (client IP & Edge server)
-        self._fetch_meta_async()
-
     def _fetch_meta_async(self):
         self.meta_worker = MetaFetchWorker()
         self.meta_worker.finished.connect(self._on_meta_loaded)
@@ -658,7 +661,8 @@ class NetworkView(QWidget):
     # DNS Optimizer Controls & Slots
     # =========================================================================
     def _load_network_info(self):
-        """Loads network adapters and sets the active one."""
+        """Loads network adapters and sets the active one, and kicks off Edge meta fetch once."""
+        self._info_loaded = True
         self.combo_adapters.clear()
         ifaces = self.optimizer.get_network_interfaces()
         active_idx = 0
@@ -676,6 +680,9 @@ class NetworkView(QWidget):
             self.lbl_current_dns.setText("Mevcut DNS: Ağ Bağdaştırıcısı Yok")
 
         self._refresh_ping_tuner_ui()
+        if not self._meta_fetched:
+            self._meta_fetched = True
+            self._fetch_meta_async()
 
     def _on_adapter_changed(self):
         adapter = self.combo_adapters.currentData()
@@ -754,6 +761,8 @@ class NetworkView(QWidget):
             self.table.setUpdatesEnabled(True)
 
     def _start_dns_benchmark(self):
+        if getattr(self, 'benchmark_worker', None) and self.benchmark_worker.isRunning():
+            return
         self.btn_benchmark.setEnabled(False)
         self.btn_benchmark.setText("⏳  Test Ediliyor...")
         self.benchmark_worker = DNSBenchmarkWorker()
@@ -831,17 +840,23 @@ class NetworkView(QWidget):
             QMessageBox.critical(self, "Hata", msg)
 
     def _handle_flush_dns(self):
+        if getattr(self, 'repair_worker', None) and self.repair_worker.isRunning():
+            return
         self.btn_flush.setEnabled(False)
+        self.btn_reset_stack.setEnabled(False)
         self.repair_worker = NetworkRepairWorker("flush")
         self.repair_worker.finished.connect(self._on_flush_finished)
         self.repair_worker.start()
 
     def _on_flush_finished(self, ok: bool, msg: str):
         self.btn_flush.setEnabled(True)
+        self.btn_reset_stack.setEnabled(True)
         self.lbl_repair_status.setText(msg)
         self.lbl_repair_status.setStyleSheet(f"font-size: 12px; color: {COLOR_SUCCESS};" if ok else f"font-size: 12px; color: {COLOR_DANGER};")
 
     def _handle_reset_stack(self):
+        if getattr(self, 'repair_worker', None) and self.repair_worker.isRunning():
+            return
         reply = QMessageBox.question(
             self,
             "Winsock ve Ağ Yığınını Sıfırla",
@@ -850,12 +865,16 @@ class NetworkView(QWidget):
             QMessageBox.No
         )
         if reply == QMessageBox.Yes:
+            if getattr(self, 'repair_worker', None) and self.repair_worker.isRunning():
+                return
+            self.btn_flush.setEnabled(False)
             self.btn_reset_stack.setEnabled(False)
             self.repair_worker = NetworkRepairWorker("reset_stack")
             self.repair_worker.finished.connect(self._on_reset_stack_finished)
             self.repair_worker.start()
 
     def _on_reset_stack_finished(self, ok: bool, msg: str):
+        self.btn_flush.setEnabled(True)
         self.btn_reset_stack.setEnabled(True)
         self.lbl_repair_status.setText(msg)
         self.lbl_repair_status.setStyleSheet(f"font-size: 12px; color: {COLOR_SUCCESS};" if ok else f"font-size: 12px; color: {COLOR_DANGER};")

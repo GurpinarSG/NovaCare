@@ -7,14 +7,14 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit,
     QTableWidget, QTableWidgetItem, QHeaderView, QMessageBox, QFrame,
     QDialog, QListWidget, QListWidgetItem, QCheckBox, QProgressBar,
-    QAbstractItemView
+    QAbstractItemView, QApplication
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
 from PyQt5.QtGui import QColor
 from core.uninstaller import AppUninstaller, InstalledApp, LeftoverItem
 from core.utils import format_bytes, log_debug
 from ui.styles import (
-    COLOR_ACCENT, COLOR_SUCCESS, COLOR_DANGER
+    COLOR_ACCENT, COLOR_SUCCESS, COLOR_DANGER, COLOR_WARNING
 )
 
 class AppScanWorker(QThread):
@@ -37,6 +37,28 @@ class AppScanWorker(QThread):
         except Exception:
             if not self._is_cancelled:
                 self.finished.emit([])
+
+class LeftoverScanWorker(QThread):
+    finished = pyqtSignal(list, list)  # apps, leftovers
+
+    def __init__(self, apps: list[InstalledApp], uninstaller: AppUninstaller):
+        super().__init__()
+        self.apps = apps
+        self.uninstaller = uninstaller
+        self._is_cancelled = False
+
+    def cancel(self):
+        self._is_cancelled = True
+
+    def run(self):
+        try:
+            if not self._is_cancelled:
+                leftovers = self.uninstaller.scan_multiple_leftovers(self.apps)
+                if not self._is_cancelled:
+                    self.finished.emit(self.apps, leftovers)
+        except Exception:
+            if not self._is_cancelled:
+                self.finished.emit(self.apps, [])
 
 class SingleUninstallWaitWorker(QThread):
     finished = pyqtSignal(object)  # app
@@ -112,10 +134,21 @@ class LeftoverDialog(QDialog):
         layout.addLayout(btn_box)
 
     def _clean(self):
-        for i in range(self.list_widget.count()):
-            self.leftovers[i].selected = (self.list_widget.item(i).checkState() == Qt.Checked)
+        self.btn_clean.setEnabled(False)
+        self.btn_cancel.setEnabled(False)
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        QApplication.processEvents()
+        try:
+            total_items = min(self.list_widget.count(), len(self.leftovers))
+            for i in range(total_items):
+                self.leftovers[i].selected = (self.list_widget.item(i).checkState() == Qt.Checked)
 
-        cleaned, failed = self.uninstaller.clean_leftovers(self.leftovers)
+            cleaned, failed = self.uninstaller.clean_leftovers(self.leftovers)
+        finally:
+            QApplication.restoreOverrideCursor()
+            self.btn_clean.setEnabled(True)
+            self.btn_cancel.setEnabled(True)
+
         QMessageBox.information(
             self,
             "Temizlik Tamamlandı",
@@ -124,6 +157,8 @@ class LeftoverDialog(QDialog):
             f"• Kilitli/Atlanan: {failed} öğe"
         )
         self.accept()
+
+_active_uninstall_workers = set()
 
 class BatchUninstallWorker(QThread):
     app_started = pyqtSignal(int, object)             # index, app
@@ -210,6 +245,7 @@ class BatchUninstallDialog(QDialog):
         self.uninstaller = uninstaller
         self.worker = None
         self.uninstalled_apps: list[InstalledApp] = []
+        self._is_closing = False
 
         self.setWindowTitle("NovaCare - Toplu Program Kaldırma")
         self.resize(620, 480)
@@ -272,6 +308,8 @@ class BatchUninstallDialog(QDialog):
 
     def _start_batch(self):
         self.worker = BatchUninstallWorker(self.apps, self.uninstaller)
+        _active_uninstall_workers.add(self.worker)
+        self.worker.finished.connect(lambda: _active_uninstall_workers.discard(self.worker))
         self.worker.app_started.connect(self._on_app_started)
         self.worker.progress.connect(self._on_progress)
         self.worker.app_finished.connect(self._on_app_finished)
@@ -300,13 +338,20 @@ class BatchUninstallDialog(QDialog):
                 item.setForeground(QColor(COLOR_DANGER))
 
     def _on_batch_finished(self, uninstalled: list):
+        if self._is_closing:
+            return
         self.uninstalled_apps = uninstalled
-        self.lbl_status.setText(f"Toplu kaldırma tamamlandı! {len(uninstalled)} program başarıyla kaldırıldı.")
-        self.lbl_status.setStyleSheet(f"font-size: 12px; font-weight: 700; color: {COLOR_SUCCESS};")
+        is_canceled = bool(self.worker and self.worker._is_canceled)
+        if is_canceled:
+            self.lbl_status.setText("İşlem kullanıcı tarafından durduruldu.")
+            self.lbl_status.setStyleSheet(f"font-size: 12px; font-weight: 700; color: {COLOR_WARNING};")
+        else:
+            self.lbl_status.setText(f"Toplu kaldırma tamamlandı! {len(uninstalled)} program başarıyla kaldırıldı.")
+            self.lbl_status.setStyleSheet(f"font-size: 12px; font-weight: 700; color: {COLOR_SUCCESS};")
         self.btn_cancel.setEnabled(False)
         self.btn_close.setEnabled(True)
 
-        if self.chk_auto_leftover.isChecked() and uninstalled:
+        if self.chk_auto_leftover.isChecked() and uninstalled and not is_canceled:
             leftovers = self.uninstaller.scan_multiple_leftovers(uninstalled)
             if leftovers:
                 dlg = LeftoverDialog(uninstalled, leftovers, self.uninstaller, self)
@@ -318,6 +363,49 @@ class BatchUninstallDialog(QDialog):
                     "Kaldırılan programlara ait sistemde herhangi bir artık dosya veya kayıt defteri kalıntısı bulunamadı. Sisteminiz temiz!"
                 )
 
+    def closeEvent(self, event):
+        if self.worker and self.worker.isRunning():
+            reply = QMessageBox.question(
+                self,
+                "İptal Onayı",
+                "Toplu kaldırma işlemi devam ediyor. Durdurup pencereyi kapatmak istiyor musunuz?",
+                QMessageBox.Yes | QMessageBox.No
+            )
+            if reply == QMessageBox.Yes:
+                self._is_closing = True
+                self.worker.cancel()
+                self.worker.wait(1500)
+                event.accept()
+            else:
+                event.ignore()
+        else:
+            self._is_closing = True
+            event.accept()
+
+    def reject(self):
+        if self.worker and self.worker.isRunning():
+            reply = QMessageBox.question(
+                self,
+                "İptal Onayı",
+                "Toplu kaldırma işlemi devam ediyor. Durdurup pencereyi kapatmak istiyor musunuz?",
+                QMessageBox.Yes | QMessageBox.No
+            )
+            if reply == QMessageBox.Yes:
+                self._is_closing = True
+                self.worker.cancel()
+                self.worker.wait(1500)
+                super().reject()
+        else:
+            self._is_closing = True
+            super().reject()
+
+    def accept(self):
+        self._is_closing = True
+        if self.worker and self.worker.isRunning():
+            self.worker.cancel()
+            self.worker.wait(1500)
+        super().accept()
+
     def _cancel_batch(self):
         if self.worker and self.worker.isRunning():
             reply = QMessageBox.question(
@@ -328,9 +416,8 @@ class BatchUninstallDialog(QDialog):
             )
             if reply == QMessageBox.Yes:
                 self.worker.cancel()
-                self.lbl_status.setText("İşlem durduruldu.")
+                self.lbl_status.setText("İşlem durduruluyor, lütfen bekleyin...")
                 self.btn_cancel.setEnabled(False)
-                self.btn_close.setEnabled(True)
 
 class CheckBoxCell(QWidget):
     def __init__(self, app_id: str, is_checked: bool, on_toggled, parent=None):
@@ -368,6 +455,7 @@ class UninstallerView(QWidget):
         self.checked_app_ids: set[str] = set()
         self.scan_worker = None
         self.single_wait_worker = None
+        self.leftover_scan_worker = None
         self._is_scanning = False
         self._updating_checks = False
 
@@ -455,6 +543,7 @@ class UninstallerView(QWidget):
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setSelectionMode(QTableWidget.SingleSelection)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table.itemChanged.connect(self._on_table_item_changed)
         self.table.itemDoubleClicked.connect(self._on_item_double_clicked)
         layout.addWidget(self.table)
 
@@ -490,10 +579,14 @@ class UninstallerView(QWidget):
         try:
             self.table.setRowCount(len(self.filtered_apps))
             for row, app in enumerate(self.filtered_apps):
-                # Column 0: Centered CheckBox Widget
+                # Column 0: Native lightweight checkable item (avoids per-row QWidget/QLayout overhead)
                 is_chk = app.id in self.checked_app_ids
-                cell = CheckBoxCell(app.id, is_chk, self._on_checkbox_toggled)
-                self.table.setCellWidget(row, 0, cell)
+                chk_item = QTableWidgetItem()
+                chk_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsUserCheckable)
+                chk_item.setCheckState(Qt.Checked if is_chk else Qt.Unchecked)
+                chk_item.setData(Qt.UserRole, app.id)
+                chk_item.setTextAlignment(Qt.AlignCenter)
+                self.table.setItem(row, 0, chk_item)
 
                 # Column 1: Name (Read-only)
                 name_item = QTableWidgetItem(f"📦  {app.name}")
@@ -530,6 +623,13 @@ class UninstallerView(QWidget):
 
         self._update_selection_ui()
 
+    def _on_table_item_changed(self, item: QTableWidgetItem):
+        if self._updating_checks or item.column() != 0:
+            return
+        app_id = item.data(Qt.UserRole)
+        if app_id:
+            self._on_checkbox_toggled(app_id, item.checkState() == Qt.Checked)
+
     def _on_checkbox_toggled(self, app_id: str, is_checked: bool):
         if self._updating_checks:
             return
@@ -544,14 +644,15 @@ class UninstallerView(QWidget):
             return
         self._updating_checks = True
         is_chk = (state == Qt.Checked)
+        chk_state = Qt.Checked if is_chk else Qt.Unchecked
         for row, app in enumerate(self.filtered_apps):
             if is_chk:
                 self.checked_app_ids.add(app.id)
             else:
                 self.checked_app_ids.discard(app.id)
-            cell = self.table.cellWidget(row, 0)
-            if isinstance(cell, CheckBoxCell):
-                cell.setChecked(is_chk)
+            chk_item = self.table.item(row, 0)
+            if chk_item is not None:
+                chk_item.setCheckState(chk_state)
         self._updating_checks = False
         self._update_selection_ui()
 
@@ -559,9 +660,10 @@ class UninstallerView(QWidget):
         if event.key() == Qt.Key_Space:
             row = self.table.currentRow()
             if 0 <= row < len(self.filtered_apps):
-                cell = self.table.cellWidget(row, 0)
-                if isinstance(cell, CheckBoxCell):
-                    cell.checkbox.toggle()
+                chk_item = self.table.item(row, 0)
+                if chk_item is not None:
+                    new_state = Qt.Unchecked if chk_item.checkState() == Qt.Checked else Qt.Checked
+                    chk_item.setCheckState(new_state)
                 return
         super().keyPressEvent(event)
 
@@ -693,7 +795,21 @@ class UninstallerView(QWidget):
         self._scan_leftovers_for_apps(checked_apps)
 
     def _scan_leftovers_for_apps(self, apps: list[InstalledApp]):
-        leftovers = self.uninstaller.scan_multiple_leftovers(apps)
+        if self.leftover_scan_worker and self.leftover_scan_worker.isRunning():
+            return
+        self.btn_leftovers.setEnabled(False)
+        self.btn_leftovers.setText("⏳ Taranıyor...")
+        self.lbl_stats.setText("⏳ Kalıntı dosya ve kayıt defteri girdileri taranıyor...")
+
+        self.leftover_scan_worker = LeftoverScanWorker(apps, self.uninstaller)
+        self.leftover_scan_worker.finished.connect(self._on_leftovers_scanned)
+        self.leftover_scan_worker.start()
+
+    def _on_leftovers_scanned(self, apps: list[InstalledApp], leftovers: list[LeftoverItem]):
+        self.btn_leftovers.setEnabled(True)
+        self.btn_leftovers.setText("✨  Artıkları Tara")
+        self._update_selection_ui()
+
         if not leftovers:
             target_name = f"{len(apps)} program" if len(apps) > 1 else f"'{apps[0].name}'"
             QMessageBox.information(

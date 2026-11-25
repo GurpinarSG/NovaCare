@@ -325,30 +325,36 @@ class PrivacyTweaker:
                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                         timeout=5, creationflags=flags
                     )
-                    subprocess.run(
+                    res_cfg = subprocess.run(
                         [get_system32_path("sc"), "config", svc_name, "start=disabled"],
                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                         timeout=5, creationflags=flags
                     )
-                    stopped_services.append(friendly)
+                    if res_cfg.returncode == 0:
+                        stopped_services.append(friendly)
+                    else:
+                        failed += 1
                 except Exception:
-                    pass
+                    failed += 1
         else:
             for svc_name, friendly in telemetry_svcs:
                 try:
-                    subprocess.run(
+                    res_cfg = subprocess.run(
                         [get_system32_path("sc"), "config", svc_name, "start=auto"],
                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                         timeout=5, creationflags=flags
                     )
-                    subprocess.run(
+                    res_start = subprocess.run(
                         [get_system32_path("net"), "start", svc_name],
                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                         timeout=5, creationflags=flags
                     )
-                    stopped_services.append(friendly)
+                    if res_cfg.returncode == 0 and res_start.returncode in (0, 2):
+                        stopped_services.append(friendly)
+                    else:
+                        failed += 1
                 except Exception:
-                    pass
+                    failed += 1
 
         return success, failed, stopped_services
 

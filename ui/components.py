@@ -155,8 +155,9 @@ class StatCard(QFrame):
         layout.addWidget(self.sub_lbl)
 
     def set_value(self, value: str, subtitle: str = ""):
-        self.value_lbl.setText(value)
-        if subtitle:
+        if self.value_lbl.text() != value:
+            self.value_lbl.setText(value)
+        if subtitle and self.sub_lbl.text() != subtitle:
             self.sub_lbl.setText(subtitle)
 
 from ui.desktop_widget import DesktopPerformanceWidget

@@ -54,6 +54,7 @@ class GameProfilesDialog(QDialog):
         self.status_timer = QTimer(self)
         self.status_timer.timeout.connect(self._update_active_status)
         self.status_timer.start(2500)
+        self.finished.connect(self._cleanup_resources)
         self._update_active_status()
 
     def _init_ui(self):
@@ -80,12 +81,12 @@ class GameProfilesDialog(QDialog):
         # 2. Master Automation Switch Card
         sw_card = QFrame()
         sw_card.setStyleSheet("""
-            QFrame {{
+            QFrame {
                 background-color: rgba(16, 185, 129, 0.08);
                 border: 1px solid rgba(16, 185, 129, 0.28);
                 border-radius: 8px;
                 padding: 10px 14px;
-            }}
+            }
         """)
         sw_layout = QHBoxLayout(sw_card)
         sw_layout.setContentsMargins(8, 6, 8, 6)
@@ -295,12 +296,15 @@ class GameProfilesDialog(QDialog):
             f"{added_cnt} yeni oyun profili listenize otomatik olarak dahil edildi!"
         )
 
-    def closeEvent(self, event):
+    def _cleanup_resources(self):
         if hasattr(self, 'status_timer') and self.status_timer.isActive():
             self.status_timer.stop()
         if hasattr(self, 'scan_worker') and self.scan_worker and self.scan_worker.isRunning():
-            self.scan_worker.quit()
-            self.scan_worker.wait(200)
+            self.scan_worker.cancel()
+            self.scan_worker.wait(500)
+
+    def closeEvent(self, event):
+        self._cleanup_resources()
         super().closeEvent(event)
 
     def _delete_profile(self, profile_id: str):

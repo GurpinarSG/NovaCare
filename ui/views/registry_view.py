@@ -301,6 +301,8 @@ class RegistryView(QWidget):
 
     # Issue cleaner methods
     def _start_scan(self):
+        if (self.scan_thread and self.scan_thread.isRunning()) or (self.fix_thread and self.fix_thread.isRunning()):
+            return
         self.btn_scan.setEnabled(False)
         self.btn_fix.setEnabled(False)
         self.progress_bar.setVisible(True)
@@ -342,6 +344,8 @@ class RegistryView(QWidget):
             issue.selected = checked
 
     def _start_fix(self):
+        if (self.fix_thread and self.fix_thread.isRunning()) or (self.scan_thread and self.scan_thread.isRunning()):
+            return
         selected_issues = [i for i in self.issues if i.selected]
         if not selected_issues:
             QMessageBox.information(self, "Bilgi", "Onarılacak herhangi bir sorun seçilmedi.")

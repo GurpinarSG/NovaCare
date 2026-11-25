@@ -56,14 +56,9 @@ class BloatwareRemoveWorker(QThread):
         removed = 0
         errs = []
         try:
-            for pkg in self.packages:
-                if self._is_cancelled:
-                    break
-                ok, msg = self.cleaner.remove_bloatware_package(pkg)
-                if ok:
-                    removed += 1
-                else:
-                    errs.append(f"{pkg}: {msg}")
+            if not self._is_cancelled:
+                removed_pkgs, errs = self.cleaner.remove_bloatware_packages(self.packages)
+                removed = len(removed_pkgs)
         except Exception as e:
             log_debug(f"BloatwareRemoveWorker error: {e}")
             errs.append(str(e))
@@ -644,6 +639,10 @@ class PrivacyView(QWidget):
     # SMART COOKIE SHIELD LOGIC
     # -------------------------------------------------------------------------
     def _scan_cookies(self):
+        if getattr(self, 'cookie_scan_worker', None) and self.cookie_scan_worker.isRunning():
+            return
+        if getattr(self, 'cookie_clean_worker', None) and self.cookie_clean_worker.isRunning():
+            return
         self.btn_scan_cookies.setEnabled(False)
         self.btn_scan_cookies.setText("🔍  Taranıyor...")
         self.cookie_scan_worker = CookieScanWorker()
@@ -708,7 +707,7 @@ class PrivacyView(QWidget):
         if dlg.exec_() == QDialog.Accepted:
             self._scan_cookies()
 
-    def _close_locked_browsers(self):
+    def _close_locked_browsers(self, rescan: bool = True):
         locked = self.cookie_data.get('locked_browsers', [])
         targets = self.cookie_shield.get_browser_targets()
         closed_any = False
@@ -717,11 +716,15 @@ class PrivacyView(QWidget):
                 self.cookie_shield.close_browser(t['exe'])
                 closed_any = True
 
-        if closed_any:
+        if closed_any and rescan:
             QMessageBox.information(self, "Tarayıcılar Kapatıldı", "Kilitli tarayıcı süreçleri sonlandırıldı. Yeniden taranıyor...")
             self._scan_cookies()
 
     def _clean_tracking_cookies(self):
+        if getattr(self, 'cookie_clean_worker', None) and self.cookie_clean_worker.isRunning():
+            return
+        if getattr(self, 'cookie_scan_worker', None) and self.cookie_scan_worker.isRunning():
+            return
         track_count = self.cookie_data.get('tracking_count', 0)
         prot_count = self.cookie_data.get('protected_count', 0)
         locked = self.cookie_data.get('locked_browsers', [])
@@ -739,7 +742,7 @@ class PrivacyView(QWidget):
             if ans == QMessageBox.Cancel:
                 return
             if ans == QMessageBox.Yes:
-                self._close_locked_browsers()
+                self._close_locked_browsers(rescan=False)
 
         reply = QMessageBox.question(
             self,
@@ -776,6 +779,10 @@ class PrivacyView(QWidget):
     # BLOATWARE & TELEMETRY LOGIC
     # -------------------------------------------------------------------------
     def _scan_bloatware(self):
+        if getattr(self, 'scan_worker', None) and self.scan_worker.isRunning():
+            return
+        if getattr(self, 'remove_worker', None) and self.remove_worker.isRunning():
+            return
         self.btn_scan_bloatware.setEnabled(False)
         self.lbl_bloatware_status.setText("Yüklü bloatware paketleri taranıyor...")
         self.scan_worker = BloatwareScanWorker()
@@ -836,6 +843,8 @@ class PrivacyView(QWidget):
     def _remove_selected_bloatware(self):
         if not self.selected_bloatware:
             return
+        if getattr(self, 'remove_worker', None) and self.remove_worker.isRunning():
+            return
 
         has_admin = is_admin()
         admin_note = (
@@ -861,6 +870,7 @@ class PrivacyView(QWidget):
         self.remove_worker.start()
 
     def _on_bloatware_removed(self, count: int, errors: list):
+        self.btn_remove_bloatware.setEnabled(True)
         QMessageBox.information(
             self,
             "İşlem Tamamlandı",
@@ -869,6 +879,8 @@ class PrivacyView(QWidget):
         self._scan_bloatware()
 
     def _disable_deep_telemetry(self):
+        if getattr(self, 'telemetry_worker', None) and self.telemetry_worker.isRunning():
+            return
         has_admin = is_admin()
         admin_note = (
             "\n\n🛡️ Yönetici Yetkisi Aktif: Servisler ve kayıt defteri grup ilkeleri en derin seviyede kapatılacaktır."
@@ -937,16 +949,9 @@ class PrivacyView(QWidget):
         )
         self._refresh_traces()
 
-    def _refresh_tweaks(self):
-        while self.tweaks_container.count():
-            item = self.tweaks_container.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-
+    def _update_antispy_status_label(self):
         theme = get_active_theme_colors()
-        self.tweaks = self.tweaker.check_tweak_statuses()
-
-        all_active = all(t.current_enabled for t in self.tweaks)
+        all_active = bool(self.tweaks) and all(t.current_enabled for t in self.tweaks)
         active_count = sum(1 for t in self.tweaks if t.current_enabled)
         if hasattr(self, 'lbl_antispy_status'):
             if all_active:
@@ -955,6 +960,16 @@ class PrivacyView(QWidget):
             else:
                 self.lbl_antispy_status.setText(f"⚠️  Kısmi Koruma ({active_count}/{len(self.tweaks)} Aktif)")
                 self.lbl_antispy_status.setStyleSheet(f"color: {theme['COLOR_WARNING']}; font-weight: 700;")
+
+    def _refresh_tweaks(self):
+        while self.tweaks_container.count():
+            item = self.tweaks_container.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        theme = get_active_theme_colors()
+        self.tweaks = self.tweaker.check_tweak_statuses()
+        self._update_antispy_status_label()
 
         for tweak in self.tweaks:
             row_frame = QFrame()
@@ -991,12 +1006,13 @@ class PrivacyView(QWidget):
         enable = (state == Qt.Checked)
         success = self.tweaker.apply_tweak(tweak, enable)
         if success:
+            tweak.current_enabled = enable
             t_theme = get_active_theme_colors()
             status_txt = "🛡️ Korumada (Engellendi)" if enable else "⚠️ Varsayılan (İzin Verildi)"
             status_col = t_theme['COLOR_SUCCESS'] if enable else t_theme['COLOR_WARNING']
             checkbox.setText(status_txt)
             checkbox.setStyleSheet(f"background-color: transparent; background: transparent; font-weight: 600; color: {status_col};")
-            self._refresh_tweaks()
+            self._update_antispy_status_label()
         else:
             checkbox.blockSignals(True)
             checkbox.setChecked(not enable)

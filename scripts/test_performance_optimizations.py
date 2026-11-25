@@ -293,7 +293,10 @@ class TestPerformanceOptimizations(unittest.TestCase):
             mock_connect.side_effect = Exception("database is locked")
             res = shield.scan_cookies()
             self.assertIn("Google Chrome", res['locked_browsers'])
-            mock_connect.assert_called_once_with(r'C:\NonExistent\Cookies', timeout=0.05)
+            import urllib.request
+            target_p = r'C:\NonExistent\Cookies'
+            expected_uri = f"file:{urllib.request.pathname2url(os.path.abspath(target_p))}?mode=ro"
+            mock_connect.assert_called_once_with(expected_uri, uri=True, timeout=0.05)
 
     def test_14_main_window_hide_and_show_events(self):
         """Verify MainWindow hideEvent and showEvent correctly pause and resume view timers and throttle state."""

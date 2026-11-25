@@ -4,6 +4,7 @@ Scans and cleans temporary files, browser caches, logs, crash dumps, and recycle
 """
 import os
 import sys
+import stat
 import glob
 from dataclasses import dataclass, field
 from typing import Callable, Optional
@@ -121,32 +122,32 @@ class JunkCleaner:
                 name="Google Chrome Önbelleği",
                 description="Web gezinti verileri, GPU önbelleği ve kod önbellekleri",
                 icon="🌐",
-                paths=[
-                    os.path.join(local_app, 'Google', 'Chrome', 'User Data', 'Default', 'Cache'),
-                    os.path.join(local_app, 'Google', 'Chrome', 'User Data', 'Default', 'Code Cache'),
-                    os.path.join(local_app, 'Google', 'Chrome', 'User Data', 'Default', 'GPUCache')
-                ]
+                paths=(
+                    glob.glob(os.path.join(local_app, 'Google', 'Chrome', 'User Data', '*', 'Cache'))
+                    + glob.glob(os.path.join(local_app, 'Google', 'Chrome', 'User Data', '*', 'Code Cache'))
+                    + glob.glob(os.path.join(local_app, 'Google', 'Chrome', 'User Data', '*', 'GPUCache'))
+                )
             ),
             CleanerCategory(
                 id="browser_edge",
                 name="Microsoft Edge Önbelleği",
                 description="Edge tarayıcısı web sayfaları ve medya önbellekleri",
                 icon="🌐",
-                paths=[
-                    os.path.join(local_app, 'Microsoft', 'Edge', 'User Data', 'Default', 'Cache'),
-                    os.path.join(local_app, 'Microsoft', 'Edge', 'User Data', 'Default', 'Code Cache'),
-                    os.path.join(local_app, 'Microsoft', 'Edge', 'User Data', 'Default', 'GPUCache')
-                ]
+                paths=(
+                    glob.glob(os.path.join(local_app, 'Microsoft', 'Edge', 'User Data', '*', 'Cache'))
+                    + glob.glob(os.path.join(local_app, 'Microsoft', 'Edge', 'User Data', '*', 'Code Cache'))
+                    + glob.glob(os.path.join(local_app, 'Microsoft', 'Edge', 'User Data', '*', 'GPUCache'))
+                )
             ),
             CleanerCategory(
                 id="browser_brave",
                 name="Brave Tarayıcı Önbelleği",
                 description="Brave Browser geçici internet dosyaları ve önbellekleri",
                 icon="🦁",
-                paths=[
-                    os.path.join(local_app, 'BraveSoftware', 'Brave-Browser', 'User Data', 'Default', 'Cache'),
-                    os.path.join(local_app, 'BraveSoftware', 'Brave-Browser', 'User Data', 'Default', 'Code Cache')
-                ]
+                paths=(
+                    glob.glob(os.path.join(local_app, 'BraveSoftware', 'Brave-Browser', 'User Data', '*', 'Cache'))
+                    + glob.glob(os.path.join(local_app, 'BraveSoftware', 'Brave-Browser', 'User Data', '*', 'Code Cache'))
+                )
             ),
             CleanerCategory(
                 id="browser_firefox",
@@ -168,13 +169,20 @@ class JunkCleaner:
         ]
         return cats
 
-    def scan_all(self, progress_callback: Optional[Callable[[str, int, int], None]] = None) -> list[CleanerCategory]:
+    def scan_all(
+        self,
+        progress_callback: Optional[Callable[[str, int, int], None]] = None,
+        cancel_callback: Optional[Callable[[], bool]] = None
+    ) -> list[CleanerCategory]:
         """
         Scan all categories.
         progress_callback(current_cat_name, current_index, total_categories)
         """
         total = len(self.categories)
         for idx, cat in enumerate(self.categories):
+            if cancel_callback and cancel_callback():
+                break
+
             if progress_callback:
                 progress_callback(cat.name, idx + 1, total)
 
@@ -189,6 +197,9 @@ class JunkCleaner:
                 continue
 
             for p in cat.paths:
+                if cancel_callback and cancel_callback():
+                    break
+
                 if not os.path.exists(p):
                     continue
 
@@ -196,6 +207,8 @@ class JunkCleaner:
                     # Only match thumbcache_*.db
                     try:
                         for entry in os.scandir(p):
+                            if cancel_callback and cancel_callback():
+                                break
                             if entry.is_file() and entry.name.lower().startswith('thumbcache_'):
                                 try:
                                     st = entry.stat()
@@ -210,11 +223,20 @@ class JunkCleaner:
                     continue
 
                 # Normal directories
-                self._scan_folder_recursive(p, cat)
+                self._scan_folder_recursive(p, cat, cancel_callback=cancel_callback)
 
         return self.categories
 
-    def _scan_folder_recursive(self, path: str, cat: CleanerCategory, depth: int = 0):
+    def _scan_folder_recursive(
+        self,
+        path: str,
+        cat: CleanerCategory,
+        depth: int = 0,
+        cancel_callback: Optional[Callable[[], bool]] = None
+    ):
+        if cancel_callback and cancel_callback():
+            return
+
         if depth > 8:  # Prevent cyclic or extreme folder structures
             return
 
@@ -232,9 +254,13 @@ class JunkCleaner:
         if any(app in norm_path for app in _EXCLUDED_APP_FRAGMENTS):
             return
 
+        s_isreg = stat.S_ISREG
+        s_isdir = stat.S_ISDIR
         try:
             with os.scandir(path) as it:
                 for entry in it:
+                    if cancel_callback and cancel_callback():
+                        break
                     try:
                         e_name = entry.name.lower()
                         # Strict exclusion of active PyInstaller runtime directories
@@ -245,17 +271,20 @@ class JunkCleaner:
                         if e_name in _EXCLUDED_NAMES:
                             continue
 
-                        # Avoid traversing symlinks and Windows NTFS junction points
-                        if is_reparse_point(entry):
+                        # Avoid traversing symlinks and Windows NTFS junction points with a single stat syscall
+                        if entry.is_symlink():
                             continue
-
-                        if entry.is_file(follow_symlinks=False):
-                            sz = entry.stat().st_size
+                        st = entry.stat(follow_symlinks=False)
+                        if getattr(st, 'st_reparse_tag', 0) != 0:
+                            continue
+                        mode = st.st_mode
+                        if s_isreg(mode):
+                            sz = st.st_size
                             cat.size += sz
                             cat.file_count += 1
                             cat.found_files.append(JunkFilePath(entry.path, sz))
-                        elif entry.is_dir(follow_symlinks=False):
-                            self._scan_folder_recursive(entry.path, cat, depth + 1)
+                        elif s_isdir(mode):
+                            self._scan_folder_recursive(entry.path, cat, depth + 1, cancel_callback=cancel_callback)
                     except (PermissionError, FileNotFoundError, OSError):
                         continue
         except (PermissionError, FileNotFoundError, OSError):
@@ -265,7 +294,8 @@ class JunkCleaner:
         self,
         category_ids: set[str],
         progress_callback: Optional[Callable[[str, int, int], None]] = None,
-        file_progress_callback: Optional[Callable[[str, int, int], None]] = None
+        file_progress_callback: Optional[Callable[[str, int, int], None]] = None,
+        cancel_callback: Optional[Callable[[], bool]] = None
     ) -> tuple[int, int, int]:
         """
         Cleans selected categories with fine-grained file progress and anti-freeze guards.
@@ -282,8 +312,13 @@ class JunkCleaner:
 
         meipass = getattr(sys, '_MEIPASS', None)
         meipass_norm = os.path.normpath(meipass).lower() if meipass else None
+        local_novacare_norm = os.path.normpath(os.path.join(os.environ.get('LOCALAPPDATA', ''), 'NovaCare')).lower()
+        app_root_norm = os.path.normpath(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))).lower()
 
         for idx, cat in enumerate(target_cats):
+            if cancel_callback and cancel_callback():
+                break
+
             if progress_callback:
                 progress_callback(cat.name, idx + 1, total_ops)
 
@@ -302,6 +337,9 @@ class JunkCleaner:
             last_progress_time = time.time()
 
             for f_idx, f_path in enumerate(cat.found_files, 1):
+                if cancel_callback and cancel_callback():
+                    break
+
                 # Throttle file-level progress to avoid UI flooding (every 40 files or ~120ms)
                 now = time.time()
                 if file_progress_callback and (f_idx % 40 == 0 or now - last_progress_time > 0.12 or f_idx == total_cat_files):
@@ -312,7 +350,13 @@ class JunkCleaner:
                     norm_fp = os.path.normpath(f_path).lower()
                     if meipass_norm and norm_fp.startswith(meipass_norm):
                         continue
-                    if '\\_mei' in norm_fp or '/_mei' in norm_fp or 'novacare' in norm_fp:
+                    if (
+                        norm_fp.startswith(local_novacare_norm + os.sep)
+                        or norm_fp.startswith(app_root_norm + os.sep)
+                        or '\\_mei' in norm_fp
+                        or '/_mei' in norm_fp
+                        or os.path.basename(norm_fp).startswith(('novacare_', 'novacare.'))
+                    ):
                         continue
 
                     # Absolute shield: Never touch Discord or real-time communication app files
@@ -353,7 +397,11 @@ class JunkCleaner:
             # NEVER attempt rmdir in system directories like C:\Windows\Logs, Explorer, or Panther
             safe_rmdir_cats = {"user_temp", "system_temp", "apps_cache"}
             if cat.id in safe_rmdir_cats:
+                if cancel_callback and cancel_callback():
+                    break
                 for p in cat.paths:
+                    if cancel_callback and cancel_callback():
+                        break
                     p_norm = os.path.normpath(p).lower()
                     if any(app in p_norm for app in ('discord', 'telegram', 'whatsapp', 'signal')):
                         continue
@@ -366,6 +414,8 @@ class JunkCleaner:
                                     visited_dirs.append(os.path.join(root, d))
 
                             for dir_to_check in reversed(visited_dirs):
+                                if cancel_callback and cancel_callback():
+                                    break
                                 # Never remove the category root path itself
                                 if os.path.abspath(dir_to_check) == os.path.abspath(p):
                                     continue

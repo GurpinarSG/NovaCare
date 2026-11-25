@@ -73,7 +73,7 @@ class DownloadUpdateThread(QThread):
     progress = pyqtSignal(int, int) # downloaded, total
     finished = pyqtSignal(str)      # batch_path or error
 
-    def __init__(self, updater: GitHubUpdater, download_url: str, new_commit_sha: str = "", new_version: str = "", expected_sha256: str = "", sha256sums_url: str = ""):
+    def __init__(self, updater: GitHubUpdater, download_url: str, new_commit_sha: str = "", new_version: str = "", expected_sha256: str = "", sha256sums_url: str = "", require_integrity: bool = False):
         super().__init__()
         self.updater = updater
         self.download_url = download_url
@@ -81,6 +81,7 @@ class DownloadUpdateThread(QThread):
         self.new_version = new_version
         self.expected_sha256 = expected_sha256
         self.sha256sums_url = sha256sums_url
+        self.require_integrity = require_integrity
         self._is_cancelled = False
 
     def cancel(self):
@@ -95,7 +96,8 @@ class DownloadUpdateThread(QThread):
                     new_version=self.new_version,
                     expected_sha256=self.expected_sha256,
                     sha256sums_url=self.sha256sums_url,
-                    progress_callback=lambda d, t: self.progress.emit(d, t) if not self._is_cancelled else None
+                    progress_callback=lambda d, t: self.progress.emit(d, t) if not self._is_cancelled else None,
+                    require_integrity=self.require_integrity
                 )
                 if not self._is_cancelled:
                     self.finished.emit(batch_path)
@@ -124,6 +126,26 @@ class AutostartWorker(QThread):
             if not self._is_cancelled:
                 self.finished.emit(self.enable, False)
 
+class AutostartStatusWorker(QThread):
+    finished = pyqtSignal(bool)
+
+    def __init__(self):
+        super().__init__()
+        self._is_cancelled = False
+
+    def cancel(self):
+        self._is_cancelled = True
+
+    def run(self):
+        try:
+            if not self._is_cancelled:
+                enabled = is_autostart_enabled(allow_cli=True)
+                if not self._is_cancelled:
+                    self.finished.emit(enabled)
+        except Exception:
+            if not self._is_cancelled:
+                self.finished.emit(False)
+
 class SettingsView(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -134,7 +156,27 @@ class SettingsView(QWidget):
         self.download_thread = None
         self.manual_clean_worker = None
         self.autostart_worker = None
+        self.autostart_status_worker = None
+        self._autostart_cli_checked = False
         self._init_ui()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if not self._autostart_cli_checked and not self.chk_autostart.isChecked():
+            self._autostart_cli_checked = True
+            self.autostart_status_worker = AutostartStatusWorker()
+            self.autostart_status_worker.finished.connect(self._on_autostart_status_checked)
+            self.autostart_status_worker.start()
+
+    def _on_autostart_status_checked(self, enabled: bool):
+        if self.autostart_worker and self.autostart_worker.isRunning():
+            return
+        if self.chk_autostart.isChecked() != enabled:
+            self.chk_autostart.blockSignals(True)
+            self.chk_autostart.setChecked(enabled)
+            self.chk_autostart.blockSignals(False)
+        if hasattr(self, 'widget_autostart_container'):
+            self.widget_autostart_container.setEnabled(enabled)
 
     def _init_ui(self):
         main_layout = QVBoxLayout(self)
@@ -701,7 +743,8 @@ class SettingsView(QWidget):
         g_layout.addWidget(lbl_g_title)
 
         self.chk_autostart = QCheckBox("🚀  Windows başladığında NovaCare'i arka planda otomatik olarak çalıştır")
-        is_auto = is_autostart_enabled()
+        is_auto = is_autostart_enabled(allow_cli=False)
+        self._autostart_cli_checked = is_auto
         self.chk_autostart.setChecked(is_auto)
         self.chk_autostart.stateChanged.connect(self._on_autostart_toggle)
         g_layout.addWidget(self.chk_autostart)
@@ -884,6 +927,8 @@ class SettingsView(QWidget):
 
     def check_for_updates_manual(self):
         """Triggers manual check with loading state."""
+        if getattr(self, 'check_thread', None) and self.check_thread.isRunning():
+            return
         self.btn_check_now.setEnabled(False)
         self.btn_check_now.setText("⏳  Güncelleştirmeler Denetleniyor...")
         self.lbl_status_badge.setText("⏳  Denetleniyor...")
@@ -961,6 +1006,8 @@ class SettingsView(QWidget):
             )
 
     def _download_and_install(self):
+        if getattr(self, 'download_thread', None) and self.download_thread.isRunning():
+            return
         if not self.latest_update_info or not self.latest_update_info.download_url:
             QMessageBox.warning(self, "Hata", "İndirme bağlantısı bulunamadı.")
             return
@@ -983,13 +1030,15 @@ class SettingsView(QWidget):
 
         new_sha = self.latest_update_info.new_commit_sha or ""
         new_ver = self.latest_update_info.latest_version or ""
+        require_integrity = getattr(sys, 'frozen', False) or self.config.get("update_mode", "release") == "release"
         self.download_thread = DownloadUpdateThread(
             self.updater,
             self.latest_update_info.download_url,
             new_commit_sha=new_sha,
             new_version=new_ver,
             expected_sha256=getattr(self.latest_update_info, 'sha256', ''),
-            sha256sums_url=getattr(self.latest_update_info, 'sha256sums_url', '')
+            sha256sums_url=getattr(self.latest_update_info, 'sha256sums_url', ''),
+            require_integrity=require_integrity
         )
         self.download_thread.progress.connect(self._on_download_progress)
         self.download_thread.finished.connect(self._on_download_finished)
@@ -1040,7 +1089,7 @@ class SettingsView(QWidget):
     def _update_scheduler_details_ui(self):
         cur_sch = self.combo_schedule.currentData() if hasattr(self, 'combo_schedule') else self.config.get("auto_clean_schedule", "weekly")
         if hasattr(self, 'frame_sch_time'):
-            self.frame_sch_time.setVisible(cur_sch in ("scheduled_time", "daily", "weekly"))
+            self.frame_sch_time.setVisible(cur_sch == "scheduled_time")
         if hasattr(self, 'frame_sch_idle'):
             self.frame_sch_idle.setVisible(cur_sch == "idle")
 
@@ -1111,6 +1160,8 @@ class SettingsView(QWidget):
                 main_win.desktop_widget.show()
 
     def _run_auto_clean_manual(self):
+        if getattr(self, 'manual_clean_worker', None) and self.manual_clean_worker.isRunning():
+            return
         self.btn_run_auto_clean_now.setEnabled(False)
         self.btn_run_auto_clean_now.setText("⏳  Temizleniyor...")
         self.manual_clean_worker = ManualAutoCleanWorker()
@@ -1145,14 +1196,16 @@ class SettingsView(QWidget):
                 pass
         return (
             "# 📋 NovaCare Sürüm Güncelleme Notları\n\n"
-            "## 🚀 [v1.0.1] - 2026-10-16 (Güncel Sürüm)\n"
-            "• Pencere Boyutu & Düzen: Ekrana duyarlı (responsive) dinamik pencere boyutu eklendi. 768p ve yüksek DPI ekranlarda görev çubuğu taşması önlendi.\n"
-            "• Metin Kaydırma: Tüm 11 sekmedeki alt başlıklara kelime kaydırma (word-wrap) eklendi; yazıların ekrandan taşması giderildi.\n"
-            "• Denetim Masası Kaldırma: Yerel uninstaller motoru (--uninstall) entegre edildi; Windows Ayarlar / Denetim Masası üzerinden sorunsuz kaldırma sağlandı.\n"
-            "• Kurulum Sihirbazı: Koyu tema, düzeltilen yazı ve kontrast sorunları, net ve okunaklı tasarım.\n"
-            "• Yönetici Ayrıcalığı: Ayarlar ekranında yönetici olarak başlatma seçeneği ve temizleme ekranlarında derin temizlik vurgusu.\n"
-            "• Güvenlik: GitHub API belirteçleri Windows DPAPI ile şifrelendi.\n"
-            "• Performans: Çoklu iş parçacığı ve bellek yönetimi iyileştirmeleri.\n\n"
+            "## 🚀 [v1.3.1] - 2026-11-21 (Güncel Sürüm)\n"
+            "• Performans ve Güvenlik: Kritik Win32 native API, UAC kabuğu ve iş parçacığı kapatma korumaları uygulandı.\n"
+            "• Görev Zamanlayıcı Uyumluluğu: schtasks komut satırı tırnaklama mimarisi onarıldı.\n"
+            "• Toplu Kaldırma Koruması: Toplu program kaldırma ve artık temizleme pencerelerine güvenli iş parçacığı sonlandırma eklendi.\n"
+            "• Önleyici Korumalar: Gösterge paneli ve temizlik taramalarında çift tıklama ve iptal geri çağırma kalkanları entegre edildi.\n"
+            "• Akıllı Monitör: Kişiselleştirilebilir masaüstü donanım göstergesi, 3 yeni tema ve NVML kaynak temizliği.\n\n"
+            "## 🚀 [v1.3.0] - 2026-11-10\n"
+            "• Akıllı Donanım Monitörü kişiselleştirme desteği ve masaüstü widget temaları eklendi.\n"
+            "• Oyunlar için ping ve ağ optimizasyonu desteği entegre edildi.\n"
+            "• 64-bit kayıt defteri ve bellek hızlandırıcı native Win32 API düzeltmeleri yapıldı.\n\n"
             "## 📦 [v1.0.0] - 2026-10-15 (İlk Kararlı Sürüm)\n"
             "• Tek Tıkla Bakım, Çöp Dosya Temizliği, Kayıt Defteri Onarımı, Başlangıç Yöneticisi, Bloatware & Gizlilik Koruması, Ağ/DNS Optimizasyonu, Kurtarma Merkezi modülleri."
         )

@@ -674,8 +674,15 @@ class DesktopPerformanceWidget(QWidget):
         except Exception as e:
             log_debug(f"DesktopPerformanceWidget telemetry error: {e}")
 
+    @staticmethod
+    def _set_label_text(lbl, text: str):
+        if lbl.text() != text:
+            lbl.setText(text)
+
     def update_stats(self, stats: dict):
         """Updates display labels with live hardware metrics."""
+        if not self.isVisible():
+            return
         cpu_pct = stats.get("cpu_percent", 0)
         cpu_freq = stats.get("cpu_freq_ghz", 0.0)
         cpu_temp = stats.get("cpu_temp")
@@ -697,59 +704,60 @@ class DesktopPerformanceWidget(QWidget):
 
         layout_mode = self.config.get("desktop_widget_layout", "card")
         temp_str = f" | {cpu_temp:.0f}°C" if cpu_temp is not None else ""
+        set_lbl = self._set_label_text
 
         if layout_mode == "horizontal":
             if hasattr(self, 'lbl_cpu'):
-                self.lbl_cpu.setText(f"CPU: %{cpu_pct:.0f}{temp_str}")
+                set_lbl(self.lbl_cpu, f"CPU: %{cpu_pct:.0f}{temp_str}")
             if hasattr(self, 'lbl_ram'):
-                self.lbl_ram.setText(f"RAM: %{ram_pct:.0f}")
+                set_lbl(self.lbl_ram, f"RAM: %{ram_pct:.0f}")
             if hasattr(self, 'lbl_gpu'):
                 g_temp = f" ({gpu_temp}°C)" if gpu_temp is not None else ""
-                self.lbl_gpu.setText(f"GPU: %{gpu_load}{g_temp}" if has_gpu else "GPU: Yok")
+                set_lbl(self.lbl_gpu, f"GPU: %{gpu_load}{g_temp}" if has_gpu else "GPU: Yok")
             if hasattr(self, 'lbl_disk'):
-                self.lbl_disk.setText(f"💾 {d_read}")
+                set_lbl(self.lbl_disk, f"💾 {d_read}")
             if hasattr(self, 'lbl_net'):
-                self.lbl_net.setText(f"🌐 ↓ {down_str}")
+                set_lbl(self.lbl_net, f"🌐 ↓ {down_str}")
             if hasattr(self, 'lbl_top'):
-                self.lbl_top.setText(f"🔥 {top_str}")
+                set_lbl(self.lbl_top, f"🔥 {top_str}")
             if hasattr(self, 'lbl_uptime'):
-                self.lbl_uptime.setText(f"⏱️ {uptime}")
+                set_lbl(self.lbl_uptime, f"⏱️ {uptime}")
         elif layout_mode == "vertical":
             if hasattr(self, 'lbl_cpu'):
-                self.lbl_cpu.setText(f"⚡ CPU\n%{cpu_pct:.0f}{temp_str}")
+                set_lbl(self.lbl_cpu, f"⚡ CPU\n%{cpu_pct:.0f}{temp_str}")
             if hasattr(self, 'lbl_ram'):
-                self.lbl_ram.setText(f"🧠 RAM\n%{ram_pct:.0f}")
+                set_lbl(self.lbl_ram, f"🧠 RAM\n%{ram_pct:.0f}")
             if hasattr(self, 'lbl_gpu'):
                 g_temp = f" {gpu_temp}°C" if gpu_temp is not None else ""
-                self.lbl_gpu.setText(f"🎮 GPU\n%{gpu_load}{g_temp}" if has_gpu else "🎮 GPU\nYok")
+                set_lbl(self.lbl_gpu, f"🎮 GPU\n%{gpu_load}{g_temp}" if has_gpu else "🎮 GPU\nYok")
             if hasattr(self, 'lbl_disk'):
-                self.lbl_disk.setText(f"💾 Disk\n{d_read}")
+                set_lbl(self.lbl_disk, f"💾 Disk\n{d_read}")
             if hasattr(self, 'lbl_net'):
-                self.lbl_net.setText(f"🌐 Ağ\n↓{down_str}")
+                set_lbl(self.lbl_net, f"🌐 Ağ\n↓{down_str}")
             if hasattr(self, 'lbl_top'):
-                self.lbl_top.setText(f"🔥 Lider\n{top_str}")
+                set_lbl(self.lbl_top, f"🔥 Lider\n{top_str}")
             if hasattr(self, 'lbl_uptime'):
-                self.lbl_uptime.setText(f"⏱️ Açık\n{uptime}")
+                set_lbl(self.lbl_uptime, f"⏱️ Açık\n{uptime}")
         else:
             if hasattr(self, 'lbl_cpu'):
-                self.lbl_cpu.setText(f"⚡ CPU: %{cpu_pct:.0f}  ({cpu_freq:.1f} GHz{temp_str})")
+                set_lbl(self.lbl_cpu, f"⚡ CPU: %{cpu_pct:.0f}  ({cpu_freq:.1f} GHz{temp_str})")
             if hasattr(self, 'lbl_ram'):
-                self.lbl_ram.setText(f"🧠 RAM: %{ram_pct:.0f}  ({ram_used} / {ram_total} GB)")
+                set_lbl(self.lbl_ram, f"🧠 RAM: %{ram_pct:.0f}  ({ram_used} / {ram_total} GB)")
             if hasattr(self, 'lbl_gpu'):
                 if has_gpu:
                     g_temp_str = f" | {gpu_temp}°C" if gpu_temp is not None else ""
                     vram_str = f" | {gpu_vram_used}/{gpu_vram_tot} MB" if gpu_vram_tot > 0 else ""
-                    self.lbl_gpu.setText(f"🎮 GPU: %{gpu_load}{g_temp_str}{vram_str}")
+                    set_lbl(self.lbl_gpu, f"🎮 GPU: %{gpu_load}{g_temp_str}{vram_str}")
                 else:
-                    self.lbl_gpu.setText("🎮 GPU: Harici GPU Algılanmadı")
+                    set_lbl(self.lbl_gpu, "🎮 GPU: Harici GPU Algılanmadı")
             if hasattr(self, 'lbl_disk'):
-                self.lbl_disk.setText(f"💾 Disk: ↓ {d_read}   ↑ {d_write}")
+                set_lbl(self.lbl_disk, f"💾 Disk: ↓ {d_read}   ↑ {d_write}")
             if hasattr(self, 'lbl_net'):
-                self.lbl_net.setText(f"🌐 Ağ:   ↓ {down_str}   ↑ {up_str}")
+                set_lbl(self.lbl_net, f"🌐 Ağ:   ↓ {down_str}   ↑ {up_str}")
             if hasattr(self, 'lbl_top'):
-                self.lbl_top.setText(f"🔥 Lider: {top_str}")
+                set_lbl(self.lbl_top, f"🔥 Lider: {top_str}")
             if hasattr(self, 'lbl_uptime'):
-                self.lbl_uptime.setText(f"⏱️ Sistem: {uptime}")
+                set_lbl(self.lbl_uptime, f"⏱️ Sistem: {uptime}")
 
     def _on_quick_ram_boost(self):
         """Executes 1-click RAM purge asynchronously and displays success confirmation."""
@@ -1013,11 +1021,15 @@ class DesktopPerformanceWidget(QWidget):
     def showEvent(self, event):
         super().showEvent(event)
         HardwareMonitor().set_throttled(False)
+        if hasattr(self, "timer") and not self.timer.isActive():
+            self.timer.start(1800)
         self.visibilityChanged.emit(True)
         self._update_telemetry()
 
     def hideEvent(self, event):
         super().hideEvent(event)
+        if hasattr(self, "timer") and self.timer.isActive():
+            self.timer.stop()
         self.visibilityChanged.emit(False)
         app = QApplication.instance()
         main_win = None

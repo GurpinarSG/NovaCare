@@ -46,6 +46,12 @@ class RegistryCleaner:
         raise ValueError(f"Unknown root key: {root_name}")
 
     @staticmethod
+    @lru_cache(maxsize=512)
+    def _cached_which(cmd: str) -> Optional[str]:
+        """Caches repeated PATH lookups across startup and uninstaller scans."""
+        return shutil.which(cmd)
+
+    @staticmethod
     @lru_cache(maxsize=1024)
     def _clean_path_string(raw_cmd: str) -> str:
         """Extract clean file path from command line arguments with greedy token joining and LRU caching."""
@@ -141,7 +147,7 @@ class RegistryCleaner:
                                 expanded = os.path.expandvars(str(val_data))
                                 exe_path = self._clean_path_string(expanded)
                                 if exe_path:
-                                    exists = os.path.exists(exe_path) or bool(shutil.which(exe_path))
+                                    exists = os.path.exists(exe_path) or bool(self._cached_which(exe_path))
                                     if not exists and not exe_path.lower().startswith(('rundll32', 'regsvr32', 'cmd', 'powershell')):
                                         self.issues.append(RegistryIssue(
 
@@ -244,7 +250,7 @@ class RegistryCleaner:
                                     SYSTEM_EXCLUDED_BINS = {"rundll32.exe", "msiexec.exe", "regsvr32.exe", "cmd.exe", "powershell.exe"}
                                     # Check if exe path doesn't exist and isn't a known system launcher or in PATH
                                     if clean_p and not os.path.exists(clean_p):
-                                        if base_bin in SYSTEM_EXCLUDED_BINS or shutil.which(clean_p) or shutil.which(base_bin):
+                                        if base_bin in SYSTEM_EXCLUDED_BINS or self._cached_which(clean_p) or self._cached_which(base_bin):
                                             continue
                                         try:
                                             disp_name, _ = winreg.QueryValueEx(app_key, "DisplayName")

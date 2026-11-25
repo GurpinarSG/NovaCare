@@ -51,7 +51,7 @@ class DashboardScanWorker(QThread):
                 return
             # 1. Junk files scan
             self.progress.emit("Gereksiz dosyalar ve önbellekler taranıyor...", 15)
-            cats = self.junk_cleaner.scan_all()
+            cats = self.junk_cleaner.scan_all(cancel_callback=lambda: self._is_cancelled)
             if self._is_cancelled:
                 return
             total_junk = sum(c.size for c in cats)
@@ -157,7 +157,7 @@ class DashboardFixWorker(QThread):
             has_scanned = any(c.found_files or c.size > 0 or c.file_count > 0 for c in self.junk_cleaner.categories)
             if not has_scanned:
                 self.progress.emit("Gereksiz dosyalar analiz ediliyor...", 10)
-                cats = self.junk_cleaner.scan_all()
+                cats = self.junk_cleaner.scan_all(cancel_callback=lambda: self._is_cancelled)
             else:
                 cats = self.junk_cleaner.categories
 
@@ -183,7 +183,8 @@ class DashboardFixWorker(QThread):
             f_freed, _, _ = self.junk_cleaner.clean_categories(
                 cat_ids,
                 progress_callback=_on_cat_prog,
-                file_progress_callback=_on_file_prog
+                file_progress_callback=_on_file_prog,
+                cancel_callback=lambda: self._is_cancelled
             )
             freed_bytes = f_freed
         except Exception as e:
@@ -286,7 +287,9 @@ class DashboardView(QWidget):
         self.overlay_widget.visibilityChanged.connect(self._on_overlay_visibility_changed)
         
         self.scan_worker = None
+        self.scan_thread = None
         self.fix_worker = None
+        self.fix_thread = None
         self.game_mode_worker = None
         self.last_results = None
         self._init_ui()
@@ -554,29 +557,24 @@ class DashboardView(QWidget):
         self._update_live_metrics()
 
     def _update_live_metrics(self):
-        # Update metrics when Dashboard or Overlay is visible
-        if not self.isVisible() and not self.overlay_widget.isVisible():
+        # Skip telemetry polling when Dashboard view itself is not visible
+        if not self.isVisible():
             return
 
         try:
             stats = self.hw_monitor.get_hardware_stats()
 
-            # Update Overlay if open
-            if self.overlay_widget.isVisible():
-                self.overlay_widget.update_stats(stats)
-
             # Update StatCards
-            if self.isVisible():
-                c_temp = f" | {stats['cpu_temp']} °C" if stats.get("cpu_temp") else ""
-                self.card_cpu.set_value(f"{stats['cpu_percent']:.0f}%", f"{stats['cpu_freq_ghz']} GHz{c_temp}")
+            c_temp = f" | {stats['cpu_temp']} °C" if stats.get("cpu_temp") else ""
+            self.card_cpu.set_value(f"{stats['cpu_percent']:.0f}%", f"{stats['cpu_freq_ghz']} GHz{c_temp}")
 
-                if stats.get("has_gpu", False):
-                    g_temp = f"{stats['gpu_temp']} °C" if stats.get("gpu_temp") is not None else ""
-                    self.card_gpu.set_value(f"{stats['gpu_load']}%", f"{g_temp} | VRAM: {stats['gpu_mem_used_mb']} MB")
-                else:
-                    self.card_gpu.set_value("Yok", "Harici GPU Yok")
+            if stats.get("has_gpu", False):
+                g_temp = f"{stats['gpu_temp']} °C" if stats.get("gpu_temp") is not None else ""
+                self.card_gpu.set_value(f"{stats['gpu_load']}%", f"{g_temp} | VRAM: {stats['gpu_mem_used_mb']} MB")
+            else:
+                self.card_gpu.set_value("Yok", "Harici GPU Yok")
 
-                self.card_ram.set_value(f"{stats['ram_percent']:.0f}%", f"{stats['ram_used_gb']} / {stats['ram_total_gb']} GB")
+            self.card_ram.set_value(f"{stats['ram_percent']:.0f}%", f"{stats['ram_used_gb']} / {stats['ram_total_gb']} GB")
         except Exception:
             pass
 
@@ -587,12 +585,22 @@ class DashboardView(QWidget):
             self._start_fix()
 
     def _start_scan(self):
+        if hasattr(self, 'scan_thread') and self.scan_thread and self.scan_thread.isRunning():
+            return
+        if hasattr(self, 'scan_worker') and self.scan_worker and self.scan_worker.isRunning():
+            return
+        if hasattr(self, 'fix_thread') and self.fix_thread and self.fix_thread.isRunning():
+            return
+        if hasattr(self, 'fix_worker') and self.fix_worker and self.fix_worker.isRunning():
+            return
+
         self.btn_action.setEnabled(False)
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
         self.lbl_status.setText("Sistem derinlemesine taranıyor, lütfen bekleyin...")
 
         self.scan_worker = DashboardScanWorker()
+        self.scan_thread = self.scan_worker
         self.scan_worker.progress.connect(self._on_scan_progress)
         self.scan_worker.finished.connect(self._on_scan_finished)
         self.scan_worker.start()
@@ -633,6 +641,15 @@ class DashboardView(QWidget):
         self.btn_action.update()
 
     def _start_fix(self):
+        if hasattr(self, 'fix_thread') and self.fix_thread and self.fix_thread.isRunning():
+            return
+        if hasattr(self, 'fix_worker') and self.fix_worker and self.fix_worker.isRunning():
+            return
+        if hasattr(self, 'scan_thread') and self.scan_thread and self.scan_thread.isRunning():
+            return
+        if hasattr(self, 'scan_worker') and self.scan_worker and self.scan_worker.isRunning():
+            return
+
         self.btn_action.setEnabled(False)
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
@@ -644,6 +661,7 @@ class DashboardView(QWidget):
             reg_cleaner=getattr(self, 'scanned_reg_cleaner', None),
             privacy_tweaker=getattr(self, 'scanned_privacy_tweaker', None)
         )
+        self.fix_thread = self.fix_worker
         self.fix_worker.progress.connect(self._on_scan_progress)
         self.fix_worker.finished.connect(self._on_fix_finished)
         self.fix_worker.start()

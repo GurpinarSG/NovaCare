@@ -166,6 +166,79 @@ class BloatwareCleaner:
         except Exception as e:
             return False, str(e)
 
+    def remove_bloatware_packages(self, package_names: list[str]) -> tuple[list[str], list[str]]:
+        """Uninstalls multiple validated AppX packages in a single batched PowerShell call."""
+        valid_names = []
+        errors = []
+        for raw_name in package_names:
+            if not raw_name or not isinstance(raw_name, str):
+                errors.append("Geçersiz paket adı.")
+                continue
+            clean_name = raw_name.strip()
+            if not re.match(r"^[a-zA-Z0-9.\-_]+$", clean_name):
+                errors.append(f"{clean_name}: Geçersiz veya güvenli olmayan paket adı biçimi.")
+                continue
+            valid_names.append(clean_name)
+
+        if not valid_names:
+            return [], errors
+
+        if len(valid_names) == 1:
+            ok, msg = self.remove_bloatware_package(valid_names[0])
+            if ok:
+                return [valid_names[0]], errors
+            errors.append(f"{valid_names[0]}: {msg}")
+            return [], errors
+
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        quoted_items = ",".join(f"'{n}'" for n in valid_names)
+        ps_cmd = (
+            f"$prov = Get-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue; "
+            f"foreach ($name in @({quoted_items})) {{ "
+            f"  try {{ "
+            f"    $pkg = Get-AppxPackage -Name $name -ErrorAction SilentlyContinue; "
+            f"    if ($pkg) {{ "
+            f"      Remove-AppxPackage -Package $pkg.PackageFullName -AllUsers -ErrorAction SilentlyContinue; "
+            f"      if (-not $?) {{ Remove-AppxPackage -Package $pkg.PackageFullName -ErrorAction SilentlyContinue }} "
+            f"    }}; "
+            f"    if ($prov) {{ $prov | Where-Object DisplayName -eq $name | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue }}; "
+            f"    Write-Output ('OK:' + $name) "
+            f"  }} catch {{ "
+            f"    Write-Output ('ERR:' + $name + ':' + $_.Exception.Message) "
+            f"  }} "
+            f"}}"
+        )
+        removed = []
+        try:
+            encoded_cmd = base64.b64encode(ps_cmd.encode("utf-16le")).decode("ascii")
+            p = subprocess.run(
+                [get_system32_path("powershell"), "-NoProfile", "-EncodedCommand", encoded_cmd],
+                capture_output=True, text=True, encoding="utf-8", errors="replace",
+                timeout=max(45, len(valid_names) * 15), creationflags=flags
+            )
+            seen = set()
+            for line in (p.stdout or "").splitlines():
+                line = line.strip()
+                if line.startswith("OK:"):
+                    pkg_n = line[3:]
+                    removed.append(pkg_n)
+                    seen.add(pkg_n)
+                elif line.startswith("ERR:"):
+                    parts = line.split(":", 2)
+                    pkg_n = parts[1] if len(parts) > 1 else ""
+                    err_msg = parts[2] if len(parts) > 2 else "Kaldırma başarısız oldu."
+                    errors.append(f"{pkg_n}: {err_msg}")
+                    seen.add(pkg_n)
+            for pkg_n in valid_names:
+                if pkg_n not in seen:
+                    if p.returncode == 0:
+                        removed.append(pkg_n)
+                    else:
+                        errors.append(f"{pkg_n}: {p.stderr or 'Kaldırma başarısız oldu.'}")
+        except Exception as e:
+            errors.append(str(e))
+        return removed, errors
+
     def disable_deep_telemetry(self) -> dict:
         """
         Stops and disables Windows Telemetry services and enforces

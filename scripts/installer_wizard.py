@@ -46,7 +46,7 @@ def _load_app_version():
                 return f.readline().strip().lstrip("vV")
     except Exception:
         pass
-    return "1.3.0"
+    return "1.3.1"
 
 # Version & Product Info
 APP_NAME = "NovaCare"
@@ -334,9 +334,9 @@ exit
             subprocess.run([get_system32_path("powershell"), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded_ps], creationflags=flags, timeout=8)
         except Exception:
             try:
-                cmd_str = f'"{dest_exe}" --autostart'
+                escaped_tr = f'"{dest_exe}" --autostart'.strip()
                 subprocess.run(
-                    [get_system32_path("schtasks"), "/create", "/tn", "NovaCare_Autostart", "/tr", cmd_str, "/sc", "onlogon", "/rl", "highest", "/f"],
+                    [get_system32_path("schtasks"), "/create", "/tn", "NovaCare_Autostart", "/tr", escaped_tr, "/sc", "onlogon", "/rl", "highest", "/f"],
                     creationflags=flags,
                     timeout=5
                 )
@@ -508,7 +508,7 @@ class NovaCareSetupWizard(QDialog):
         b_sub.setAlignment(Qt.AlignCenter)
         s_lay.addWidget(b_sub)
 
-        pill = QLabel("v1.0.1 Kararlı")
+        pill = QLabel(f"v{APP_VERSION} Kararlı")
         pill.setStyleSheet("""
             background-color: rgba(16, 185, 129, 0.15);
             border: 1px solid rgba(16, 185, 129, 0.35);
@@ -660,7 +660,7 @@ class NovaCareSetupWizard(QDialog):
             target_exe = os.path.join(target_dir, "NovaCare.exe")
             if os.path.exists(target_exe):
                 flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
-                subprocess.Popen([target_exe], creationflags=flags)
+                subprocess.Popen([target_exe], cwd=target_dir, creationflags=flags)
         self.accept()
 
     def _show_changelog_dialog(self):
@@ -705,14 +705,9 @@ class NovaCareSetupWizard(QDialog):
         if not content:
             content = (
                 "# 📋 NovaCare Sürüm Güncelleme Notları\n\n"
-                "## 🚀 [v1.0.1] - 2026-10-16 (Güncel Sürüm)\n"
-                "• Pencere Boyutu & Düzen: Ekrana duyarlı dinamik geometri; 768p ve yüksek DPI ekranlarda tam uyum.\n"
-                "• Metin Kaydırma: Tüm sekmelerde alt başlıklara kelime kaydırma (word-wrap) eklendi; taşmalar önlendi.\n"
-                "• Denetim Masası Kaldırma: Yerel uninstaller motoru (--uninstall) entegre edildi; sorunsuz kaldırma.\n"
-                "• Kurulum Sihirbazı: Koyu tema, düzeltilen yazı ve kontrast sorunları, görsel yan panel ve modern tasarım.\n"
-                "• Yönetici Ayrıcalığı: Ayarlar ekranında yönetici olarak başlatma seçeneği ve derin temizlik vurgusu.\n"
-                "• Güvenlik: GitHub API belirteçleri Windows DPAPI ile şifrelendi.\n"
-                "• Performans: Çoklu iş parçacığı ve bellek yönetimi iyileştirmeleri.\n\n"
+                f"## 🚀 [v{APP_VERSION}] - 2026-11-25 (Güncel Sürüm)\n"
+                "• Güvenlik ve Kararlılık: Yönetici (UAC) argüman kaçışı, güncelleme bütünlüğü, DPAPI/HMAC anahtar yönetimi ve güvenli geçici dosya izolasyonu.\n"
+                "• İş Parçacığı ve Arayüz: Çoklu tıklama korumaları, arka plan tarama iptali, QSS sözdizimi ve sürüm senkronizasyonu.\n\n"
                 "## 📦 [v1.0.0] - 2026-10-15\n"
                 "• İlk kararlı sürüm yayınlandı."
             )

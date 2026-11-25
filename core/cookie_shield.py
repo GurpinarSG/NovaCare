@@ -5,8 +5,10 @@ while eliminating cross-site tracking cookies, advertiser tokens, and privacy re
 """
 import os
 import glob
+import time
 import sqlite3
 import subprocess
+import urllib.request
 import psutil
 from dataclasses import dataclass
 from typing import Optional, Union
@@ -93,7 +95,9 @@ class CookieShield:
         else:
             wl = whitelist
         wl_set = wl if isinstance(wl, (set, frozenset)) else set(wl)
-        clean_host = host.lower().lstrip(".")
+        clean_host = (host or "").lower().lstrip(".")
+        if not clean_host:
+            return False
         if clean_host in wl_set:
             return True
         parts = clean_host.split(".")
@@ -219,7 +223,12 @@ class CookieShield:
             kwargs = {"capture_output": True, "text": True, "encoding": get_console_encoding(), "errors": "replace", "timeout": 5}
             if hasattr(subprocess, "CREATE_NO_WINDOW"):
                 kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
-            subprocess.run([get_system32_path("taskkill"), "/F", "/IM", clean_exe], **kwargs)
+            taskkill_bin = get_system32_path("taskkill")
+            # Attempt graceful close first to avoid corrupting Chromium SQLite/WAL files
+            subprocess.run([taskkill_bin, "/IM", clean_exe], **kwargs)
+            time.sleep(0.6)
+            if self.is_browser_running(clean_exe):
+                subprocess.run([taskkill_bin, "/F", "/IM", clean_exe], **kwargs)
             return True
         except Exception as e:
             log_debug(f"CookieShield: close_browser failed for {clean_exe}: {e}")
@@ -250,6 +259,14 @@ class CookieShield:
             is_running = self.is_browser_running(exe, running_procs)
             if is_running:
                 locked_browsers.add(browser_name)
+                # Fast sharing-violation pre-check on existing Chromium DBs avoids ~1.5s SQLite wait
+                if b_type == 'chromium' and os.path.exists(db_path):
+                    try:
+                        fd = os.open(db_path, os.O_RDONLY)
+                        os.close(fd)
+                    except OSError as e:
+                        log_debug(f"CookieShield: Fast-skipped locked {browser_name} ({db_path}): {e}")
+                        continue
                 # When browser is running, avoid waiting for full 1.0s SQLite lock timeout per profile
                 sql_timeout = 0.05
             else:
@@ -257,7 +274,8 @@ class CookieShield:
 
             con = None
             try:
-                con = sqlite3.connect(db_path, timeout=sql_timeout)
+                file_uri = f"file:{urllib.request.pathname2url(os.path.abspath(db_path))}?mode=ro"
+                con = sqlite3.connect(file_uri, uri=True, timeout=sql_timeout)
                 cur = con.cursor()
 
                 if b_type == 'chromium':
@@ -265,7 +283,9 @@ class CookieShield:
                 else:
                     cur.execute("SELECT host, COUNT(*) FROM moz_cookies GROUP BY host")
 
-                for host, count in cur.fetchall():
+                for row in cur.fetchall():
+                    host = str(row[0] or "")
+                    count = row[1]
                     total_cookies += count
                     is_prot = self.is_protected_domain(host, whitelist_set)
                     low_host = host.lower()
@@ -294,7 +314,7 @@ class CookieShield:
                         pass
 
         # Sort: Trackers first, then protected, then alphabetical
-        domain_items.sort(key=lambda d: (not d.is_known_tracker, d.is_protected, d.host))
+        domain_items.sort(key=lambda d: (not d.is_known_tracker, d.is_protected, d.host or ''))
 
         return {
             'total_cookies': total_cookies,
@@ -352,17 +372,25 @@ class CookieShield:
 
                 if delete_rowids:
                     # Batch delete in chunks of 500
+                    deleted_in_db = 0
+                    cancelled = False
                     for i in range(0, len(delete_rowids), 500):
+                        if cancel_callback and cancel_callback():
+                            cancelled = True
+                            break
                         chunk = delete_rowids[i:i + 500]
                         placeholders = ",".join("?" for _ in chunk)
                         cur.execute(f"DELETE FROM {table_name} WHERE rowid IN ({placeholders})", chunk)
+                        deleted_in_db += len(chunk)
 
-                    con.commit()
-                    deleted_total += len(delete_rowids)
-                    try:
-                        cur.execute("VACUUM")
-                    except Exception as e:
-                        log_debug(f"CookieShield: VACUUM failed on {db_path}: {e}")
+                    if deleted_in_db > 0:
+                        con.commit()
+                        deleted_total += deleted_in_db
+                    if not cancelled:
+                        try:
+                            cur.execute("VACUUM")
+                        except Exception as e:
+                            log_debug(f"CookieShield: VACUUM failed on {db_path}: {e}")
             except Exception as e:
                 log_debug(f"CookieShield: Error cleaning {browser_name} ({db_path}): {e}")
                 if con:

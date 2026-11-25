@@ -4,7 +4,10 @@ Visualizes partition usage and finds the largest space-consuming files.
 """
 import os
 import sys
+import stat
+import time
 import psutil
+from functools import lru_cache
 from dataclasses import dataclass
 from typing import Callable, Optional
 import heapq
@@ -114,44 +117,58 @@ class DiskAnalyzer:
         heap: list[tuple[int, int, LargeFileInfo]] = []
         counter = 0
 
-        for root, dirs, files in os.walk(target_dir, onerror=lambda _: None):
+        stack = [target_dir]
+        s_isreg = stat.S_ISREG
+        s_isdir = stat.S_ISDIR
+
+        while stack:
             if cancel_check and cancel_check():
                 break
-            # Prune directory symlinks/junctions to prevent infinite loops or redundant scans
-            dirs[:] = [d for d in dirs if not self._is_symlink(os.path.join(root, d))]
-            for fname in files:
-                if cancel_check and cancel_check():
-                    break
-                scanned_count += 1
-                if scanned_count % 500 == 0 and progress_callback:
-                    progress_callback(root, scanned_count)
+            current = stack.pop()
+            try:
+                scan_target = to_long_path(current) if len(current) >= 240 else current
+                with os.scandir(scan_target) as it:
+                    for entry in it:
+                        if cancel_check and cancel_check():
+                            break
+                        try:
+                            # Single stat(follow_symlinks=False) per entry avoids multiple OS calls
+                            if entry.is_symlink():
+                                continue
+                            st = entry.stat(follow_symlinks=False)
+                            if getattr(st, 'st_reparse_tag', 0) != 0:
+                                continue
+                            mode = st.st_mode
+                            if s_isdir(mode):
+                                stack.append(entry.path)
+                            elif s_isreg(mode):
+                                scanned_count += 1
+                                if scanned_count % 500 == 0 and progress_callback:
+                                    progress_callback(current, scanned_count)
 
-                fpath = os.path.join(root, fname)
-                try:
-                    # Ignore symbolic links and reparse points to avoid loops
-                    if is_reparse_point(fpath):
-                        continue
-                    st = os.stat(fpath, follow_symlinks=False)
-                    sz = st.st_size
-                    if sz >= min_bytes:
-                        _, ext = os.path.splitext(fname)
-                        cat = self._determine_category(ext)
-                        item = LargeFileInfo(
-                            path=fpath,
-                            name=fname,
-                            size_bytes=sz,
-                            size_str=format_bytes(sz),
-                            category=cat,
-                            extension=ext.lower()
-                        )
-                        if len(heap) < limit:
-                            heapq.heappush(heap, (sz, counter, item))
-                            counter += 1
-                        elif sz > heap[0][0]:
-                            heapq.heappushpop(heap, (sz, counter, item))
-                            counter += 1
-                except (PermissionError, FileNotFoundError, OSError):
-                    continue
+                                sz = st.st_size
+                                if sz >= min_bytes:
+                                    fname = entry.name
+                                    _, ext = os.path.splitext(fname)
+                                    cat = self._determine_category(ext)
+                                    item = LargeFileInfo(
+                                        path=entry.path,
+                                        name=fname,
+                                        size_bytes=sz,
+                                        size_str=format_bytes(sz),
+                                        category=cat,
+                                        extension=ext.lower()
+                                    )
+                                    if len(heap) < limit:
+                                        heapq.heappush(heap, (sz, counter, item))
+                                        counter += 1
+                                    elif sz > heap[0][0]:
+                                        heapq.heappushpop(heap, (sz, counter, item))
+                                        counter += 1
+                        except (PermissionError, FileNotFoundError, OSError):
+                            continue
+            except (PermissionError, FileNotFoundError, OSError):
+                continue
 
         return [entry[2] for entry in sorted(heap, key=lambda x: x[0], reverse=True)]
 
@@ -186,6 +203,76 @@ PROTECTED_FOLDER_NAMES = frozenset({
     'program files (x86)', 'programdata', 'windows'
 })
 
+_APP_DIR_NORM = os.path.normcase(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+@lru_cache(maxsize=8)
+def _build_protected_tree_prefixes(
+    sys_root: str,
+    prog_files: str,
+    prog_files_x86: str,
+    prog_w6432: str,
+    prog_data: str,
+    local_appdata: str,
+    frozen: bool,
+    executable: str,
+) -> tuple[tuple[str, str], ...]:
+    """Cache normalized base tree exact/prefix pairs keyed on relevant env & runtime state."""
+    trees = [
+        os.path.normcase(os.path.abspath(sys_root)),
+        os.path.normcase(os.path.abspath(prog_files)),
+        os.path.normcase(os.path.abspath(prog_files_x86)),
+        os.path.normcase(os.path.abspath(prog_data)),
+        _APP_DIR_NORM,
+    ]
+    if prog_w6432:
+        trees.append(os.path.normcase(os.path.abspath(prog_w6432)))
+    if frozen and executable:
+        trees.append(os.path.normcase(os.path.abspath(os.path.dirname(executable))))
+    if local_appdata:
+        trees.append(os.path.normcase(os.path.abspath(os.path.join(local_appdata, 'NovaCare'))))
+
+    pairs = []
+    seen = set()
+    for t in trees:
+        if t and t not in seen:
+            seen.add(t)
+            prefix = t if t.endswith(('\\', '/')) else (t + '\\')
+            pairs.append((t, prefix))
+    return tuple(pairs)
+
+def _matches_protected_candidate(candidate: str, tree_pairs: tuple[tuple[str, str], ...]) -> bool:
+    """Fast check of a single normalized candidate path against critical names, folders, and trees."""
+    slash_idx = candidate.rfind('\\')
+    fname = candidate[slash_idx + 1:] if slash_idx != -1 else candidate
+    if fname in CRITICAL_SYSTEM_FILES:
+        return True
+
+    norm_slashes = candidate.replace('/', '\\') if '/' in candidate else candidate
+    if not PROTECTED_FOLDER_NAMES.isdisjoint(norm_slashes.split('\\')):
+        return True
+
+    for tree, tree_prefix in tree_pairs:
+        if norm_slashes == tree or norm_slashes.startswith(tree_prefix):
+            return True
+    return False
+
+_PARENT_REALPATH_CACHE: dict[str, tuple[float, str]] = {}
+
+def _resolve_parent_realpath(parent_dir: str) -> str:
+    """Short-TTL (1.0s) cache of os.path.realpath(parent_dir) to avoid walking identical ancestors per file."""
+    now = time.monotonic()
+    cached = _PARENT_REALPATH_CACHE.get(parent_dir)
+    if cached is not None and (now - cached[0]) < 1.0:
+        return cached[1]
+    try:
+        resolved = os.path.normcase(os.path.realpath(parent_dir))
+    except Exception:
+        resolved = os.path.normcase(os.path.abspath(parent_dir))
+    if len(_PARENT_REALPATH_CACHE) >= 2048:
+        _PARENT_REALPATH_CACHE.clear()
+    _PARENT_REALPATH_CACHE[parent_dir] = (now, resolved)
+    return resolved
+
 def is_critical_system_file(path: str) -> bool:
     """
     Determines if a given path is a protected Windows system file or NovaCare core file
@@ -203,69 +290,44 @@ def is_critical_system_file(path: str) -> bool:
         elif clean_path.startswith('\\\\?\\'):
             clean_path = clean_path[4:]
 
-        norm_path = os.path.normcase(os.path.abspath(clean_path))
+        tree_pairs = _build_protected_tree_prefixes(
+            os.environ.get('SystemRoot', r'C:\Windows'),
+            os.environ.get('ProgramFiles', r'C:\Program Files'),
+            os.environ.get('ProgramFiles(x86)', r'C:\Program Files (x86)'),
+            os.environ.get('ProgramW6432', ''),
+            os.environ.get('ProgramData', os.environ.get('ALLUSERSPROFILE', r'C:\ProgramData')),
+            os.environ.get('LOCALAPPDATA', ''),
+            bool(getattr(sys, 'frozen', False)),
+            sys.executable or '',
+        )
+
+        abs_path = os.path.abspath(clean_path)
+        norm_path = os.path.normcase(abs_path)
+        if _matches_protected_candidate(norm_path, tree_pairs):
+            return True
+
+        # Fast leaf reparse check: only call full realpath(abs_path) if the leaf itself is a symlink/junction
         try:
-            norm_real = os.path.normcase(os.path.realpath(clean_path))
-        except Exception:
-            norm_real = norm_path
+            st_leaf = os.lstat(abs_path)
+            leaf_is_link = stat.S_ISLNK(st_leaf.st_mode) or getattr(st_leaf, 'st_reparse_tag', 0) != 0
+        except OSError:
+            leaf_is_link = False
 
-        candidates = {norm_path, norm_real}
+        if leaf_is_link:
+            try:
+                norm_real = os.path.normcase(os.path.realpath(abs_path))
+            except Exception:
+                norm_real = norm_path
+        else:
+            parent_dir, fname = os.path.split(abs_path)
+            if not fname:
+                norm_real = _resolve_parent_realpath(abs_path)
+            else:
+                norm_parent = _resolve_parent_realpath(parent_dir)
+                norm_real = os.path.join(norm_parent, os.path.normcase(fname))
 
-        sys_root = os.environ.get('SystemRoot', r'C:\Windows')
-        norm_sys_root = os.path.normcase(os.path.abspath(sys_root))
-
-        prog_files = os.environ.get('ProgramFiles', r'C:\Program Files')
-        norm_prog_files = os.path.normcase(os.path.abspath(prog_files))
-
-        prog_files_x86 = os.environ.get('ProgramFiles(x86)', r'C:\Program Files (x86)')
-        norm_prog_files_x86 = os.path.normcase(os.path.abspath(prog_files_x86))
-
-        prog_w6432 = os.environ.get('ProgramW6432', '')
-        norm_prog_w6432 = os.path.normcase(os.path.abspath(prog_w6432)) if prog_w6432 else None
-
-        prog_data = os.environ.get('ProgramData', os.environ.get('ALLUSERSPROFILE', r'C:\ProgramData'))
-        norm_prog_data = os.path.normcase(os.path.abspath(prog_data))
-
-        app_dir = os.path.normcase(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-
-        exe_dir = None
-        if getattr(sys, 'frozen', False):
-            exe_dir = os.path.normcase(os.path.abspath(os.path.dirname(sys.executable)))
-
-        novacare_data = None
-        local_appdata = os.environ.get('LOCALAPPDATA', '')
-        if local_appdata:
-            novacare_data = os.path.normcase(os.path.abspath(os.path.join(local_appdata, 'NovaCare')))
-
-        protected_trees = [
-            norm_sys_root, norm_prog_files, norm_prog_files_x86, norm_prog_data, app_dir
-        ]
-        if norm_prog_w6432:
-            protected_trees.append(norm_prog_w6432)
-        if exe_dir:
-            protected_trees.append(exe_dir)
-        if novacare_data:
-            protected_trees.append(novacare_data)
-
-        for candidate in candidates:
-            fname = os.path.basename(candidate)
-            # 1. Prohibited root system files
-            if fname in CRITICAL_SYSTEM_FILES:
-                return True
-
-            # 2. Directory segment check (protects $Recycle.Bin, System Volume Information, Program Files, etc. across any drive)
-            parts = [seg.strip() for seg in candidate.replace('/', '\\').split('\\') if seg.strip()]
-            for part in parts:
-                if part in PROTECTED_FOLDER_NAMES:
-                    return True
-
-            # 3. Explicit base protected directory trees (SystemRoot, Program Files, ProgramData, App Dir, etc.)
-            for tree in protected_trees:
-                try:
-                    if os.path.commonpath([candidate, tree]) == tree:
-                        return True
-                except ValueError:
-                    pass
+        if norm_real != norm_path and _matches_protected_candidate(norm_real, tree_pairs):
+            return True
 
         return False
     except Exception:

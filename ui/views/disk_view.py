@@ -47,7 +47,7 @@ class LargeFileScanThread(QThread):
         except Exception as e:
             log_debug(f"LargeFileScanThread error: {e}")
         finally:
-            if not self._is_cancelled:
+            if not self._is_cancelled and not self.isInterruptionRequested():
                 self.finished.emit(files)
 
 class DuplicateScanThread(QThread):
@@ -78,7 +78,7 @@ class DuplicateScanThread(QThread):
         except Exception as e:
             log_debug(f"DuplicateScanThread error: {e}")
         finally:
-            if not self._is_cancelled:
+            if not self._is_cancelled and not self.isInterruptionRequested():
                 self.finished.emit(groups)
 
 class DiskView(QWidget):
@@ -427,7 +427,9 @@ class DiskView(QWidget):
         path = p_item.text() if p_item else ""
         if path and os.path.exists(path):
             norm = os.path.normpath(path)
-            subprocess.Popen(f'explorer.exe /select,"{norm}"')
+            # explorer.exe /select,"{norm}"
+            explorer_bin = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "explorer.exe")
+            subprocess.Popen(f'"{explorer_bin}" /select,"{norm}"')
         else:
             QMessageBox.warning(self, "Uyarı", "Dosya bulunamadı veya taşınmış.")
 
@@ -464,7 +466,7 @@ class DiskView(QWidget):
     # Duplicate finder methods
     def _toggle_duplicate_scan(self):
         if self.dup_thread and self.dup_thread.isRunning():
-            self.dup_thread.requestInterruption()
+            self.dup_thread.cancel()
             self.dup_thread.wait(500)
             self.btn_dup_scan.setText("🔍  Yinelenenleri Tara")
             self.dup_progress.setVisible(False)
@@ -611,28 +613,46 @@ class DiskView(QWidget):
                 f"Tebrikler! {deleted} adet yinelenen dosya temizlendi ve {freed_str} alan geri kazanıldı."
             )
 
-        # Refresh scan
-        self._toggle_duplicate_scan()
+        # Refresh duplicate groups in-place instead of forcing a costly full-disk re-scan
+        deleted_paths = {f.path for f in to_delete if not os.path.exists(f.path)}
+        remaining_groups = []
+        for grp in self.duplicate_groups:
+            grp.files = [f for f in grp.files if f.path not in deleted_paths]
+            if len(grp.files) > 1:
+                remaining_groups.append(grp)
+        self.duplicate_groups = remaining_groups
+        if self.duplicate_groups:
+            total_wasted = sum(g.wasted_size for g in self.duplicate_groups)
+            dup_file_count = sum(len(g.files) - 1 for g in self.duplicate_groups)
+            self.lbl_dup_status.setText(
+                f"Kalan: <b>{len(self.duplicate_groups)}</b> kopya kümesinde <b>{dup_file_count}</b> yinelenen dosya. "
+                f"Kazanılabilir alan: <b>{format_bytes(total_wasted)}</b>."
+            )
+        else:
+            self.lbl_dup_status.setText("Seçili tüm yinelenen kopyalar temizlendi.")
+        self._render_duplicate_table()
 
     def _on_dup_row_double_click(self, item: QTableWidgetItem):
         row = item.row()
         path_item = self.dup_table.item(row, 4)
         if path_item and os.path.exists(path_item.text()):
             norm_p = os.path.normpath(path_item.text())
-            subprocess.Popen(f'explorer.exe /select,"{norm_p}"')
+            explorer_bin = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "explorer.exe")
+            subprocess.Popen(f'"{explorer_bin}" /select,"{norm_p}"')
 
     def stop_scan(self):
         if self.scan_thread and self.scan_thread.isRunning():
-            self.scan_thread.requestInterruption()
+            self.scan_thread.cancel()
             self.scan_thread.wait(500)
             self.btn_scan.setText("🔍  Büyük Dosyaları Tara")
             self.progress_bar.setVisible(False)
             self.lbl_status.setText("Tarama durduruldu.")
         if self.dup_thread and self.dup_thread.isRunning():
-            self.dup_thread.requestInterruption()
+            self.dup_thread.cancel()
             self.dup_thread.wait(500)
             self.btn_dup_scan.setText("🔍  Yinelenenleri Tara")
             self.dup_progress.setVisible(False)
+            self.lbl_dup_status.setText("Tarama durduruldu.")
 
     def hideEvent(self, event):
         self.stop_scan()

@@ -45,6 +45,26 @@ class StartupManager:
                 return "Düşük"
         return "Orta"
 
+    def _get_startup_approved_map(self, root, sub_run: str) -> dict[str, bool]:
+        """Loads all StartupApproved entry states for a registry hive once per scan."""
+        appr_sub = r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run"
+        if "WOW6432Node" in sub_run:
+            appr_sub = r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run32"
+        state_map: dict[str, bool] = {}
+        try:
+            with winreg.OpenKey(root, appr_sub, 0, winreg.KEY_READ) as k:
+                _, count, _ = winreg.QueryInfoKey(k)
+                for i in range(count):
+                    try:
+                        vn, val, _ = winreg.EnumValue(k, i)
+                        if isinstance(val, bytes) and len(val) >= 1:
+                            state_map[vn.lower()] = (val[0] % 2 == 0)
+                    except OSError:
+                        continue
+        except OSError:
+            pass
+        return state_map
+
     def _is_startup_approved_enabled(self, root, sub_run: str, val_name: str) -> bool:
         """Checks Windows 10/11 Task Manager StartupApproved state."""
         appr_sub = r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run"
@@ -75,6 +95,7 @@ class StartupManager:
         for root_name, sub, loc_desc in targets:
             try:
                 root = self._get_root_key(root_name)
+                approved_map = self._get_startup_approved_map(root, sub)
                 access = winreg.KEY_READ
                 if "WOW6432Node" in sub:
                     access |= winreg.KEY_WOW64_32KEY
@@ -87,7 +108,7 @@ class StartupManager:
                         try:
                             val_name, val_data, _ = winreg.EnumValue(key, i)
                             cmd = str(val_data)
-                            is_enabled = self._is_startup_approved_enabled(root, sub, val_name)
+                            is_enabled = approved_map.get(val_name.lower(), True)
                             impact = self._estimate_impact(val_name, cmd)
                             if not is_enabled:
                                 impact = "Devre Dışı"
@@ -220,7 +241,7 @@ class StartupManager:
                     item.boot_impact = self._estimate_impact(item.name, item.command) if new_enabled else "Devre Dışı"
                     return True
                 except Exception:
-                    # Fallback to NovaCare DisabledStartup key moving
+                    # Fallback to NovaCare DisabledStartup key moving when disabling
                     if not new_enabled:
                         with winreg.OpenKey(root, item.source_key_or_path, 0, winreg.KEY_SET_VALUE) as src_key:
                             winreg.DeleteValue(src_key, item.name)
@@ -230,7 +251,8 @@ class StartupManager:
                         item.location_type = "registry_disabled"
                         item.enabled = False
                         item.boot_impact = "Devre Dışı"
-                    return True
+                        return True
+                    return False
 
             elif item.location_type == "registry_disabled":
                 with winreg.OpenKey(winreg.HKEY_CURRENT_USER, self.DISABLED_KEY, 0, winreg.KEY_SET_VALUE) as dis_key:

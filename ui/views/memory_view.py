@@ -214,7 +214,7 @@ class MemoryView(QWidget):
         self.search_timer.start()
 
     def refresh_processes(self):
-        if self._is_loading:
+        if self._is_loading or (self.loader_worker and self.loader_worker.isRunning()):
             return
         self._is_loading = True
         self.btn_refresh.setEnabled(False)

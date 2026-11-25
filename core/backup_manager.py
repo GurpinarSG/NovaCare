@@ -7,6 +7,8 @@ import json
 import hmac
 import hashlib
 import winreg
+import tempfile
+import threading
 import subprocess
 from dataclasses import dataclass
 from typing import Optional
@@ -60,35 +62,58 @@ def is_allowed_registry_key(root_name: str, sub_key: str) -> bool:
             return True
     return False
 
+_BACKUP_SECRET_LOCK = threading.RLock()
+_EPHEMERAL_BACKUP_KEY: Optional[bytes] = None
+
 def get_backup_hmac_key() -> bytes:
     """
     Returns a machine/user-bound HMAC secret key for backup signing.
-    Protected with DPAPI when available.
+    Protected with DPAPI when available. Uses a lock and atomic writes so
+    existing keys are never clobbered under concurrency or transient I/O errors.
     """
+    global _EPHEMERAL_BACKUP_KEY
     local_app = os.environ.get('LOCALAPPDATA', os.path.expanduser('~'))
-    secret_file = os.path.join(local_app, 'NovaCare', '.backup_secret')
-    if os.path.exists(secret_file):
-        try:
-            with open(secret_file, "r", encoding="utf-8") as f:
-                content = f.read().strip()
-            dec = decrypt_string(content)
-            if dec:
-                return bytes.fromhex(dec)
-            if len(content) == 64:
-                return bytes.fromhex(content)
-        except Exception:
-            pass
+    secret_dir = os.path.join(local_app, 'NovaCare')
+    secret_file = os.path.join(secret_dir, '.backup_secret')
 
-    new_key = os.urandom(32)
-    try:
-        os.makedirs(os.path.dirname(secret_file), exist_ok=True)
-        enc = encrypt_string(new_key.hex())
-        with open(secret_file, "w", encoding="utf-8") as f:
-            f.write(enc if enc else new_key.hex())
-    except Exception:
-        seed = f"NovaCare_Secret_{os.environ.get('COMPUTERNAME', '')}_{os.environ.get('USERNAME', '')}"
-        return hashlib.sha256(seed.encode('utf-8')).digest()
-    return new_key
+    with _BACKUP_SECRET_LOCK:
+        if os.path.exists(secret_file):
+            try:
+                with open(secret_file, "r", encoding="utf-8") as f:
+                    content = f.read().strip()
+                dec = decrypt_string(content)
+                if dec:
+                    return bytes.fromhex(dec)
+                if len(content) == 64:
+                    return bytes.fromhex(content)
+            except Exception as e:
+                log_debug(f"get_backup_hmac_key: failed to read/decrypt existing secret: {e}")
+            # Fail closed without overwriting the existing secret file
+            if _EPHEMERAL_BACKUP_KEY is None:
+                _EPHEMERAL_BACKUP_KEY = os.urandom(32)
+            return _EPHEMERAL_BACKUP_KEY
+
+        new_key = os.urandom(32)
+        tmp_path = None
+        try:
+            os.makedirs(secret_dir, exist_ok=True)
+            enc = encrypt_string(new_key.hex())
+            payload = enc if enc else new_key.hex()
+            fd, tmp_path = tempfile.mkstemp(dir=secret_dir, prefix=".backup_secret_")
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(payload)
+            os.replace(tmp_path, secret_file)
+            return new_key
+        except Exception as e:
+            log_debug(f"get_backup_hmac_key: failed to persist key: {e}")
+            if tmp_path and os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
+            if _EPHEMERAL_BACKUP_KEY is None:
+                _EPHEMERAL_BACKUP_KEY = new_key
+            return _EPHEMERAL_BACKUP_KEY
 
 def compute_backup_hmac(items: list) -> str:
     """Computes deterministic HMAC-SHA256 signature for registry backup items."""

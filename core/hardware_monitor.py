@@ -6,6 +6,7 @@ RAM metrics, Disk I/O throughput, top consumer process, and system uptime.
 import time
 import threading
 import subprocess
+import atexit
 import psutil
 from typing import Optional
 from core.utils import log_debug, get_system32_path
@@ -44,6 +45,7 @@ class HardwareMonitor:
 
     def _init_monitor(self):
         self.has_nvml = False
+        self._nvml_initialized = False
         self.nvml_handle = None
         self._pynvml = None
         self.gpu_name = "Harici GPU Yok"
@@ -55,12 +57,18 @@ class HardwareMonitor:
         self._disk_lock = threading.Lock()
         self._proc_lock = threading.Lock()
         self._cpu_lock = threading.Lock()
+        self._nvml_lock = threading.RLock()
         self._cached_cpu_percent = 0.0
         self._last_cpu_sample_time = 0.0
         try:
             self._cached_cpu_percent = psutil.cpu_percent(interval=None)
+            self._last_cpu_sample_time = time.time()
         except Exception:
             pass
+        try:
+            self._boot_time: Optional[float] = psutil.boot_time()
+        except Exception:
+            self._boot_time = None
 
         # Top consumer process cache
         self.top_consumer_name = "-"
@@ -79,15 +87,24 @@ class HardwareMonitor:
 
     def _init_nvml_worker(self):
         """Asynchronously initialize NVML for NVIDIA GPUs; fallback to WMI if not available."""
+        if not self._running:
+            return
         try:
             import pynvml
             pynvml.nvmlInit()
+            if not self._running:
+                try:
+                    pynvml.nvmlShutdown()
+                except Exception:
+                    pass
+                return
+            self._nvml_initialized = True
+            self._pynvml = pynvml
             device_count = pynvml.nvmlDeviceGetCount()
             if device_count > 0:
                 self.nvml_handle = pynvml.nvmlDeviceGetHandleByIndex(0)
                 raw_name = pynvml.nvmlDeviceGetName(self.nvml_handle)
                 self.gpu_name = raw_name if isinstance(raw_name, str) else raw_name.decode("utf-8", errors="ignore")
-                self._pynvml = pynvml
                 self.has_nvml = True
                 try:
                     mem_info = self._pynvml.nvmlDeviceGetMemoryInfo(self.nvml_handle)
@@ -157,8 +174,31 @@ class HardwareMonitor:
         return 1800.0  # 30 min max backoff
 
     def stop(self):
-        """Stops the background hardware polling workers."""
+        """Stops the background hardware polling workers and releases resources."""
         self._running = False
+        for t_attr in ("_cpu_thread", "_temp_thread", "_top_proc_thread"):
+            t = getattr(self, t_attr, None)
+            if t is not None and t.is_alive() and t is not threading.current_thread():
+                try:
+                    t.join(timeout=1.5)
+                except Exception:
+                    pass
+        self.cleanup()
+
+    def cleanup(self):
+        """Cleanly releases hardware monitoring resources including NVML shutdown."""
+        self._running = False
+        with getattr(self, '_nvml_lock', threading.RLock()):
+            if getattr(self, '_nvml_initialized', False) and getattr(self, '_pynvml', None):
+                try:
+                    self._pynvml.nvmlShutdown()
+                except Exception as e:
+                    log_debug(f"HardwareMonitor: NVML shutdown error: {e}")
+                finally:
+                    self._nvml_initialized = False
+                    self.has_nvml = False
+                    self.nvml_handle = None
+                    self._pynvml = None
 
     def set_throttled(self, throttled: bool):
         """Throttles or unthrottles background polling based on window and widget visibility."""
@@ -180,6 +220,10 @@ class HardwareMonitor:
         """Background daemon thread to query CPU temperature without stalling the UI thread."""
         consecutive_failures = 0
         while self._running:
+            while self._running and getattr(self, '_is_throttled', False) and (self.last_cpu_temp_update > 0 or consecutive_failures > 0):
+                time.sleep(1.0)
+            if not self._running:
+                break
             try:
                 cmd = [
                     get_system32_path("powershell"), "-NoProfile", "-Command",
@@ -332,67 +376,75 @@ class HardwareMonitor:
         gpu_mem_used_mb = 0
         gpu_mem_total_mb = self.gpu_vram_total_mb
 
-        if self.has_nvml and self.nvml_handle and self._pynvml:
-            try:
-                gpu_temp = self._pynvml.nvmlDeviceGetTemperature(self.nvml_handle, self._pynvml.NVML_TEMPERATURE_GPU)
-                rates = self._pynvml.nvmlDeviceGetUtilizationRates(self.nvml_handle)
-                gpu_load = rates.gpu
-                mem_info = self._pynvml.nvmlDeviceGetMemoryInfo(self.nvml_handle)
-                gpu_mem_used_mb = int(mem_info.used / (1024 ** 2))
-                gpu_mem_total_mb = int(mem_info.total / (1024 ** 2))
-            except Exception:
-                pass
+        with self._nvml_lock:
+            if self.has_nvml and self.nvml_handle and self._pynvml:
+                try:
+                    gpu_temp = self._pynvml.nvmlDeviceGetTemperature(self.nvml_handle, self._pynvml.NVML_TEMPERATURE_GPU)
+                    rates = self._pynvml.nvmlDeviceGetUtilizationRates(self.nvml_handle)
+                    gpu_load = rates.gpu
+                    mem_info = self._pynvml.nvmlDeviceGetMemoryInfo(self.nvml_handle)
+                    gpu_mem_used_mb = int(mem_info.used / (1024 ** 2))
+                    gpu_mem_total_mb = int(mem_info.total / (1024 ** 2))
+                except Exception:
+                    pass
 
-        # 4. Real-time network speed (thread-safe telemetry calculation)
+        # 4. Real-time network speed (thread-safe throttled telemetry calculation)
         with self._net_lock:
             now = time.time()
-            net = psutil.net_io_counters()
             down_bps = getattr(self, '_last_down_bps', 0.0)
             up_bps = getattr(self, '_last_up_bps', 0.0)
-            if net is not None:
-                if hasattr(self, '_last_net_bytes') and hasattr(self, '_last_net_time'):
-                    dt = now - self._last_net_time
-                    if dt >= 0.2:
-                        down_bps = max(0.0, (net.bytes_recv - self._last_net_bytes[0]) / dt)
-                        up_bps = max(0.0, (net.bytes_sent - self._last_net_bytes[1]) / dt)
-                        self._last_down_bps = down_bps
-                        self._last_up_bps = up_bps
+            last_net_time = getattr(self, '_last_net_time', None)
+            if last_net_time is None or (now - last_net_time) >= 0.45:
+                net = psutil.net_io_counters()
+                if net is not None:
+                    if last_net_time is not None and hasattr(self, '_last_net_bytes'):
+                        dt = now - last_net_time
+                        if dt >= 0.2:
+                            down_bps = max(0.0, (net.bytes_recv - self._last_net_bytes[0]) / dt)
+                            up_bps = max(0.0, (net.bytes_sent - self._last_net_bytes[1]) / dt)
+                            self._last_down_bps = down_bps
+                            self._last_up_bps = up_bps
+                            self._last_net_bytes = (net.bytes_recv, net.bytes_sent)
+                            self._last_net_time = now
+                    else:
                         self._last_net_bytes = (net.bytes_recv, net.bytes_sent)
                         self._last_net_time = now
-                else:
-                    self._last_net_bytes = (net.bytes_recv, net.bytes_sent)
-                    self._last_net_time = now
 
-        # 5. Real-time disk I/O throughput (thread-safe telemetry calculation)
+        # 5. Real-time disk I/O throughput (thread-safe throttled telemetry calculation)
         with self._disk_lock:
             disk_read_bps = getattr(self, '_last_disk_read_bps', 0.0)
             disk_write_bps = getattr(self, '_last_disk_write_bps', 0.0)
-            try:
-                disk_io = psutil.disk_io_counters()
-                if disk_io is not None:
-                    if hasattr(self, '_last_disk_bytes') and hasattr(self, '_last_disk_time'):
-                        dt_disk = now - self._last_disk_time
-                        if dt_disk >= 0.2:
-                            disk_read_bps = max(0.0, (disk_io.read_bytes - self._last_disk_bytes[0]) / dt_disk)
-                            disk_write_bps = max(0.0, (disk_io.write_bytes - self._last_disk_bytes[1]) / dt_disk)
-                            self._last_disk_read_bps = disk_read_bps
-                            self._last_disk_write_bps = disk_write_bps
+            last_disk_time = getattr(self, '_last_disk_time', None)
+            if last_disk_time is None or (now - last_disk_time) >= 0.45:
+                try:
+                    disk_io = psutil.disk_io_counters()
+                    if disk_io is not None:
+                        if last_disk_time is not None and hasattr(self, '_last_disk_bytes'):
+                            dt_disk = now - last_disk_time
+                            if dt_disk >= 0.2:
+                                disk_read_bps = max(0.0, (disk_io.read_bytes - self._last_disk_bytes[0]) / dt_disk)
+                                disk_write_bps = max(0.0, (disk_io.write_bytes - self._last_disk_bytes[1]) / dt_disk)
+                                self._last_disk_read_bps = disk_read_bps
+                                self._last_disk_write_bps = disk_write_bps
+                                self._last_disk_bytes = (disk_io.read_bytes, disk_io.write_bytes)
+                                self._last_disk_time = now
+                        else:
                             self._last_disk_bytes = (disk_io.read_bytes, disk_io.write_bytes)
                             self._last_disk_time = now
-                    else:
-                        self._last_disk_bytes = (disk_io.read_bytes, disk_io.write_bytes)
-                        self._last_disk_time = now
-            except Exception:
-                pass
+                except Exception:
+                    pass
 
         # 6. Top consumer process
         with self._proc_lock:
             top_name = self.top_consumer_name
             top_str = self.top_consumer_str
 
-        # 7. System Uptime
+        # 7. System Uptime (boot_time is constant per OS session)
         try:
-            boot_time = psutil.boot_time()
+            boot_time = getattr(self, '_boot_time', None)
+            if boot_time is None:
+                boot_time = psutil.boot_time()
+                self._boot_time = boot_time
             uptime_sec = max(0, int(now - boot_time))
             uptime_str = _fmt_uptime(uptime_sec)
         except Exception:
@@ -425,3 +477,10 @@ class HardwareMonitor:
             "uptime_seconds": uptime_sec,
             "uptime_str": uptime_str
         }
+
+def _atexit_hardware_cleanup():
+    if HardwareMonitor._instance is not None:
+        HardwareMonitor._instance.cleanup()
+
+atexit.register(_atexit_hardware_cleanup)
+

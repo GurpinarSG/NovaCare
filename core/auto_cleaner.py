@@ -4,12 +4,16 @@ Executes background system cleanups based on schedule triggers (startup, daily, 
 scheduled specific day/time, system idle, or disk size threshold), keeping the system clean and fast automatically.
 """
 import ctypes
+import threading
 from datetime import datetime, timedelta
+from typing import Callable, Optional
 from core.config import ConfigManager
 from core.junk_cleaner import JunkCleaner
 from core.memory_booster import MemoryBooster
 from core.privacy_tweaker import PrivacyTweaker
 from core.utils import format_bytes
+
+_AUTO_CLEANER_LOCK = threading.RLock()
 
 class LASTINPUTINFO(ctypes.Structure):
     _fields_ = [("cbSize", ctypes.c_uint), ("dwTime", ctypes.c_uint)]
@@ -124,7 +128,12 @@ class AutoCleaner:
                     except Exception:
                         pass
                 day_names = ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar"]
-                d_name = "Her gün" if target_day == -1 else day_names[target_day]
+                if target_day == -1:
+                    d_name = "Her gün"
+                elif isinstance(target_day, int) and 0 <= target_day < len(day_names):
+                    d_name = day_names[target_day]
+                else:
+                    return False, "Geçersiz bakım günü yapılandırması."
                 return True, f"Zamanlanmış bakım zamanı geldi ({d_name} {target_hour:02d}:00)"
             return False, "Planlanan bakım saatine henüz ulaşılmadı."
 
@@ -159,67 +168,70 @@ class AutoCleaner:
         return False, "Koşul sağlanmadı."
 
 
-    def execute_cleanup(self) -> dict:
+    def execute_cleanup(self, cancel_callback: Optional[Callable[[], bool]] = None) -> dict:
         """
         Executes the configured automatic cleanup tasks.
-        Safely purges junk, optimizes RAM, and wipes traces if enabled.
+        Safely purges junk, optimizes RAM, and wipes traces if enabled under a module lock.
         """
-        clean_junk = self.config.get("auto_clean_junk", True)
-        clean_ram = self.config.get("auto_clean_ram", True)
-        clean_traces = self.config.get("auto_clean_traces", False)
+        with _AUTO_CLEANER_LOCK:
+            clean_junk = self.config.get("auto_clean_junk", True)
+            clean_ram = self.config.get("auto_clean_ram", True)
+            clean_traces = self.config.get("auto_clean_traces", False)
 
-        freed_junk = 0
-        cleaned_files = 0
-        freed_ram = 0
-        cleaned_traces = 0
+            freed_junk = 0
+            cleaned_files = 0
+            freed_ram = 0
+            cleaned_traces = 0
 
-        # 1. Clean Junk Files
-        if clean_junk:
-            try:
-                cats = self.junk_cleaner.scan_all()
-                if cats:
-                    clean_recycle = self.config.get("auto_clean_recycle_bin", False)
-                    cat_ids = {
-                        c.id for c in cats
-                        if clean_recycle or (c.id != "recycle_bin" and not getattr(c, "is_recycle_bin", False))
-                    }
-                    freed_junk, cleaned_files, _ = self.junk_cleaner.clean_categories(cat_ids)
-            except Exception:
-                pass
+            # 1. Clean Junk Files
+            if clean_junk and not (cancel_callback and cancel_callback()):
+                try:
+                    cats = self.junk_cleaner.scan_all(cancel_callback=cancel_callback)
+                    if cats and not (cancel_callback and cancel_callback()):
+                        clean_recycle = self.config.get("auto_clean_recycle_bin", False)
+                        cat_ids = {
+                            c.id for c in cats
+                            if clean_recycle or (c.id != "recycle_bin" and not getattr(c, "is_recycle_bin", False))
+                        }
+                        freed_junk, cleaned_files, _ = self.junk_cleaner.clean_categories(
+                            cat_ids, cancel_callback=cancel_callback
+                        )
+                except Exception:
+                    pass
 
-        # 2. Optimize RAM Working Sets
-        if clean_ram:
-            try:
-                freed_ram, _ = self.memory_booster.optimize_ram()
-            except Exception:
-                pass
+            # 2. Optimize RAM Working Sets
+            if clean_ram and not (cancel_callback and cancel_callback()):
+                try:
+                    freed_ram, _ = self.memory_booster.optimize_ram()
+                except Exception:
+                    pass
 
-        # 3. Clean Privacy Traces
-        if clean_traces:
-            try:
-                traces = self.privacy_tweaker.scan_privacy_traces()
-                if traces:
-                    trace_ids = {t.id for t in traces}
-                    cleaned_traces = self.privacy_tweaker.clean_privacy_traces(trace_ids)
-            except Exception:
-                pass
+            # 3. Clean Privacy Traces
+            if clean_traces and not (cancel_callback and cancel_callback()):
+                try:
+                    traces = self.privacy_tweaker.scan_privacy_traces()
+                    if traces:
+                        trace_ids = {t.id for t in traces}
+                        cleaned_traces = self.privacy_tweaker.clean_privacy_traces(trace_ids)
+                except Exception:
+                    pass
 
-        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        now_iso = datetime.now().isoformat()
-        self.config.set("last_auto_clean_time", now_iso)
-        self.config.set("last_auto_clean_display", now_str)
-        self.config.set("last_auto_clean_freed_bytes", freed_junk + freed_ram)
-        self.config.set("last_threshold_junk_bytes", 0)
-        self.config.set("last_threshold_scan_time", now_iso)
+            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            now_iso = datetime.now().isoformat()
+            self.config.set("last_auto_clean_time", now_iso)
+            self.config.set("last_auto_clean_display", now_str)
+            self.config.set("last_auto_clean_freed_bytes", freed_junk + freed_ram)
+            self.config.set("last_threshold_junk_bytes", 0)
+            self.config.set("last_threshold_scan_time", now_iso)
 
-        return {
-            "timestamp": now_str,
-            "freed_junk_bytes": freed_junk,
-            "freed_junk_str": format_bytes(freed_junk),
-            "cleaned_files_count": cleaned_files,
-            "freed_ram_bytes": freed_ram,
-            "freed_ram_str": format_bytes(freed_ram),
-            "cleaned_traces_count": cleaned_traces,
-            "total_freed_bytes": freed_junk + freed_ram,
-            "total_freed_str": format_bytes(freed_junk + freed_ram)
-        }
+            return {
+                "timestamp": now_str,
+                "freed_junk_bytes": freed_junk,
+                "freed_junk_str": format_bytes(freed_junk),
+                "cleaned_files_count": cleaned_files,
+                "freed_ram_bytes": freed_ram,
+                "freed_ram_str": format_bytes(freed_ram),
+                "cleaned_traces_count": cleaned_traces,
+                "total_freed_bytes": freed_junk + freed_ram,
+                "total_freed_str": format_bytes(freed_junk + freed_ram)
+            }

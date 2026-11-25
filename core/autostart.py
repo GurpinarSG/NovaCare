@@ -36,10 +36,10 @@ def get_autostart_command() -> str:
     exe, args = get_target_executable_and_args()
     return f'"{exe}" {args}'
 
-def is_autostart_enabled() -> bool:
+def is_autostart_enabled(allow_cli: bool = True) -> bool:
     """
     Checks whether NovaCare autostart is active via Windows Task Scheduler or Run key.
-    Uses ultra-fast Windows Registry TaskCache lookup (< 0.05ms) with CLI fallback.
+    Uses ultra-fast Windows Registry TaskCache lookup (< 0.05ms) with optional CLI fallback.
     """
     # 1. Ultra-fast Task Scheduler check via Registry TaskCache
     try:
@@ -49,22 +49,23 @@ def is_autostart_enabled() -> bool:
     except Exception:
         pass
 
-    # 2. Windows Task Scheduler CLI fallback
-    try:
-        flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
-        res = subprocess.run(
-            [get_system32_path("schtasks"), "/query", "/tn", TASK_NAME],
-            capture_output=True,
-            text=True,
-            encoding=get_console_encoding(),
-            errors="replace",
-            creationflags=flags,
-            timeout=3
-        )
-        if res.returncode == 0:
-            return True
-    except Exception:
-        pass
+    # 2. Windows Task Scheduler CLI fallback (skipped during non-blocking UI init when allow_cli=False)
+    if allow_cli:
+        try:
+            flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+            res = subprocess.run(
+                [get_system32_path("schtasks"), "/query", "/tn", TASK_NAME],
+                capture_output=True,
+                text=True,
+                encoding=get_console_encoding(),
+                errors="replace",
+                creationflags=flags,
+                timeout=3
+            )
+            if res.returncode == 0:
+                return True
+        except Exception:
+            pass
 
     # 3. Check Windows Registry Run key
     try:
@@ -111,8 +112,9 @@ def set_autostart(enable: bool) -> bool:
         except Exception as e:
             log_debug(f"Autostart: PowerShell task creation failed: {e}")
             try:
+                escaped_tr = f'"{exe}" {args}'.strip()
                 r = subprocess.run(
-                    [get_system32_path("schtasks"), "/create", "/tn", TASK_NAME, "/tr", cmd_str, "/sc", "onlogon", "/rl", "highest", "/f"],
+                    [get_system32_path("schtasks"), "/create", "/tn", TASK_NAME, "/tr", escaped_tr, "/sc", "onlogon", "/rl", "highest", "/f"],
                     creationflags=flags,
                     timeout=5
                 )

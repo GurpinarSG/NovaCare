@@ -5,6 +5,7 @@ and generates official Windows HTML Battery Diagnostic Reports.
 Optimized with memory caching and non-blocking sensor querying.
 """
 import os
+import shutil
 import subprocess
 import tempfile
 import xml.etree.ElementTree as ET
@@ -157,7 +158,8 @@ class BatteryReporter:
         model_name = "Standart Batarya"
         computer_model = "Taşınabilir Bilgisayar"
 
-        tmp_xml = os.path.join(tempfile.gettempdir(), f"novacare_batt_{os.getpid()}.xml")
+        tmp_dir = tempfile.mkdtemp(prefix="novacare_batt_")
+        tmp_xml = os.path.join(tmp_dir, "report.xml")
         try:
             kwargs = {"capture_output": True, "text": True, "encoding": get_console_encoding(), "errors": "replace", "timeout": 4}
             if hasattr(subprocess, "CREATE_NO_WINDOW"):
@@ -201,11 +203,7 @@ class BatteryReporter:
         except Exception:
             pass
         finally:
-            if os.path.exists(tmp_xml):
-                try:
-                    os.remove(tmp_xml)
-                except Exception:
-                    pass
+            shutil.rmtree(tmp_dir, ignore_errors=True)
 
         hw_data = {
             "design_cap": design_cap,
@@ -316,8 +314,12 @@ class BatteryReporter:
 
     def generate_html_report(self) -> str:
         """Generates official Windows Battery Report (.html) and returns its absolute path."""
-        report_dir = os.path.join(tempfile.gettempdir(), "NovaCare_Reports")
-        os.makedirs(report_dir, exist_ok=True)
+        local_app = os.environ.get("LOCALAPPDATA")
+        if local_app:
+            report_dir = os.path.join(local_app, "NovaCare", "Reports")
+            os.makedirs(report_dir, exist_ok=True)
+        else:
+            report_dir = tempfile.mkdtemp(prefix="NovaCare_Reports_")
         report_path = os.path.join(report_dir, "Windows_Battery_Report.html")
 
         kwargs = {"capture_output": True, "text": True, "encoding": get_console_encoding(), "errors": "replace", "timeout": 8}

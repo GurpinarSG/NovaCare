@@ -198,10 +198,15 @@ def test_auto_cleaner_scheduler():
     should_run, reason = cleaner.should_trigger()
     assert should_run, f"Should trigger when target hour matches today: {reason}"
 
-    # Target hour in future shouldn't trigger
-    cfg.set("auto_clean_target_hour", (now_dt.tm_hour + 2) % 24)
-    should_run, reason = cleaner.should_trigger()
-    assert not should_run, f"Should not trigger when target hour doesn't match: {reason}"
+    # Target hour/day in future shouldn't trigger
+    if now_dt.tm_hour < 23:
+        cfg.set("auto_clean_target_hour", now_dt.tm_hour + 1)
+        should_run, reason = cleaner.should_trigger()
+        assert not should_run, f"Should not trigger when target hour doesn't match: {reason}"
+    else:
+        cfg.set("auto_clean_target_day", (now_dt.tm_wday + 1) % 7)
+        should_run, reason = cleaner.should_trigger()
+        assert not should_run, f"Should not trigger when target day doesn't match: {reason}"
 
     print("  ✓ AutoCleaner Smart Scheduler verification passed.")
 
